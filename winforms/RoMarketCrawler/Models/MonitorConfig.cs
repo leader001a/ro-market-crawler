@@ -50,6 +50,11 @@ namespace RoMarketCrawler.Models
         public DateTime AddedAt { get; set; } = DateTime.Now;
 
         /// <summary>
+        /// Watch price threshold - alert when current price drops below this (null = disabled)
+        /// </summary>
+        public long? WatchPrice { get; set; }
+
+        /// <summary>
         /// Server name for display (computed from ServerId)
         /// </summary>
         public string ServerName => Server.GetServerName(ServerId);

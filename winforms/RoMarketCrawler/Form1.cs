@@ -2252,33 +2252,75 @@ public partial class Form1 : Form
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
         };
         _dgvMonitorItems.Columns.Add(serverColumn);
+
+        // Watch price column (editable text box for price threshold)
+        _dgvMonitorItems.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "WatchPrice",
+            HeaderText = "감시가",
+            DataPropertyName = "WatchPrice",
+            Width = 100,
+            DefaultCellStyle = new DataGridViewCellStyle 
+            { 
+                Alignment = DataGridViewContentAlignment.MiddleRight,
+                Format = "N0",
+                NullValue = ""
+            }
+        });
     }
 
     private async void DgvMonitorItems_CellValueChanged(object? sender, DataGridViewCellEventArgs e)
     {
-        // Only handle server column changes
         if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
-        if (_dgvMonitorItems.Columns[e.ColumnIndex].Name != "ServerId") return;
 
+        var columnName = _dgvMonitorItems.Columns[e.ColumnIndex].Name;
         var row = _dgvMonitorItems.Rows[e.RowIndex];
         var itemName = row.Cells["ItemName"].Value?.ToString();
-        var newServerId = row.Cells["ServerId"].Value as int?;
 
-        if (string.IsNullOrEmpty(itemName) || newServerId == null) return;
+        if (string.IsNullOrEmpty(itemName)) return;
 
-        // Find the original server ID from the MonitorItem
+        // Find the MonitorItem
         var items = _monitoringService.Config.Items;
         var item = items.FirstOrDefault(i => i.ItemName == itemName);
         if (item == null) return;
 
-        var oldServerId = item.ServerId;
-        if (oldServerId == newServerId) return;
+        if (columnName == "ServerId")
+        {
+            var newServerId = row.Cells["ServerId"].Value as int?;
+            if (newServerId == null) return;
 
-        // Update the server in the service
-        await _monitoringService.UpdateItemServerAsync(itemName, oldServerId, newServerId.Value);
+            var oldServerId = item.ServerId;
+            if (oldServerId == newServerId) return;
 
-        // Refresh the binding to update display
-        UpdateMonitorItemList();
+            // Update the server in the service
+            await _monitoringService.UpdateItemServerAsync(itemName, oldServerId, newServerId.Value);
+
+            // Refresh the binding to update display
+            UpdateMonitorItemList();
+        }
+        else if (columnName == "WatchPrice")
+        {
+            // Handle WatchPrice change
+            var cellValue = row.Cells["WatchPrice"].Value;
+            long? newWatchPrice = null;
+
+            if (cellValue != null && cellValue != DBNull.Value)
+            {
+                // Try to parse the value
+                if (cellValue is long lv)
+                    newWatchPrice = lv;
+                else if (cellValue is int iv)
+                    newWatchPrice = iv;
+                else if (long.TryParse(cellValue.ToString()?.Replace(",", ""), out var parsed))
+                    newWatchPrice = parsed;
+            }
+
+            // Update the watch price
+            item.WatchPrice = newWatchPrice;
+
+            // Save config
+            await _monitoringService.SaveConfigAsync();
+        }
     }
 
     private void SetupMonitorResultsColumns()
@@ -2428,6 +2470,7 @@ public partial class Form1 : Form
             })
             .Select(g => {
                 var firstDeal = g.First().Deal;
+                var monitorItem = g.First().Result.Item;
                 return new
                 {
                     // Display name from cache (base item name) or original
@@ -2441,6 +2484,7 @@ public partial class Form1 : Form
                     LowestPrice = g.Min(x => x.Deal.Price),
                     YesterdayAvg = firstDeal.YesterdayAvgPrice,
                     WeekAvg = firstDeal.Week7AvgPrice,
+                    WatchPrice = monitorItem.WatchPrice,
                     Deals = g.Select(x => x.Deal).ToList()
                 };
             })
@@ -2463,6 +2507,9 @@ public partial class Form1 : Form
             // Check if item has grade - graded items don't have reliable price stats
             var hasGrade = !string.IsNullOrEmpty(group.Grade);
 
+            // Check if price is below watch price threshold
+            var belowWatchPrice = group.WatchPrice.HasValue && group.LowestPrice <= group.WatchPrice.Value;
+
             // For graded items: always show "-" for price averages (no reliable data)
             // For non-graded items: show actual values from API
             if (hasGrade)
@@ -2470,7 +2517,12 @@ public partial class Form1 : Form
                 _dgvMonitorResults.Rows[row].Cells["YesterdayAvg"].Value = "-";
                 _dgvMonitorResults.Rows[row].Cells["WeekAvg"].Value = "-";
                 _dgvMonitorResults.Rows[row].Cells["PriceDiff"].Value = "-";
-                _dgvMonitorResults.Rows[row].Cells["Status"].Value = "-";
+
+                // Graded items can still trigger watch price alert
+                if (belowWatchPrice)
+                    _dgvMonitorResults.Rows[row].Cells["Status"].Value = "득템!";
+                else
+                    _dgvMonitorResults.Rows[row].Cells["Status"].Value = "-";
 
                 // Store for formatting
                 _dgvMonitorResults.Rows[row].Tag = new { 
@@ -2478,7 +2530,7 @@ public partial class Form1 : Form
                     Refine = group.Refine,
                     BelowYesterday = false, 
                     BelowWeek = false, 
-                    IsBargain = false 
+                    IsBargain = belowWatchPrice 
                 };
             }
             else
@@ -2505,7 +2557,8 @@ public partial class Form1 : Form
                 var bargainThreshold = _monitoringService.Config.BargainThresholdPercent;
                 var isBargain = priceDiff.HasValue && priceDiff <= bargainThreshold;
 
-                if (isBargain)
+                // Watch price takes priority for "득템!" status
+                if (belowWatchPrice || isBargain)
                     _dgvMonitorResults.Rows[row].Cells["Status"].Value = "득템!";
                 else if (belowYesterday && belowWeek)
                     _dgvMonitorResults.Rows[row].Cells["Status"].Value = "저렴!";
@@ -2520,18 +2573,20 @@ public partial class Form1 : Form
                     Refine = group.Refine,
                     BelowYesterday = belowYesterday, 
                     BelowWeek = belowWeek, 
-                    IsBargain = isBargain 
+                    IsBargain = belowWatchPrice || isBargain 
                 };
             }
         }
 
-        // Play sound alert if any bargain item found (configurable threshold)
-        // Only for non-graded items
+        // Play sound alert if any item hits bargain threshold OR is below watch price
         var alertThreshold = _monitoringService.Config.BargainThresholdPercent;
         var hasBargain = groupedDeals.Any(g =>
-            string.IsNullOrEmpty(g.Grade) &&
-            g.WeekAvg.HasValue && g.WeekAvg > 0 &&
-            ((double)g.LowestPrice / g.WeekAvg.Value - 1) * 100 <= alertThreshold);
+            // Watch price alert (works for all items including graded)
+            (g.WatchPrice.HasValue && g.LowestPrice <= g.WatchPrice.Value) ||
+            // Percentage-based bargain (only for non-graded items)
+            (string.IsNullOrEmpty(g.Grade) &&
+             g.WeekAvg.HasValue && g.WeekAvg > 0 &&
+             ((double)g.LowestPrice / g.WeekAvg.Value - 1) * 100 <= alertThreshold));
         if (hasBargain)
         {
             System.Media.SystemSounds.Exclamation.Play();
