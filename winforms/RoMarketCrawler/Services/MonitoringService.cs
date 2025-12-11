@@ -356,48 +356,6 @@ namespace RoMarketCrawler.Services
                 var logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "price_lookup.log");
                 File.AppendAllText(logPath, $"\n[{DateTime.Now:HH:mm:ss}] === Processing monitor item: '{item.ItemName}' ===\n");
 
-                // First, identify which items have multiple grade variants
-                // GNJOY price API does not provide grade-specific data, so if an item has multiple grades,
-                // we should not display price stats for any of them (to avoid confusion)
-                // We use ItemId (from image URL) for grouping - more reliable than name matching
-                var itemIdsWithMultipleGrades = new HashSet<int>();
-                var itemNamesWithMultipleGrades = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-                // Group by ItemId first (most reliable)
-                var dealsByItemId = deals
-                    .Where(d => d.GetEffectiveItemId().HasValue)
-                    .GroupBy(d => d.GetEffectiveItemId()!.Value)
-                    .ToList();
-
-                foreach (var itemGroup in dealsByItemId)
-                {
-                    var distinctGrades = itemGroup.Select(d => d.Grade ?? "").Distinct().ToList();
-                    if (distinctGrades.Count > 1)
-                    {
-                        itemIdsWithMultipleGrades.Add(itemGroup.Key);
-                        var sampleName = itemGroup.First().ItemName ?? "?";
-                        File.AppendAllText(logPath, $"  ItemId {itemGroup.Key} ('{sampleName}') has {distinctGrades.Count} grade variants: [{string.Join(", ", distinctGrades.Select(g => string.IsNullOrEmpty(g) ? "normal" : g))}] - stats will be skipped\n");
-                    }
-                }
-
-                // Fallback: also check by base item name for items without ItemId
-                var dealsWithoutItemId = deals.Where(d => !d.GetEffectiveItemId().HasValue).ToList();
-                if (dealsWithoutItemId.Any())
-                {
-                    var dealsByBaseItemName = dealsWithoutItemId.GroupBy(d => GetBaseSearchName(d.ItemName ?? "")).ToList();
-                    foreach (var itemGroup in dealsByBaseItemName)
-                    {
-                        var distinctGrades = itemGroup.Select(d => d.Grade ?? "").Distinct().ToList();
-                        if (distinctGrades.Count > 1)
-                        {
-                            itemNamesWithMultipleGrades.Add(itemGroup.Key);
-                            File.AppendAllText(logPath, $"  Base item name '{itemGroup.Key}' has {distinctGrades.Count} grade variants: [{string.Join(", ", distinctGrades.Select(g => string.IsNullOrEmpty(g) ? "normal" : g))}] - stats will be skipped\n");
-                        }
-                    }
-                }
-
-                File.AppendAllText(logPath, $"  Found {dealsByItemId.Count} unique ItemIds, {itemIdsWithMultipleGrades.Count} with multiple grades; {dealsWithoutItemId.Count} deals without ItemId\n");
-
                 // Group deals by actual item name for processing
                 var dealsByItemName = deals.GroupBy(d => d.ItemName ?? "").ToList();
 
@@ -411,23 +369,16 @@ namespace RoMarketCrawler.Services
                     var itemId = sampleDeal.GetEffectiveItemId();
                     var baseItemName = GetBaseSearchName(dealItemName);
 
-                    // Check if this item has multiple grades (by ItemId or by name)
-                    bool hasMultipleGrades;
-                    if (itemId.HasValue)
-                    {
-                        hasMultipleGrades = itemIdsWithMultipleGrades.Contains(itemId.Value);
-                    }
-                    else
-                    {
-                        hasMultipleGrades = itemNamesWithMultipleGrades.Contains(baseItemName);
-                    }
+                    // Check if this item has any grade at all
+                    var hasGrade = !string.IsNullOrEmpty(sampleDeal.Grade);
 
-                    File.AppendAllText(logPath, $"\n  --- Fetching stats for deal item: '{dealItemName}' (ItemId: {itemId?.ToString() ?? "null"}, Base: '{baseItemName}', MultiGrade: {hasMultipleGrades}) ---\n");
+                    File.AppendAllText(logPath, $"\n  --- Fetching stats for deal item: '{dealItemName}' (ItemId: {itemId?.ToString() ?? "null"}, Base: '{baseItemName}', Grade: '{sampleDeal.Grade ?? "none"}') ---\n");
 
-                    // Skip stats for items with multiple grades (GNJOY API doesn't provide grade-specific prices)
-                    if (hasMultipleGrades)
+                    // Skip stats for items with ANY grade (GNJOY API doesn't provide grade-specific prices)
+                    // Grade items have unreliable price history due to grade-specific pricing
+                    if (hasGrade)
                     {
-                        File.AppendAllText(logPath, $"    Skipping stats - item has multiple grade variants\n");
+                        File.AppendAllText(logPath, $"    Skipping stats - item has grade '{sampleDeal.Grade}'\n");
                         continue;
                     }
 
@@ -507,7 +458,7 @@ namespace RoMarketCrawler.Services
                         }
                     }
 
-                    // Cache and apply statistics (only for items without multiple grades)
+                    // Cache and apply statistics
                     statsCache[dealItemName] = stats;
                     foreach (var deal in dealGroup)
                     {
@@ -518,7 +469,7 @@ namespace RoMarketCrawler.Services
                 // Store the first group's statistics as the overall result statistics
                 result.Statistics = statsCache.Values.FirstOrDefault(s => s != null);
 
-                Debug.WriteLine($"[MonitoringService] Refreshed '{item.ItemName}': {deals.Count} deals across {dealsByItemName.Count} item names, {itemIdsWithMultipleGrades.Count} ItemIds + {itemNamesWithMultipleGrades.Count} names skipped due to multiple grades");
+                Debug.WriteLine($"[MonitoringService] Refreshed '{item.ItemName}': {deals.Count} deals across {dealsByItemName.Count} item names");
             }
             catch (Exception ex)
             {

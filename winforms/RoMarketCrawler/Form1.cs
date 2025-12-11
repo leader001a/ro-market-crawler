@@ -2459,49 +2459,77 @@ public partial class Form1 : Form
             _dgvMonitorResults.Rows[row].Cells["ServerName"].Value = group.ServerName;
             _dgvMonitorResults.Rows[row].Cells["DealCount"].Value = group.DealCount;
             _dgvMonitorResults.Rows[row].Cells["LowestPrice"].Value = group.LowestPrice.ToString("N0");
-            _dgvMonitorResults.Rows[row].Cells["YesterdayAvg"].Value = group.YesterdayAvg?.ToString("N0") ?? "-";
-            _dgvMonitorResults.Rows[row].Cells["WeekAvg"].Value = group.WeekAvg?.ToString("N0") ?? "-";
 
-            // Price difference vs week average
-            double? priceDiff = null;
-            if (group.WeekAvg.HasValue && group.WeekAvg > 0)
+            // Check if item has grade - graded items don't have reliable price stats
+            var hasGrade = !string.IsNullOrEmpty(group.Grade);
+
+            // For graded items: always show "-" for price averages (no reliable data)
+            // For non-graded items: show actual values from API
+            if (hasGrade)
             {
-                priceDiff = ((double)group.LowestPrice / group.WeekAvg.Value - 1) * 100;
-                _dgvMonitorResults.Rows[row].Cells["PriceDiff"].Value = priceDiff > 0 ? $"+{priceDiff:F0}%" : $"{priceDiff:F0}%";
-            }
-            else
-            {
+                _dgvMonitorResults.Rows[row].Cells["YesterdayAvg"].Value = "-";
+                _dgvMonitorResults.Rows[row].Cells["WeekAvg"].Value = "-";
                 _dgvMonitorResults.Rows[row].Cells["PriceDiff"].Value = "-";
+                _dgvMonitorResults.Rows[row].Cells["Status"].Value = "-";
+
+                // Store for formatting
+                _dgvMonitorResults.Rows[row].Tag = new { 
+                    Grade = group.Grade, 
+                    Refine = group.Refine,
+                    BelowYesterday = false, 
+                    BelowWeek = false, 
+                    IsBargain = false 
+                };
             }
-
-            // Status (with configurable threshold for "bargain" alert)
-            var belowYesterday = group.YesterdayAvg.HasValue && group.LowestPrice < group.YesterdayAvg;
-            var belowWeek = group.WeekAvg.HasValue && group.LowestPrice < group.WeekAvg;
-            var bargainThreshold = _monitoringService.Config.BargainThresholdPercent;
-            var isBargain = priceDiff.HasValue && priceDiff <= bargainThreshold;
-
-            if (isBargain)
-                _dgvMonitorResults.Rows[row].Cells["Status"].Value = "득템!";
-            else if (belowYesterday && belowWeek)
-                _dgvMonitorResults.Rows[row].Cells["Status"].Value = "저렴!";
-            else if (belowYesterday || belowWeek)
-                _dgvMonitorResults.Rows[row].Cells["Status"].Value = "양호";
             else
-                _dgvMonitorResults.Rows[row].Cells["Status"].Value = "정상";
+            {
+                // Non-graded items: show price stats and calculate status
+                _dgvMonitorResults.Rows[row].Cells["YesterdayAvg"].Value = group.YesterdayAvg?.ToString("N0") ?? "-";
+                _dgvMonitorResults.Rows[row].Cells["WeekAvg"].Value = group.WeekAvg?.ToString("N0") ?? "-";
 
-            // Store for formatting: grade, refine and price comparison info
-            _dgvMonitorResults.Rows[row].Tag = new { 
-                Grade = group.Grade, 
-                Refine = group.Refine,
-                BelowYesterday = belowYesterday, 
-                BelowWeek = belowWeek, 
-                IsBargain = isBargain 
-            };
+                // Price difference vs week average
+                double? priceDiff = null;
+                if (group.WeekAvg.HasValue && group.WeekAvg > 0)
+                {
+                    priceDiff = ((double)group.LowestPrice / group.WeekAvg.Value - 1) * 100;
+                    _dgvMonitorResults.Rows[row].Cells["PriceDiff"].Value = priceDiff > 0 ? $"+{priceDiff:F0}%" : $"{priceDiff:F0}%";
+                }
+                else
+                {
+                    _dgvMonitorResults.Rows[row].Cells["PriceDiff"].Value = "-";
+                }
+
+                // Status (with configurable threshold for "bargain" alert)
+                var belowYesterday = group.YesterdayAvg.HasValue && group.LowestPrice < group.YesterdayAvg;
+                var belowWeek = group.WeekAvg.HasValue && group.LowestPrice < group.WeekAvg;
+                var bargainThreshold = _monitoringService.Config.BargainThresholdPercent;
+                var isBargain = priceDiff.HasValue && priceDiff <= bargainThreshold;
+
+                if (isBargain)
+                    _dgvMonitorResults.Rows[row].Cells["Status"].Value = "득템!";
+                else if (belowYesterday && belowWeek)
+                    _dgvMonitorResults.Rows[row].Cells["Status"].Value = "저렴!";
+                else if (belowYesterday || belowWeek)
+                    _dgvMonitorResults.Rows[row].Cells["Status"].Value = "양호";
+                else
+                    _dgvMonitorResults.Rows[row].Cells["Status"].Value = "정상";
+
+                // Store for formatting: grade, refine and price comparison info
+                _dgvMonitorResults.Rows[row].Tag = new { 
+                    Grade = group.Grade, 
+                    Refine = group.Refine,
+                    BelowYesterday = belowYesterday, 
+                    BelowWeek = belowWeek, 
+                    IsBargain = isBargain 
+                };
+            }
         }
 
         // Play sound alert if any bargain item found (configurable threshold)
+        // Only for non-graded items
         var alertThreshold = _monitoringService.Config.BargainThresholdPercent;
         var hasBargain = groupedDeals.Any(g =>
+            string.IsNullOrEmpty(g.Grade) &&
             g.WeekAvg.HasValue && g.WeekAvg > 0 &&
             ((double)g.LowestPrice / g.WeekAvg.Value - 1) * 100 <= alertThreshold);
         if (hasBargain)
