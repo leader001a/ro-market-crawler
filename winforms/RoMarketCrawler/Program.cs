@@ -6,12 +6,13 @@ static class Program
     ///  The main entry point for the application.
     /// </summary>
     [STAThread]
-    static async Task Main(string[] args)
+    static void Main(string[] args)
     {
         // Run test mode if --test argument is passed
         if (args.Length > 0 && args[0] == "--test")
         {
-            await TestParser.RunTest();
+            // Run async test synchronously to maintain STA thread
+            TestParser.RunTest().GetAwaiter().GetResult();
             return;
         }
 
