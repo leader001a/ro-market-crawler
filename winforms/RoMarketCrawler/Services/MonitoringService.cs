@@ -222,15 +222,6 @@ namespace RoMarketCrawler.Services
             Debug.WriteLine($"[MonitoringService] Set refresh interval to {seconds} seconds");
         }
 
-        /// <summary>
-        /// Update bargain threshold percentage setting
-        /// </summary>
-        public async Task SetBargainThresholdAsync(int percent)
-        {
-            _config.BargainThresholdPercent = Math.Min(0, percent); // Must be <= 0
-            await SaveConfigAsync();
-            Debug.WriteLine($"[MonitoringService] Set bargain threshold to {percent}%");
-        }
 
         /// <summary>
         /// Refresh all monitored items using parallel processing for improved performance

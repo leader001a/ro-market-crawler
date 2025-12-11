@@ -80,8 +80,6 @@ public partial class Form1 : Form
     private DataGridView _dgvMonitorResults = null!;
     private NumericUpDown _nudRefreshInterval = null!;
     private Button _btnApplyInterval = null!;
-    private NumericUpDown _nudBargainThreshold = null!;
-    private Label _lblBargainThreshold = null!;
     private Label _lblMonitorStatus = null!;
     private Label _lblRefreshSetting = null!;
     private System.Windows.Forms.Timer _monitorTimer = null!;
@@ -1973,8 +1971,6 @@ public partial class Form1 : Form
                 StartMonitorTimer(_monitoringService.Config.RefreshIntervalSeconds);
             }
 
-            // Load bargain threshold setting
-            _nudBargainThreshold.Value = _monitoringService.Config.BargainThresholdPercent;
         }
         catch (Exception ex)
         {
@@ -1996,15 +1992,15 @@ public partial class Form1 : Form
         mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); // Content area
         ApplyTableLayoutPanelStyle(mainLayout);
 
-        // Row 0: Input bar - [아이템명] [서버] [+] [-] | [조회] [초] [자동갱신] [득템%] [♪] | [상태]
+        // Row 0: Input bar - [아이템명] [서버] [+] [-] | [조회] [간격] [자동갱신] [♪] | [상태]
         var inputPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 13,
+            ColumnCount = 10,
             RowCount = 1,
             Padding = new Padding(0)
         };
-        // Layout: [아이템명] [서버] [+][-] | [조회] | [간격] [30] [자동갱신] | [득템] [-10] [%] [♪] | [상태]
+        // Layout: [아이템명] [서버] [+][-] | [조회] | [간격] [30] [자동갱신] | [♪] | [상태]
         inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); // 0: Item name (fill remaining)
         inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 90));  // 1: Server combo
         inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 35));  // 2: Add
@@ -2013,11 +2009,8 @@ public partial class Form1 : Form
         inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 40));  // 5: Interval label
         inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 55));  // 6: Interval NUD
         inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80));  // 7: Auto button (wider for "자동갱신")
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 40));  // 8: Bargain label
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 55));  // 9: Bargain NUD
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 22));  // 10: % label
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 35));  // 11: Sound test
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150)); // 12: Status (wider for long text)
+        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 35));  // 8: Sound test
+        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150)); // 9: Status (wider for long text)
         ApplyTableLayoutPanelStyle(inputPanel);
 
         _txtMonitorItemName = new TextBox { Dock = DockStyle.Fill };
@@ -2075,35 +2068,6 @@ public partial class Form1 : Form
         // Timer label merged into auto button text
         _lblRefreshSetting = new Label { Text = "", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, Visible = false };
 
-        // Bargain threshold label
-        _lblBargainThreshold = new Label
-        {
-            Text = "득템",
-            Dock = DockStyle.Fill,
-            TextAlign = ContentAlignment.MiddleRight,
-            ForeColor = ThemeText,
-            Padding = new Padding(0, 0, 2, 0)
-        };
-
-        // Bargain threshold setting (e.g., -10 means alert when price is 10% below average)
-        _nudBargainThreshold = new NumericUpDown
-        {
-            Minimum = -50, Maximum = 0, Value = -10, Increment = 1,
-            Dock = DockStyle.Fill,
-            BackColor = ThemeGrid, ForeColor = ThemeText,
-            BorderStyle = BorderStyle.FixedSingle
-        };
-        _nudBargainThreshold.ValueChanged += NudBargainThreshold_ValueChanged;
-
-        // % suffix label
-        var lblPercentSuffix = new Label
-        {
-            Text = "%",
-            Dock = DockStyle.Fill,
-            TextAlign = ContentAlignment.MiddleLeft,
-            ForeColor = ThemeText,
-            Padding = new Padding(0)
-        };
 
         var btnSoundTest = new Button { Text = "♪", Dock = DockStyle.Fill, Font = new Font("Segoe UI", 11, FontStyle.Bold) };
         ApplyButtonStyle(btnSoundTest);
@@ -2120,11 +2084,8 @@ public partial class Form1 : Form
         inputPanel.Controls.Add(lblIntervalLabel, 5, 0);
         inputPanel.Controls.Add(_nudRefreshInterval, 6, 0);
         inputPanel.Controls.Add(_btnApplyInterval, 7, 0);
-        inputPanel.Controls.Add(_lblBargainThreshold, 8, 0);
-        inputPanel.Controls.Add(_nudBargainThreshold, 9, 0);
-        inputPanel.Controls.Add(lblPercentSuffix, 10, 0);
-        inputPanel.Controls.Add(btnSoundTest, 11, 0);
-        inputPanel.Controls.Add(_lblMonitorStatus, 12, 0);
+        inputPanel.Controls.Add(btnSoundTest, 8, 0);
+        inputPanel.Controls.Add(_lblMonitorStatus, 9, 0);
 
         mainLayout.Controls.Add(inputPanel, 0, 0);
 
@@ -2507,7 +2468,7 @@ public partial class Form1 : Form
             // Check if item has grade - graded items don't have reliable price stats
             var hasGrade = !string.IsNullOrEmpty(group.Grade);
 
-            // Check if price is below watch price threshold
+            // Check if price is below watch price threshold (only trigger for WatchPrice-based alerts)
             var belowWatchPrice = group.WatchPrice.HasValue && group.LowestPrice <= group.WatchPrice.Value;
 
             // For graded items: always show "-" for price averages (no reliable data)
@@ -2551,14 +2512,12 @@ public partial class Form1 : Form
                     _dgvMonitorResults.Rows[row].Cells["PriceDiff"].Value = "-";
                 }
 
-                // Status (with configurable threshold for "bargain" alert)
+                // Status based on watch price only
                 var belowYesterday = group.YesterdayAvg.HasValue && group.LowestPrice < group.YesterdayAvg;
                 var belowWeek = group.WeekAvg.HasValue && group.LowestPrice < group.WeekAvg;
-                var bargainThreshold = _monitoringService.Config.BargainThresholdPercent;
-                var isBargain = priceDiff.HasValue && priceDiff <= bargainThreshold;
 
-                // Watch price takes priority for "득템!" status
-                if (belowWatchPrice || isBargain)
+                // Watch price triggers "득템!" status
+                if (belowWatchPrice)
                     _dgvMonitorResults.Rows[row].Cells["Status"].Value = "득템!";
                 else if (belowYesterday && belowWeek)
                     _dgvMonitorResults.Rows[row].Cells["Status"].Value = "저렴!";
@@ -2573,20 +2532,13 @@ public partial class Form1 : Form
                     Refine = group.Refine,
                     BelowYesterday = belowYesterday, 
                     BelowWeek = belowWeek, 
-                    IsBargain = belowWatchPrice || isBargain 
+                    IsBargain = belowWatchPrice 
                 };
             }
         }
 
-        // Play sound alert if any item hits bargain threshold OR is below watch price
-        var alertThreshold = _monitoringService.Config.BargainThresholdPercent;
-        var hasBargain = groupedDeals.Any(g =>
-            // Watch price alert (works for all items including graded)
-            (g.WatchPrice.HasValue && g.LowestPrice <= g.WatchPrice.Value) ||
-            // Percentage-based bargain (only for non-graded items)
-            (string.IsNullOrEmpty(g.Grade) &&
-             g.WeekAvg.HasValue && g.WeekAvg > 0 &&
-             ((double)g.LowestPrice / g.WeekAvg.Value - 1) * 100 <= alertThreshold));
+        // Play sound alert only if any item is below watch price
+        var hasBargain = groupedDeals.Any(g => g.WatchPrice.HasValue && g.LowestPrice <= g.WatchPrice.Value);
         if (hasBargain)
         {
             System.Media.SystemSounds.Exclamation.Play();
@@ -2882,14 +2834,6 @@ public partial class Form1 : Form
         UpdateMonitorRefreshLabel();
     }
 
-    private async void NudBargainThreshold_ValueChanged(object? sender, EventArgs e)
-    {
-        var threshold = (int)_nudBargainThreshold.Value;
-        await _monitoringService.SetBargainThresholdAsync(threshold);
-
-        // Refresh display to apply new threshold
-        UpdateMonitorResults();
-    }
 
     private async void MonitorTimer_Tick(object? sender, EventArgs e)
     {

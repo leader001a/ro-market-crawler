@@ -22,11 +22,6 @@ namespace RoMarketCrawler.Models
         /// Default server ID for new items (-1 = all servers)
         /// </summary>
         public int DefaultServerId { get; set; } = -1;
-
-        /// <summary>
-        /// Bargain alert threshold percentage (e.g., -10 means alert when price is 10% below average)
-        /// </summary>
-        public int BargainThresholdPercent { get; set; } = -10;
     }
 
     /// <summary>
