@@ -2391,26 +2391,50 @@ public partial class Form1 : Form
 
         var gradeOrder = new Dictionary<string, int> { { "S", 0 }, { "A", 1 }, { "B", 2 }, { "C", 3 }, { "D", 4 } };
 
-        // Simple grouping: exact item name + grade + server (no card merging)
+        // Helper to get display name from cache or fallback to deal item name
+        string GetDisplayName(DealItem deal)
+        {
+            var itemId = deal.GetEffectiveItemId();
+            if (itemId.HasValue && _itemIndexService.IsLoaded)
+            {
+                var cachedItem = _itemIndexService.GetItemById(itemId.Value);
+                if (cachedItem?.ScreenName != null)
+                {
+                    return cachedItem.ScreenName;
+                }
+            }
+            // Fallback to original item name
+            return deal.ItemName;
+        }
+
+        // Group by item ID (for card-equipped items with same base) + grade + server
+        // If ID not available, fall back to item name grouping
         var groupedDeals = results
             .SelectMany(r => r.Deals.Select(d => new { Deal = d, Result = r }))
             .GroupBy(x => new {
-                ItemName = x.Deal.ItemName,
+                // Use item ID for grouping if available, otherwise use item name hash
+                GroupKey = x.Deal.GetEffectiveItemId()?.ToString() ?? $"name:{x.Deal.ItemName}",
                 Grade = x.Deal.Grade ?? "",
                 x.Deal.ServerName
             })
-            .Select(g => new
-            {
-                ItemName = g.Key.ItemName,
-                Grade = g.Key.Grade,
-                ServerName = g.Key.ServerName,
-                DealCount = g.Count(),
-                LowestPrice = g.Min(x => x.Deal.Price),
-                YesterdayAvg = g.First().Deal.YesterdayAvgPrice,
-                WeekAvg = g.First().Deal.Week7AvgPrice,
-                Deals = g.Select(x => x.Deal).ToList()
+            .Select(g => {
+                var firstDeal = g.First().Deal;
+                return new
+                {
+                    // Display name from cache (base item name) or original
+                    DisplayName = GetDisplayName(firstDeal),
+                    OriginalName = firstDeal.ItemName,
+                    ItemId = firstDeal.GetEffectiveItemId(),
+                    Grade = g.Key.Grade,
+                    ServerName = g.Key.ServerName,
+                    DealCount = g.Count(),
+                    LowestPrice = g.Min(x => x.Deal.Price),
+                    YesterdayAvg = firstDeal.YesterdayAvgPrice,
+                    WeekAvg = firstDeal.Week7AvgPrice,
+                    Deals = g.Select(x => x.Deal).ToList()
+                };
             })
-            .OrderBy(x => x.ItemName)
+            .OrderBy(x => x.DisplayName)
             .ThenBy(x => gradeOrder.TryGetValue(x.Grade, out var g) ? g : 99)
             .ThenBy(x => x.LowestPrice)
             .ToList();
@@ -2418,7 +2442,7 @@ public partial class Form1 : Form
         foreach (var group in groupedDeals)
         {
             var row = _dgvMonitorResults.Rows.Add();
-            _dgvMonitorResults.Rows[row].Cells["ItemName"].Value = group.ItemName;
+            _dgvMonitorResults.Rows[row].Cells["ItemName"].Value = group.DisplayName;
             _dgvMonitorResults.Rows[row].Cells["Grade"].Value = string.IsNullOrEmpty(group.Grade) ? "-" : group.Grade;
             _dgvMonitorResults.Rows[row].Cells["ServerName"].Value = group.ServerName;
             _dgvMonitorResults.Rows[row].Cells["DealCount"].Value = group.DealCount;
