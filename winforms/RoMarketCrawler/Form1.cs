@@ -2295,52 +2295,60 @@ public partial class Form1 : Form
         };
         _dgvMonitorResults.EnableHeadersVisualStyles = false;
 
+        // Column order: Refine, Grade, ItemName, Server, ...
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "ItemName",
-            HeaderText = "아이템",
-            Width = 200
+            Name = "Refine",
+            HeaderText = "제련",
+            Width = 45,
+            DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
             Name = "Grade",
             HeaderText = "등급",
-            Width = 100,
+            Width = 50,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
+        });
+        _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "ItemName",
+            HeaderText = "아이템",
+            Width = 180
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
             Name = "ServerName",
             HeaderText = "서버",
-            Width = 100,
+            Width = 80,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
             Name = "DealCount",
             HeaderText = "수량",
-            Width = 50,
+            Width = 45,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
             Name = "LowestPrice",
             HeaderText = "최저가",
-            Width = 100,
+            Width = 90,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleRight }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
             Name = "YesterdayAvg",
             HeaderText = "어제평균",
-            Width = 100,
+            Width = 90,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleRight }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
             Name = "WeekAvg",
             HeaderText = "주간평균",
-            Width = 100,
+            Width = 90,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleRight }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
@@ -2407,13 +2415,14 @@ public partial class Form1 : Form
             return deal.ItemName;
         }
 
-        // Group by item ID (for card-equipped items with same base) + grade + server
-        // If ID not available, fall back to item name grouping
+        // Group by item ID + Refine + Grade + Server
+        // This ensures same base item with different refine levels are shown separately
         var groupedDeals = results
             .SelectMany(r => r.Deals.Select(d => new { Deal = d, Result = r }))
             .GroupBy(x => new {
                 // Use item ID for grouping if available, otherwise use item name hash
                 GroupKey = x.Deal.GetEffectiveItemId()?.ToString() ?? $"name:{x.Deal.ItemName}",
+                Refine = x.Deal.Refine ?? 0,
                 Grade = x.Deal.Grade ?? "",
                 x.Deal.ServerName
             })
@@ -2425,6 +2434,7 @@ public partial class Form1 : Form
                     DisplayName = GetDisplayName(firstDeal),
                     OriginalName = firstDeal.ItemName,
                     ItemId = firstDeal.GetEffectiveItemId(),
+                    Refine = g.Key.Refine,
                     Grade = g.Key.Grade,
                     ServerName = g.Key.ServerName,
                     DealCount = g.Count(),
@@ -2435,6 +2445,7 @@ public partial class Form1 : Form
                 };
             })
             .OrderBy(x => x.DisplayName)
+            .ThenBy(x => x.Refine)
             .ThenBy(x => gradeOrder.TryGetValue(x.Grade, out var g) ? g : 99)
             .ThenBy(x => x.LowestPrice)
             .ToList();
@@ -2442,8 +2453,9 @@ public partial class Form1 : Form
         foreach (var group in groupedDeals)
         {
             var row = _dgvMonitorResults.Rows.Add();
-            _dgvMonitorResults.Rows[row].Cells["ItemName"].Value = group.DisplayName;
+            _dgvMonitorResults.Rows[row].Cells["Refine"].Value = group.Refine > 0 ? $"+{group.Refine}" : "-";
             _dgvMonitorResults.Rows[row].Cells["Grade"].Value = string.IsNullOrEmpty(group.Grade) ? "-" : group.Grade;
+            _dgvMonitorResults.Rows[row].Cells["ItemName"].Value = group.DisplayName;
             _dgvMonitorResults.Rows[row].Cells["ServerName"].Value = group.ServerName;
             _dgvMonitorResults.Rows[row].Cells["DealCount"].Value = group.DealCount;
             _dgvMonitorResults.Rows[row].Cells["LowestPrice"].Value = group.LowestPrice.ToString("N0");
@@ -2477,8 +2489,14 @@ public partial class Form1 : Form
             else
                 _dgvMonitorResults.Rows[row].Cells["Status"].Value = "정상";
 
-            // Store for formatting: grade and price comparison info
-            _dgvMonitorResults.Rows[row].Tag = new { Grade = group.Grade, BelowYesterday = belowYesterday, BelowWeek = belowWeek, IsBargain = isBargain };
+            // Store for formatting: grade, refine and price comparison info
+            _dgvMonitorResults.Rows[row].Tag = new { 
+                Grade = group.Grade, 
+                Refine = group.Refine,
+                BelowYesterday = belowYesterday, 
+                BelowWeek = belowWeek, 
+                IsBargain = isBargain 
+            };
         }
 
         // Play sound alert if any bargain item found (configurable threshold)
@@ -2506,14 +2524,32 @@ public partial class Form1 : Form
         // Use reflection to get anonymous type properties
         var tagType = tag.GetType();
         var grade = tagType.GetProperty("Grade")?.GetValue(tag) as string ?? "";
+        var refine = (int)(tagType.GetProperty("Refine")?.GetValue(tag) ?? 0);
         var belowYesterday = (bool)(tagType.GetProperty("BelowYesterday")?.GetValue(tag) ?? false);
         var belowWeek = (bool)(tagType.GetProperty("BelowWeek")?.GetValue(tag) ?? false);
         var isBargain = (bool)(tagType.GetProperty("IsBargain")?.GetValue(tag) ?? false);
 
         var columnName = _dgvMonitorResults.Columns[e.ColumnIndex].Name;
 
+        // Refine color coding
+        if (columnName == "Refine" && refine > 0)
+        {
+            e.CellStyle!.ForeColor = refine switch
+            {
+                >= 15 => Color.FromArgb(255, 100, 100),  // Red for +15 and above
+                >= 12 => Color.FromArgb(255, 180, 100),  // Orange for +12-14
+                >= 10 => Color.FromArgb(255, 215, 0),    // Gold for +10-11
+                >= 7 => Color.FromArgb(100, 180, 255),   // Blue for +7-9
+                _ => Color.White                          // White for +1-6
+            };
+            if (refine >= 10)
+            {
+                e.CellStyle.Font = new Font(e.CellStyle.Font ?? SystemFonts.DefaultFont, FontStyle.Bold);
+            }
+        }
+
         // Grade color coding
-        if (columnName == "Grade" && !string.IsNullOrEmpty(grade))
+        if (columnName == "Grade" && !string.IsNullOrEmpty(grade) && grade != "-")
         {
             e.CellStyle!.ForeColor = grade switch
             {
