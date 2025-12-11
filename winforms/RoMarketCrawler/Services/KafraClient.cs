@@ -11,6 +11,11 @@ namespace RoMarketCrawler.Services;
 /// Client for kafra.kr API to fetch item/enchant effect descriptions
 /// API: http://api.kafra.kr/KRO/{type}/{page}/itemdetail_name.json?q={query}&perPage={perPage}
 /// </summary>
+/// <remarks>
+/// SECURITY NOTE: This API uses HTTP (not HTTPS) because kafra.kr does not support TLS.
+/// Data transmitted includes only public game item information (no sensitive user data).
+/// If kafra.kr adds HTTPS support in the future, update BaseUrl accordingly.
+/// </remarks>
 public class KafraClient : IDisposable
 {
     private readonly HttpClient _httpClient;
@@ -18,6 +23,11 @@ public class KafraClient : IDisposable
     private readonly object _cacheLock = new();
     private const string BaseUrl = "http://api.kafra.kr/KRO";
     private const int DefaultPerPage = 50;
+
+    // Input validation constants
+    private const int MaxSearchTermLength = 100;
+    private const int MinItemType = 0;
+    private const int MaxItemType = 999;
 
     // GNJOY to kafra.kr card name mapping (different Korean transliterations)
     // GNJOY uses Japanese/German style, kafra.kr uses English style
@@ -58,13 +68,21 @@ public class KafraClient : IDisposable
     /// <summary>
     /// Search for items by name and return matching results
     /// </summary>
-    /// <param name="searchTerm">Item name to search for</param>
-    /// <param name="itemType">Item type (999 for all types)</param>
+    /// <param name="searchTerm">Item name to search for (max 100 chars)</param>
+    /// <param name="itemType">Item type (0-999, use 999 for all types)</param>
     /// <param name="maxResults">Maximum number of results to return</param>
     public async Task<List<KafraItem>> SearchItemsAsync(string searchTerm, int itemType = 999, int maxResults = 50)
     {
+        // Input validation
         if (string.IsNullOrWhiteSpace(searchTerm))
             return new List<KafraItem>();
+
+        // Truncate search term if too long
+        if (searchTerm.Length > MaxSearchTermLength)
+            searchTerm = searchTerm.Substring(0, MaxSearchTermLength);
+
+        // Validate item type range
+        itemType = Math.Clamp(itemType, MinItemType, MaxItemType);
 
         try
         {

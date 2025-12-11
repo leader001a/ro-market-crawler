@@ -383,8 +383,6 @@ namespace RoMarketCrawler.Services
                 // This is necessary because a single search can return different item variants
                 // (e.g., "포링 선글래스" search returns both base item and enhanced "+" version)
                 var priceServerId = item.ServerId == -1 ? 1 : item.ServerId;
-                var logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "price_lookup.log");
-                File.AppendAllText(logPath, $"\n[{DateTime.Now:HH:mm:ss}] === Processing monitor item: '{item.ItemName}' ===\n");
 
                 // Group deals by actual item name for processing
                 var dealsByItemName = deals.GroupBy(d => d.ItemName ?? "").ToList();
@@ -402,13 +400,13 @@ namespace RoMarketCrawler.Services
                     // Check if this item has any grade at all
                     var hasGrade = !string.IsNullOrEmpty(sampleDeal.Grade);
 
-                    File.AppendAllText(logPath, $"\n  --- Fetching stats for deal item: '{dealItemName}' (ItemId: {itemId?.ToString() ?? "null"}, Base: '{baseItemName}', Grade: '{sampleDeal.Grade ?? "none"}') ---\n");
+                    Debug.WriteLine($"[MonitoringService] Processing deal item: '{dealItemName}' (Grade: '{sampleDeal.Grade ?? "none"}')");
 
                     // Skip stats for items with ANY grade (GNJOY API doesn't provide grade-specific prices)
                     // Grade items have unreliable price history due to grade-specific pricing
                     if (hasGrade)
                     {
-                        File.AppendAllText(logPath, $"    Skipping stats - item has grade '{sampleDeal.Grade}'\n");
+                        Debug.WriteLine($"[MonitoringService] Skipping stats - item has grade '{sampleDeal.Grade}'");
                         continue;
                     }
 
@@ -437,21 +435,20 @@ namespace RoMarketCrawler.Services
                         // dealItemName already contains refine prefix (e.g., "10매드니스 브레스 슈즈 쉐도우")
                         // Use it as-is for the search
                         searchName = dealItemName;
-                        File.AppendAllText(logPath, $"    Search name: '{searchName}' (already has refine prefix)\n");
                     }
                     else if (dealRefine.HasValue && dealRefine.Value > 0)
                     {
                         // Item doesn't have refine prefix but has refine value
                         // Add refine level to search name for more accurate price statistics
                         searchName = $"{dealRefine.Value}{dealItemName}";
-                        File.AppendAllText(logPath, $"    Search name: '{searchName}' (refine-prefixed from '{dealItemName}', Refine={dealRefine})\n");
                     }
                     else
                     {
                         // No refine or zero, use base item name
                         searchName = GetBaseSearchName(dealItemName);
-                        File.AppendAllText(logPath, $"    Search name: '{searchName}' (base from '{dealItemName}')\n");
                     }
+
+                    Debug.WriteLine($"[MonitoringService] Search name: '{searchName}' for '{dealItemName}'");
 
                     // Fetch price list using search name
                     var priceListItems = await _gnjoyClient.SearchPriceListAsync(
@@ -459,11 +456,7 @@ namespace RoMarketCrawler.Services
                         priceServerId,
                         cancellationToken);
 
-                    File.AppendAllText(logPath, $"    Price list returned {priceListItems.Count} items:\n");
-                    foreach (var pli in priceListItems)
-                    {
-                        File.AppendAllText(logPath, $"      - '{pli.ExactItemName}'\n");
-                    }
+                    Debug.WriteLine($"[MonitoringService] Price list returned {priceListItems.Count} items for '{searchName}'");
 
                     PriceStatistics? stats = null;
 
@@ -474,17 +467,17 @@ namespace RoMarketCrawler.Services
 
                         if (priceListMatch != null)
                         {
-                            File.AppendAllText(logPath, $"    MATCH: '{priceListMatch}'\n");
+                            Debug.WriteLine($"[MonitoringService] Match found: '{priceListMatch}'");
                             // Use cached price statistics to reduce API calls
                             stats = await GetCachedPriceStatisticsAsync(
                                 priceListMatch,
                                 priceServerId,
                                 cancellationToken);
-                            File.AppendAllText(logPath, $"    RESULT: Yesterday={stats?.YesterdayAvgPrice:N0}, Week={stats?.Week7AvgPrice:N0}\n");
+                            Debug.WriteLine($"[MonitoringService] Stats: Yesterday={stats?.YesterdayAvgPrice:N0}, Week={stats?.Week7AvgPrice:N0}");
                         }
                         else
                         {
-                            File.AppendAllText(logPath, $"    NO MATCH found in price list\n");
+                            Debug.WriteLine($"[MonitoringService] No match found in price list for '{dealItemName}'");
                         }
                     }
 
