@@ -2136,8 +2136,9 @@ public partial class Form1 : Form
             }
         };
 
-        // Handle server change
+        // Handle server, item name, and watch price changes
         _dgvMonitorItems.CellValueChanged += DgvMonitorItems_CellValueChanged;
+// Store original item name before editing (for rename tracking)        _dgvMonitorItems.CellBeginEdit += (s, e) =>        {            if (_dgvMonitorItems.Columns[e.ColumnIndex].Name == "ItemName")            {                var row = _dgvMonitorItems.Rows[e.RowIndex];                row.Tag = row.Cells["ItemName"].Value?.ToString();            }        };
 
         leftPanel.Controls.Add(_dgvMonitorItems);
         leftPanel.Controls.Add(lblItemList);
@@ -2188,14 +2189,14 @@ public partial class Form1 : Form
         };
         _dgvMonitorItems.EnableHeadersVisualStyles = false;
 
-        // Item name column (read-only)
+        // Item name column (editable for renaming)
         _dgvMonitorItems.Columns.Add(new DataGridViewTextBoxColumn
         {
             Name = "ItemName",
             HeaderText = "아이템",
             DataPropertyName = "ItemName",
             AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
-            ReadOnly = true
+            ReadOnly = false
         });
 
         // Server column (ComboBox for editing)
@@ -2236,21 +2237,53 @@ public partial class Form1 : Form
 
         var columnName = _dgvMonitorItems.Columns[e.ColumnIndex].Name;
         var row = _dgvMonitorItems.Rows[e.RowIndex];
-        var itemName = row.Cells["ItemName"].Value?.ToString();
 
+        if (columnName == "ItemName")
+        {
+            // Handle ItemName change (rename)
+            var oldName = row.Tag?.ToString();
+            var newName = row.Cells["ItemName"].Value?.ToString();
+
+            if (string.IsNullOrEmpty(oldName) || string.IsNullOrEmpty(newName) || oldName == newName) return;
+
+            // Find the MonitorItem by old name
+            var items = _monitoringService.Config.Items;
+            var item = items.FirstOrDefault(i => i.ItemName == oldName);
+            if (item == null) return;
+
+            var serverId = item.ServerId;
+
+            // Rename the item
+            var success = await _monitoringService.RenameItemAsync(oldName, serverId, newName);
+            if (!success)
+            {
+                // Revert the change if rename failed
+                row.Cells["ItemName"].Value = oldName;
+                MessageBox.Show($"아이템 이름을 변경할 수 없습니다. 동일한 이름이 이미 존재합니다.", "오류", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+
+            // Clear the stored old name
+            row.Tag = null;
+
+            // Refresh the binding to update display
+            UpdateMonitorItemList();
+            return;
+        }
+
+        var itemName = row.Cells["ItemName"].Value?.ToString();
         if (string.IsNullOrEmpty(itemName)) return;
 
         // Find the MonitorItem
-        var items = _monitoringService.Config.Items;
-        var item = items.FirstOrDefault(i => i.ItemName == itemName);
-        if (item == null) return;
+        var configItems = _monitoringService.Config.Items;
+        var monitorItem = configItems.FirstOrDefault(i => i.ItemName == itemName);
+        if (monitorItem == null) return;
 
         if (columnName == "ServerId")
         {
             var newServerId = row.Cells["ServerId"].Value as int?;
             if (newServerId == null) return;
 
-            var oldServerId = item.ServerId;
+            var oldServerId = monitorItem.ServerId;
             if (oldServerId == newServerId) return;
 
             // Update the server in the service
@@ -2277,7 +2310,7 @@ public partial class Form1 : Form
             }
 
             // Update the watch price
-            item.WatchPrice = newWatchPrice;
+            monitorItem.WatchPrice = newWatchPrice;
 
             // Save config
             await _monitoringService.SaveConfigAsync();
@@ -2298,19 +2331,19 @@ public partial class Form1 : Form
         };
         _dgvMonitorResults.EnableHeadersVisualStyles = false;
 
-        // Column order: Refine, Grade, ItemName, Server, ...
-        _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
-        {
-            Name = "Refine",
-            HeaderText = "제련",
-            Width = 45,
-            DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
-        });
+        // Column order: Grade, Refine, ItemName, Server, ...
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
             Name = "Grade",
             HeaderText = "등급",
             Width = 50,
+            DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
+        });
+        _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "Refine",
+            HeaderText = "제련",
+            Width = 45,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn

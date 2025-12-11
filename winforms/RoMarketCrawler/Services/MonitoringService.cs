@@ -197,6 +197,45 @@ namespace RoMarketCrawler.Services
         }
 
         /// <summary>
+        /// Rename a monitored item
+        /// </summary>
+        public async Task<bool> RenameItemAsync(string oldName, int serverId, string newName)
+        {
+            if (string.IsNullOrWhiteSpace(newName))
+                return false;
+
+            var item = _config.Items.FirstOrDefault(i =>
+                i.ItemName.Equals(oldName, StringComparison.OrdinalIgnoreCase) && i.ServerId == serverId);
+
+            if (item == null)
+                return false;
+
+            // Check if new name already exists for same server
+            var exists = _config.Items.Any(i =>
+                i.ItemName.Equals(newName, StringComparison.OrdinalIgnoreCase) && i.ServerId == serverId && i != item);
+
+            if (exists)
+            {
+                Debug.WriteLine($"[MonitoringService] Cannot rename - item '{newName}' already exists for server {serverId}");
+                return false;
+            }
+
+            // Remove old result from cache
+            lock (_lock)
+            {
+                var oldKey = GetResultKey(oldName, serverId);
+                _results.Remove(oldKey);
+            }
+
+            // Update the item name
+            item.ItemName = newName;
+
+            await SaveConfigAsync();
+            Debug.WriteLine($"[MonitoringService] Renamed item from '{oldName}' to '{newName}' on server {serverId}");
+            return true;
+        }
+
+        /// <summary>
         /// Clear all items from the monitoring list
         /// </summary>
         public async Task ClearAllItemsAsync()
