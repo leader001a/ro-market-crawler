@@ -92,6 +92,12 @@ public partial class Form1 : Form
     private readonly string _settingsFilePath;
     private MenuStrip _menuStrip = null!;
 
+    // Sound Settings
+    private bool _isSoundMuted = false;
+    private AlarmSoundType _selectedAlarmSound = AlarmSoundType.SystemSound;
+    private Button _btnSoundMute = null!;
+    private ComboBox _cboAlarmSound = null!;
+
     public Form1()
     {
         InitializeComponent();
@@ -388,6 +394,8 @@ public partial class Form1 : Form
                 {
                     _baseFontSize = settings.FontSize;
                     _currentTheme = settings.Theme;
+                    _isSoundMuted = settings.IsSoundMuted;
+                    _selectedAlarmSound = settings.AlarmSound;
                 }
             }
         }
@@ -401,7 +409,13 @@ public partial class Form1 : Form
     {
         try
         {
-            var settings = new AppSettings { FontSize = _baseFontSize, Theme = _currentTheme };
+            var settings = new AppSettings
+            {
+                FontSize = _baseFontSize,
+                Theme = _currentTheme,
+                IsSoundMuted = _isSoundMuted,
+                AlarmSound = _selectedAlarmSound
+            };
             var json = System.Text.Json.JsonSerializer.Serialize(settings);
             File.WriteAllText(_settingsFilePath, json);
         }
@@ -448,6 +462,8 @@ internal class AppSettings
 {
     public float FontSize { get; set; } = 12f;
     public ThemeType Theme { get; set; } = ThemeType.Dark;
+    public bool IsSoundMuted { get; set; } = false;
+    public AlarmSoundType AlarmSound { get; set; } = AlarmSoundType.SystemSound;
 }
 
 // Theme types
@@ -455,6 +471,16 @@ public enum ThemeType
 {
     Dark,
     Classic
+}
+
+// Alarm sound types
+public enum AlarmSoundType
+{
+    SystemSound,  // 시스템 경고음 (기본값)
+    Chime,        // 차임벨
+    DingDong,     // 딩동
+    Rising,       // 상승음
+    Alert         // 알림음
 }
 
 // Helper class for server combo box

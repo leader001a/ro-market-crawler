@@ -55,25 +55,39 @@ public partial class Form1
         mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); // Content area
         ApplyTableLayoutPanelStyle(mainLayout);
 
-        // Row 0: Input bar - [아이템명] [서버] [+] [-] | [조회] [간격] [자동갱신] [♪] | [상태]
+        // Row 0: Toolbar - Left: [아이템 검색] ... Right: [수동조회]|[자동조회: NUD 자동/중지]|[알람설정: 소리 테스트]|[음소거]
         var inputPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 10,
+            ColumnCount = 19,
             RowCount = 1,
-            Padding = new Padding(0)
+            Padding = new Padding(4, 2, 4, 2)
         };
-        // Layout: [아이템명] [서버] [+][-] | [조회] | [간격] [30] [자동갱신] | [♪] | [상태]
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); // 0: Item name (fill remaining)
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 90));  // 1: Server combo
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 35));  // 2: Add
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 35));  // 3: Remove
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 55));  // 4: Refresh
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 40));  // 5: Interval label
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 55));  // 6: Interval NUD
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80));  // 7: Auto button (wider for "자동갱신")
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 35));  // 8: Sound test
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 220)); // 9: Status (wider for elapsed time)
+        // Left group: 아이템 검색
+        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 250)); // 0: Item name
+        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 95));  // 1: Server combo
+        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 58));  // 2: Add (추가)
+        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 58));  // 3: Remove (삭제)
+        // Middle: flexible space
+        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); // 4: Fill space
+        // Group: 수동조회
+        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 75));  // 5: 수동조회 button
+        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 15));  // 6: Separator |
+        // Group: 자동조회
+        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 70));  // 7: 자동조회 label
+        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 55));  // 8: Interval NUD
+        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 90));  // 9: Auto button
+        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 15));  // 10: Separator |
+        // Group: 알람설정
+        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 70));  // 11: 알람설정 label
+        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 85));  // 12: Sound combo
+        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 65));  // 13: Test button
+        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 15));  // 14: Separator |
+        // Group: 음소거
+        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100)); // 15: Mute button
+        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 4));   // 16: Right margin
+        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 0));   // 17: Padding
+        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 0));   // 18: Padding
         ApplyTableLayoutPanelStyle(inputPanel);
 
         _txtMonitorItemName = new TextBox { Dock = DockStyle.Fill };
@@ -87,11 +101,11 @@ public partial class Form1
         _cboMonitorServer.DisplayMember = "Name";
         _cboMonitorServer.SelectedIndex = 0;
 
-        _btnMonitorAdd = new Button { Text = "+", Dock = DockStyle.Fill, Font = new Font("Segoe UI", 10, FontStyle.Bold) };
+        _btnMonitorAdd = new Button { Text = "추가", Dock = DockStyle.Fill };
         ApplyButtonStyle(_btnMonitorAdd);
         _btnMonitorAdd.Click += BtnMonitorAdd_Click;
 
-        _btnMonitorRemove = new Button { Text = "-", Dock = DockStyle.Fill, Font = new Font("Segoe UI", 10, FontStyle.Bold) };
+        _btnMonitorRemove = new Button { Text = "삭제", Dock = DockStyle.Fill };
         ApplyButtonStyle(_btnMonitorRemove);
         _btnMonitorRemove.Click += BtnMonitorRemove_Click;
 
@@ -102,19 +116,17 @@ public partial class Form1
         removeContextMenu.Items.Add(clearAllItem);
         _btnMonitorRemove.ContextMenuStrip = removeContextMenu;
 
-        _btnMonitorRefresh = new Button { Text = "조회", Dock = DockStyle.Fill };
+        _btnMonitorRefresh = new Button { Text = "수동조회", Dock = DockStyle.Fill };
         ApplyButtonStyle(_btnMonitorRefresh);
         _btnMonitorRefresh.Click += BtnMonitorRefresh_Click;
 
-        // Interval label
-        var lblIntervalLabel = new Label
-        {
-            Text = "간격",
-            Dock = DockStyle.Fill,
-            TextAlign = ContentAlignment.MiddleRight,
-            ForeColor = ThemeText,
-            Padding = new Padding(0, 0, 2, 0)
-        };
+        // Group labels and separators
+        var lblSep1 = new Label { Text = "|", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, ForeColor = ThemeTextMuted };
+        var lblSep2 = new Label { Text = "|", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, ForeColor = ThemeTextMuted };
+        var lblSep3 = new Label { Text = "|", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, ForeColor = ThemeTextMuted };
+        var lblAutoRefresh = new Label { Text = "자동조회", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, ForeColor = ThemeText };
+        var lblAlarmSetting = new Label { Text = "알람설정", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, ForeColor = ThemeText };
+
 
         _nudRefreshInterval = new NumericUpDown
         {
@@ -131,24 +143,64 @@ public partial class Form1
         // Timer label merged into auto button text
         _lblRefreshSetting = new Label { Text = "", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, Visible = false };
 
+        // Alarm sound selection combo box (NAudio-based distinct sounds)
+        _cboAlarmSound = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
+        ApplyComboBoxStyle(_cboAlarmSound);
+        _cboAlarmSound.Items.AddRange(new object[]
+        {
+            new AlarmSoundItem(AlarmSoundType.SystemSound, "시스템"),  // Windows system sound
+            new AlarmSoundItem(AlarmSoundType.Chime, "차임벨"),        // Pleasant chime
+            new AlarmSoundItem(AlarmSoundType.DingDong, "딩동"),       // Two-tone doorbell
+            new AlarmSoundItem(AlarmSoundType.Rising, "상승음"),       // Rising frequency
+            new AlarmSoundItem(AlarmSoundType.Alert, "알림음")         // Three quick beeps
+        });
+        _cboAlarmSound.DisplayMember = "Name";
+        // Select the saved alarm sound
+        for (int i = 0; i < _cboAlarmSound.Items.Count; i++)
+        {
+            if (_cboAlarmSound.Items[i] is AlarmSoundItem item && item.SoundType == _selectedAlarmSound)
+            {
+                _cboAlarmSound.SelectedIndex = i;
+                break;
+            }
+        }
+        if (_cboAlarmSound.SelectedIndex < 0) _cboAlarmSound.SelectedIndex = 0;
+        _cboAlarmSound.SelectedIndexChanged += CboAlarmSound_SelectedIndexChanged;
 
-        var btnSoundTest = new Button { Text = "♪", Dock = DockStyle.Fill, Font = new Font("Segoe UI", 11, FontStyle.Bold) };
+        // Sound test button
+        var btnSoundTest = new Button { Text = "테스트", Dock = DockStyle.Fill };
         ApplyButtonStyle(btnSoundTest);
-        btnSoundTest.Click += (s, e) => System.Media.SystemSounds.Exclamation.Play();
+        btnSoundTest.Click += (s, e) => PlayAlarmSound();
 
-        _lblMonitorStatus = new Label { Text = "대기 중", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
-        ApplyStatusLabelStyle(_lblMonitorStatus);
+        // Sound mute toggle button
+        _btnSoundMute = new Button { Dock = DockStyle.Fill };
+        ApplyButtonStyle(_btnSoundMute);
+        UpdateSoundMuteButton();
+        _btnSoundMute.Click += BtnSoundMute_Click;
 
+        _lblMonitorStatus = new Label { Text = "", Visible = false }; // Hidden, kept for compatibility
+
+        // Left group: 아이템 검색
         inputPanel.Controls.Add(_txtMonitorItemName, 0, 0);
         inputPanel.Controls.Add(_cboMonitorServer, 1, 0);
         inputPanel.Controls.Add(_btnMonitorAdd, 2, 0);
         inputPanel.Controls.Add(_btnMonitorRemove, 3, 0);
-        inputPanel.Controls.Add(_btnMonitorRefresh, 4, 0);
-        inputPanel.Controls.Add(lblIntervalLabel, 5, 0);
-        inputPanel.Controls.Add(_nudRefreshInterval, 6, 0);
-        inputPanel.Controls.Add(_btnApplyInterval, 7, 0);
-        inputPanel.Controls.Add(btnSoundTest, 8, 0);
-        inputPanel.Controls.Add(_lblMonitorStatus, 9, 0);
+        // Column 4 is fill space
+        // Group: 수동조회
+        inputPanel.Controls.Add(_btnMonitorRefresh, 5, 0);
+        inputPanel.Controls.Add(lblSep1, 6, 0);
+        // Group: 자동조회
+        inputPanel.Controls.Add(lblAutoRefresh, 7, 0);
+        inputPanel.Controls.Add(_nudRefreshInterval, 8, 0);
+        inputPanel.Controls.Add(_btnApplyInterval, 9, 0);
+        inputPanel.Controls.Add(lblSep2, 10, 0);
+        // Group: 알람설정
+        inputPanel.Controls.Add(lblAlarmSetting, 11, 0);
+        inputPanel.Controls.Add(_cboAlarmSound, 12, 0);
+        inputPanel.Controls.Add(btnSoundTest, 13, 0);
+        inputPanel.Controls.Add(lblSep3, 14, 0);
+        // Group: 음소거
+        inputPanel.Controls.Add(_btnSoundMute, 15, 0);
 
         mainLayout.Controls.Add(inputPanel, 0, 0);
 
@@ -697,11 +749,11 @@ public partial class Form1
             }
         }
 
-        // Play sound alert only if any item is below watch price
+        // Play sound alert only if any item is below watch price (and not muted)
         var hasBargain = groupedDeals.Any(g => g.WatchPrice.HasValue && g.LowestPrice <= g.WatchPrice.Value);
-        if (hasBargain)
+        if (hasBargain && !_isSoundMuted)
         {
-            System.Media.SystemSounds.Exclamation.Play();
+            PlayAlarmSound();
         }
 
         // Clear default first row selection
@@ -1185,5 +1237,66 @@ public partial class Form1
         }
     }
 
+    private void BtnSoundMute_Click(object? sender, EventArgs e)
+    {
+        _isSoundMuted = !_isSoundMuted;
+        UpdateSoundMuteButton();
+        SaveSettings();
+    }
+
+    private void UpdateSoundMuteButton()
+    {
+        if (_btnSoundMute == null) return;
+
+        if (_isSoundMuted)
+        {
+            _btnSoundMute.Text = "음소거 해제";
+            _btnSoundMute.ForeColor = ThemeSaleColor; // Red color for muted
+        }
+        else
+        {
+            _btnSoundMute.Text = "음소거";
+            _btnSoundMute.ForeColor = ThemeText; // Normal color
+        }
+    }
+
+    private void CboAlarmSound_SelectedIndexChanged(object? sender, EventArgs e)
+    {
+        if (_cboAlarmSound?.SelectedItem is AlarmSoundItem item)
+        {
+            _selectedAlarmSound = item.SoundType;
+            SaveSettings();
+        }
+    }
+
+    private void PlayAlarmSound()
+    {
+        if (_selectedAlarmSound == AlarmSoundType.SystemSound)
+        {
+            // Windows system exclamation sound
+            System.Media.SystemSounds.Exclamation.Play();
+        }
+        else
+        {
+            // NAudio-based synthesized sounds
+            AlarmSoundService.PlaySound(_selectedAlarmSound);
+        }
+    }
+
     #endregion
+}
+
+// Helper class for alarm sound combo box
+internal class AlarmSoundItem
+{
+    public AlarmSoundType SoundType { get; }
+    public string Name { get; }
+
+    public AlarmSoundItem(AlarmSoundType soundType, string name)
+    {
+        SoundType = soundType;
+        Name = name;
+    }
+
+    public override string ToString() => Name;
 }
