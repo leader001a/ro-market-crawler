@@ -182,21 +182,12 @@ public partial class Form1
         // Suppress DataError exceptions (STA thread issues with ComboBox AutoComplete)
         _dgvMonitorItems.DataError += (s, e) => { e.ThrowException = false; };
 
-        // Commit cell changes immediately when editing (ComboBox, ItemName, WatchPrice)
+        // Commit ComboBox selection immediately when changed (TextBox commits on Enter/focus out)
         _dgvMonitorItems.CurrentCellDirtyStateChanged += (s, e) =>
         {
-            if (_dgvMonitorItems.IsCurrentCellDirty)
+            if (_dgvMonitorItems.IsCurrentCellDirty && _dgvMonitorItems.CurrentCell is DataGridViewComboBoxCell)
             {
-                var currentCell = _dgvMonitorItems.CurrentCell;
-                var columnName = _dgvMonitorItems.Columns[currentCell.ColumnIndex].Name;
-
-                // Commit ComboBox and editable TextBox columns immediately
-                if (currentCell is DataGridViewComboBoxCell ||
-                    columnName == "ItemName" ||
-                    columnName == "WatchPrice")
-                {
-                    _dgvMonitorItems.CommitEdit(DataGridViewDataErrorContexts.Commit);
-                }
+                _dgvMonitorItems.CommitEdit(DataGridViewDataErrorContexts.Commit);
             }
         };
 
@@ -339,6 +330,7 @@ public partial class Form1
 
             // Refresh the binding to update display
             UpdateMonitorItemList();
+            UpdateMonitorResults();  // Also refresh results to remove old cached data
             return;
         }
 
