@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Threading;
 using RoMarketCrawler.Models;
 using RoMarketCrawler.Services;
 
@@ -10,6 +11,13 @@ namespace RoMarketCrawler;
 public partial class Form1
 {
     #region Tab 3: Monitoring
+
+    // Individual item refresh state (thread-safe counter for parallel processing)
+    private int _refreshedItemCount = 0;
+    private Stopwatch _refreshStopwatch = new();
+
+    // UI update timer for status column countdown
+    private System.Windows.Forms.Timer _uiUpdateTimer = null!;
 
     private async Task LoadMonitoringAsync()
     {
@@ -65,7 +73,7 @@ public partial class Form1
         inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 55));  // 6: Interval NUD
         inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80));  // 7: Auto button (wider for "자동갱신")
         inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 35));  // 8: Sound test
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150)); // 9: Status (wider for long text)
+        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 220)); // 9: Status (wider for elapsed time)
         ApplyTableLayoutPanelStyle(inputPanel);
 
         _txtMonitorItemName = new TextBox { Dock = DockStyle.Fill };
@@ -233,9 +241,13 @@ public partial class Form1
         mainLayout.Controls.Add(contentLayout, 0, 1);
         tabPage.Controls.Add(mainLayout);
 
-        // Initialize timer
+        // Initialize refresh timer (checks for items due to refresh)
         _monitorTimer = new System.Windows.Forms.Timer { Interval = 30000 };
         _monitorTimer.Tick += MonitorTimer_Tick;
+
+        // Initialize UI update timer (updates status column every second)
+        _uiUpdateTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+        _uiUpdateTimer.Tick += UiUpdateTimer_Tick;
     }
 
     private void SetupMonitorItemsColumns()
@@ -292,6 +304,22 @@ public partial class Form1
                 NullValue = ""
             }
         });
+
+        // Status column (read-only, shows refresh countdown)
+        _dgvMonitorItems.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "RefreshStatus",
+            HeaderText = "상태",
+            Width = 70,
+            ReadOnly = true,
+            DefaultCellStyle = new DataGridViewCellStyle
+            {
+                Alignment = DataGridViewContentAlignment.MiddleCenter
+            }
+        });
+
+        // Add cell formatting for status column
+        _dgvMonitorItems.CellFormatting += DgvMonitorItems_CellFormatting;
     }
 
     private async void DgvMonitorItems_CellValueChanged(object? sender, DataGridViewCellEventArgs e)
@@ -309,9 +337,9 @@ public partial class Form1
 
             if (string.IsNullOrEmpty(oldName) || string.IsNullOrEmpty(newName) || oldName == newName) return;
 
-            // Find the MonitorItem by old name
+            // Find the MonitorItem by NEW name (data binding already updated ItemName before this event fires)
             var items = _monitoringService.Config.Items;
-            var item = items.FirstOrDefault(i => i.ItemName == oldName);
+            var item = items.FirstOrDefault(i => i.ItemName == newName);
             if (item == null) return;
 
             var serverId = item.ServerId;
@@ -744,17 +772,45 @@ public partial class Form1
     private void StartMonitorTimer(int seconds)
     {
         _monitorTimer.Stop();
+        _uiUpdateTimer.Stop();
+
         if (seconds > 0)
         {
-            _monitorTimer.Interval = seconds * 1000;
+            // Initialize individual item refresh schedule
+            _monitoringService.InitializeRefreshSchedule();
+            _refreshedItemCount = 0;
+            _refreshStopwatch.Restart();
+
+            // Timer checks every 3 seconds for items due to refresh
+            _monitorTimer.Interval = 3000;
             _monitorTimer.Start();
-            Debug.WriteLine($"[Form1] Monitor timer started: {seconds}s interval");
+
+            // UI timer updates status column every second
+            _uiUpdateTimer.Start();
+
+            // Immediately update status column to show initial countdowns
+            UpdateItemStatusColumn();
+
+            Debug.WriteLine($"[Form1] Monitor timer started: checking every 3s, item interval {seconds}s");
         }
     }
 
     private void StopMonitorTimer()
     {
         _monitorTimer.Stop();
+        _uiUpdateTimer.Stop();
+        _refreshStopwatch.Stop();
+
+        // Clear all item refresh states
+        foreach (var item in _monitoringService.Config.Items)
+        {
+            item.IsRefreshing = false;
+            item.NextRefreshTime = null;
+        }
+
+        // Update status column to show "-"
+        UpdateItemStatusColumn();
+
         Debug.WriteLine("[Form1] Monitor timer stopped");
     }
 
@@ -867,6 +923,9 @@ public partial class Form1
         _btnMonitorAdd.Enabled = false;
         _btnMonitorRemove.Enabled = false;
 
+        // Start timing
+        var stopwatch = Stopwatch.StartNew();
+
         try
         {
             var progress = new Progress<MonitorProgress>(p =>
@@ -876,25 +935,30 @@ public partial class Form1
 
             await _monitoringService.RefreshAllAsync(progress, _monitorCts.Token);
 
+            stopwatch.Stop();
+            var elapsedSeconds = stopwatch.Elapsed.TotalSeconds;
+
             var resultCount = _monitoringService.Results.Count;
-            Debug.WriteLine($"[Form1] RefreshMonitoringAsync complete, Results count={resultCount}");
+            Debug.WriteLine($"[Form1] RefreshMonitoringAsync complete, Results count={resultCount}, Elapsed={elapsedSeconds:F1}s");
 
             UpdateMonitorResults();
-            _lblMonitorStatus.Text = $"조회 완료 ({DateTime.Now:HH:mm:ss}) - {resultCount}건";
+            _lblMonitorStatus.Text = $"조회 완료 ({DateTime.Now:HH:mm:ss}) - {resultCount}건, {elapsedSeconds:F1}초";
 
             // Check for good deals
             var goodDeals = _monitoringService.GetGoodDeals();
             if (goodDeals.Count > 0)
             {
-                _lblMonitorStatus.Text = $"저렴한 매물 {goodDeals.Count}건 발견! ({DateTime.Now:HH:mm:ss})";
+                _lblMonitorStatus.Text = $"저렴한 매물 {goodDeals.Count}건 발견! ({DateTime.Now:HH:mm:ss}) - {elapsedSeconds:F1}초";
             }
         }
         catch (OperationCanceledException)
         {
-            _lblMonitorStatus.Text = "조회 취소됨";
+            stopwatch.Stop();
+            _lblMonitorStatus.Text = $"조회 취소됨 ({stopwatch.Elapsed.TotalSeconds:F1}초)";
         }
         catch (Exception ex)
         {
+            stopwatch.Stop();
             _lblMonitorStatus.Text = $"오류: {ex.Message}";
             Debug.WriteLine($"[Form1] Monitor refresh error: {ex}");
         }
@@ -934,8 +998,156 @@ public partial class Form1
 
     private async void MonitorTimer_Tick(object? sender, EventArgs e)
     {
-        Debug.WriteLine("[Form1] Monitor timer tick");
-        await RefreshMonitoringAsync();
+        // Get all items due for refresh (supports unlimited parallel processing)
+        var itemsDue = _monitoringService.GetAllItemsDueForRefresh();
+        if (itemsDue.Count == 0)
+        {
+            // No items due yet, wait for next tick
+            return;
+        }
+
+        Debug.WriteLine($"[Form1] Processing {itemsDue.Count} items in parallel");
+
+        // Mark all items as refreshing
+        foreach (var item in itemsDue)
+        {
+            item.IsRefreshing = true;
+        }
+
+        var itemNames = string.Join(", ", itemsDue.Select(i => i.ItemName).Take(3));
+        if (itemsDue.Count > 3) itemNames += $" 외 {itemsDue.Count - 3}개";
+        _lblMonitorStatus.Text = $"조회 중: {itemNames}...";
+        UpdateItemStatusColumn();
+
+        var cancellationToken = _monitorCts?.Token ?? CancellationToken.None;
+
+        // Process all items in parallel (unlimited concurrency)
+        var tasks = itemsDue.Select(async item =>
+        {
+            try
+            {
+                await _monitoringService.RefreshSingleItemAsync(item, cancellationToken);
+                Interlocked.Increment(ref _refreshedItemCount);
+                return (item, success: true, error: (string?)null);
+            }
+            catch (OperationCanceledException)
+            {
+                Debug.WriteLine($"[Form1] Item refresh cancelled: {item.ItemName}");
+                return (item, success: false, error: "취소됨");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Form1] Item refresh error: {item.ItemName}, {ex.Message}");
+                return (item, success: false, error: ex.Message);
+            }
+            finally
+            {
+                item.IsRefreshing = false;
+            }
+        }).ToList();
+
+        await Task.WhenAll(tasks);
+
+        // Update UI after all items complete
+        if (InvokeRequired)
+        {
+            Invoke(new Action(() => AfterParallelRefreshComplete(itemsDue.Count)));
+        }
+        else
+        {
+            AfterParallelRefreshComplete(itemsDue.Count);
+        }
+    }
+
+    private void AfterParallelRefreshComplete(int processedCount)
+    {
+        UpdateMonitorResults();
+        UpdateItemStatusColumn();
+
+        var elapsed = _refreshStopwatch.Elapsed.TotalSeconds;
+        var totalItems = _monitoringService.ItemCount;
+        _lblMonitorStatus.Text = $"갱신 완료 ({DateTime.Now:HH:mm:ss}) - {_refreshedItemCount}/{totalItems}건, {elapsed:F0}초";
+
+        // Check for good deals
+        var goodDeals = _monitoringService.GetGoodDeals();
+        if (goodDeals.Count > 0)
+        {
+            _lblMonitorStatus.Text = $"저렴한 매물 {goodDeals.Count}건! ({DateTime.Now:HH:mm:ss})";
+        }
+    }
+
+    private void UiUpdateTimer_Tick(object? sender, EventArgs e)
+    {
+        // Update status column every second to show countdown
+        UpdateItemStatusColumn();
+    }
+
+    private void UpdateItemStatusColumn()
+    {
+        if (InvokeRequired)
+        {
+            Invoke(new Action(UpdateItemStatusColumn));
+            return;
+        }
+
+        var items = _monitoringService.Config.Items;
+        var isAutoRefreshEnabled = _monitorTimer.Enabled;
+
+        for (int i = 0; i < _dgvMonitorItems.Rows.Count && i < items.Count; i++)
+        {
+            var item = items[i];
+            var row = _dgvMonitorItems.Rows[i];
+            var statusCell = row.Cells["RefreshStatus"];
+
+            if (!isAutoRefreshEnabled)
+            {
+                statusCell.Value = "-";
+            }
+            else if (item.IsRefreshing)
+            {
+                statusCell.Value = "조회 중...";
+            }
+            else if (item.NextRefreshTime.HasValue)
+            {
+                var remaining = (item.NextRefreshTime.Value - DateTime.Now).TotalSeconds;
+                if (remaining > 0)
+                    statusCell.Value = $"{(int)remaining}초 후";
+                else
+                    statusCell.Value = "대기";
+            }
+            else
+            {
+                statusCell.Value = "-";
+            }
+        }
+    }
+
+    private void DgvMonitorItems_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
+    {
+        if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
+
+        var columnName = _dgvMonitorItems.Columns[e.ColumnIndex].Name;
+        if (columnName != "RefreshStatus") return;
+
+        var cellValue = e.Value?.ToString() ?? "";
+
+        if (cellValue == "조회 중...")
+        {
+            // Highlight refreshing item with yellow background
+            e.CellStyle!.BackColor = Color.FromArgb(120, 100, 40);
+            e.CellStyle.ForeColor = Color.White;
+            e.CellStyle.Font = new Font(e.CellStyle.Font ?? SystemFonts.DefaultFont, FontStyle.Bold);
+        }
+        else if (cellValue == "-")
+        {
+            // Gray for disabled
+            e.CellStyle!.ForeColor = Color.Gray;
+        }
+        else if (cellValue == "대기")
+        {
+            // Green for ready to refresh
+            e.CellStyle!.ForeColor = Color.FromArgb(100, 255, 100);
+        }
     }
 
     #endregion

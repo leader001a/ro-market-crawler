@@ -53,6 +53,18 @@ namespace RoMarketCrawler.Models
         /// Server name for display (computed from ServerId)
         /// </summary>
         public string ServerName => Server.GetServerName(ServerId);
+
+        /// <summary>
+        /// Next scheduled refresh time (runtime only, not persisted)
+        /// </summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public DateTime? NextRefreshTime { get; set; }
+
+        /// <summary>
+        /// Whether this item is currently being refreshed (runtime only)
+        /// </summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool IsRefreshing { get; set; }
     }
 
     /// <summary>

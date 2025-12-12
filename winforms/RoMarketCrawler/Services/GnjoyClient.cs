@@ -377,8 +377,8 @@ public class GnjoyClient : IDisposable
 
             page++;
 
-            // Small delay to be respectful to the server
-            await Task.Delay(100, cancellationToken);
+            // Small delay to be respectful to the server (reduced for monitoring speed)
+            await Task.Delay(50, cancellationToken);
         }
 
         Debug.WriteLine($"[GnjoyClient] SearchAllItemDealsAsync: Completed with {allItems.Count} total items from {page} page(s)");

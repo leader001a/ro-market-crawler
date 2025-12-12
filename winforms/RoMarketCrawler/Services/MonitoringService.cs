@@ -23,12 +23,8 @@ namespace RoMarketCrawler.Services
         private readonly object _lock = new();
         private bool _disposed;
 
-        // Performance optimization: parallel processing with rate limiting
+        // Parallel processing with atomic update pattern to prevent race conditions
         private readonly SemaphoreSlim _refreshSemaphore = new(3); // Max 3 concurrent refreshes
-
-        // Performance optimization: global price statistics cache with TTL
-        private static readonly ConcurrentDictionary<string, (PriceStatistics? Stats, DateTime CachedAt)> _priceStatsCache = new();
-        private const int PriceCacheTtlMinutes = 5;
 
         public MonitoringService(GnjoyClient gnjoyClient, string? dataDirectory = null)
         {
@@ -204,13 +200,15 @@ namespace RoMarketCrawler.Services
             if (string.IsNullOrWhiteSpace(newName))
                 return false;
 
+            // NOTE: WinForms data binding updates item.ItemName to newName BEFORE CellValueChanged event fires
+            // So we must search by newName (not oldName) to find the item
             var item = _config.Items.FirstOrDefault(i =>
-                i.ItemName.Equals(oldName, StringComparison.OrdinalIgnoreCase) && i.ServerId == serverId);
+                i.ItemName.Equals(newName, StringComparison.OrdinalIgnoreCase) && i.ServerId == serverId);
 
             if (item == null)
                 return false;
 
-            // Check if new name already exists for same server
+            // Check if new name already exists for same server (excluding current item)
             var exists = _config.Items.Any(i =>
                 i.ItemName.Equals(newName, StringComparison.OrdinalIgnoreCase) && i.ServerId == serverId && i != item);
 
@@ -220,15 +218,17 @@ namespace RoMarketCrawler.Services
                 return false;
             }
 
-            // Remove old result from cache
+            // Remove old result from cache AND update item name atomically
+            // This prevents race condition where atomic copy in RefreshAllAsync
+            // could see the old name while computing currentItemKeys
             lock (_lock)
             {
                 var oldKey = GetResultKey(oldName, serverId);
                 _results.Remove(oldKey);
-            }
 
-            // Update the item name
-            item.ItemName = newName;
+                // Update the item name INSIDE the lock to ensure atomicity
+                item.ItemName = newName;
+            }
 
             await SaveConfigAsync();
             Debug.WriteLine($"[MonitoringService] Renamed item from '{oldName}' to '{newName}' on server {serverId}");
@@ -261,9 +261,100 @@ namespace RoMarketCrawler.Services
             Debug.WriteLine($"[MonitoringService] Set refresh interval to {seconds} seconds");
         }
 
+        /// <summary>
+        /// Initialize refresh schedule for individual item refresh mode.
+        /// Distributes refresh times evenly across the refresh interval.
+        /// </summary>
+        public void InitializeRefreshSchedule()
+        {
+            var items = _config.Items;
+            var intervalSeconds = _config.RefreshIntervalSeconds;
+
+            if (items.Count == 0 || intervalSeconds <= 0)
+                return;
+
+            // Calculate spacing between items
+            var spacingSeconds = (double)intervalSeconds / items.Count;
+            var now = DateTime.Now;
+
+            for (int i = 0; i < items.Count; i++)
+            {
+                // First item refreshes immediately, others are spaced out
+                items[i].NextRefreshTime = now.AddSeconds(i * spacingSeconds);
+            }
+
+            Debug.WriteLine($"[MonitoringService] Initialized refresh schedule: {items.Count} items, {spacingSeconds:F1}s spacing");
+        }
 
         /// <summary>
-        /// Refresh all monitored items using parallel processing for improved performance
+        /// Get the next item that needs to be refreshed (NextRefreshTime <= now)
+        /// </summary>
+        public MonitorItem? GetNextItemToRefresh()
+        {
+            var now = DateTime.Now;
+            return _config.Items
+                .Where(i => i.NextRefreshTime.HasValue && i.NextRefreshTime.Value <= now && !i.IsRefreshing)
+                .OrderBy(i => i.NextRefreshTime)
+                .FirstOrDefault();
+        }
+
+        /// <summary>
+        /// Get all items that need to be refreshed (NextRefreshTime <= now)
+        /// Used for parallel processing of multiple due items
+        /// </summary>
+        public List<MonitorItem> GetAllItemsDueForRefresh()
+        {
+            var now = DateTime.Now;
+            return _config.Items
+                .Where(i => i.NextRefreshTime.HasValue && i.NextRefreshTime.Value <= now && !i.IsRefreshing)
+                .OrderBy(i => i.NextRefreshTime)
+                .ToList();
+        }
+
+        /// <summary>
+        /// Refresh a single item and update its next refresh time.
+        /// Captures item name at start to prevent race conditions when item is renamed during refresh.
+        /// </summary>
+        public async Task<MonitorResult> RefreshSingleItemAsync(
+            MonitorItem item,
+            CancellationToken cancellationToken = default)
+        {
+            // Capture item identity at start to prevent race condition
+            // If user renames item during async API call, we must discard stale results
+            var searchName = item.ItemName;
+            var searchServerId = item.ServerId;
+
+            Debug.WriteLine($"[MonitoringService] Starting refresh for '{searchName}' (server={searchServerId})");
+
+            var result = await RefreshItemAsync(item, cancellationToken);
+
+            // Check if item was renamed during the async operation
+            if (item.ItemName != searchName || item.ServerId != searchServerId)
+            {
+                Debug.WriteLine($"[MonitoringService] Item changed during refresh: '{searchName}' -> '{item.ItemName}', discarding stale results");
+                // Return result but don't store it - the stale data would be stored under wrong key
+                return result;
+            }
+
+            // Store result only if item identity unchanged
+            lock (_lock)
+            {
+                var key = GetResultKey(searchName, searchServerId);
+                _results[key] = result;
+            }
+
+            // Schedule next refresh
+            item.NextRefreshTime = DateTime.Now.AddSeconds(_config.RefreshIntervalSeconds);
+
+            Debug.WriteLine($"[MonitoringService] Refreshed '{searchName}', next at {item.NextRefreshTime:HH:mm:ss}");
+
+            return result;
+        }
+
+        /// <summary>
+        /// Refresh all monitored items using parallel processing with atomic update
+        /// Uses temporary dictionary to collect results, then updates _results atomically
+        /// This prevents race conditions when refresh is cancelled mid-way
         /// </summary>
         public async Task RefreshAllAsync(
             IProgress<MonitorProgress>? progress = null,
@@ -285,9 +376,10 @@ namespace RoMarketCrawler.Services
                 return;
             }
 
-            Debug.WriteLine($"[MonitoringService] Refreshing {total} items with parallel processing (max 3 concurrent)...");
+            Debug.WriteLine($"[MonitoringService] Refreshing {total} items with parallel processing (max 3 concurrent, atomic update)...");
 
-            // Track completion count for progress reporting
+            // Temporary dictionary for collecting results - prevents partial updates on cancellation
+            var tempResults = new ConcurrentDictionary<string, MonitorResult>();
             int completedCount = 0;
 
             progress?.Report(new MonitorProgress
@@ -302,6 +394,11 @@ namespace RoMarketCrawler.Services
             // Create tasks for parallel execution with semaphore rate limiting
             var tasks = items.Select(async item =>
             {
+                // Capture item identity at start to prevent race condition
+                // If user renames item during async API call, we must discard stale results
+                var searchName = item.ItemName;
+                var searchServerId = item.ServerId;
+
                 await _refreshSemaphore.WaitAsync(cancellationToken);
                 try
                 {
@@ -309,10 +406,17 @@ namespace RoMarketCrawler.Services
 
                     var result = await RefreshItemAsync(item, cancellationToken);
 
-                    lock (_lock)
+                    // Check if item was renamed during the async operation
+                    if (item.ItemName != searchName || item.ServerId != searchServerId)
                     {
-                        var key = GetResultKey(item.ItemName, item.ServerId);
-                        _results[key] = result;
+                        Debug.WriteLine($"[MonitoringService] RefreshAllAsync: Item changed during refresh: '{searchName}' -> '{item.ItemName}', discarding stale results");
+                        // Don't store - the stale data would be stored under wrong key
+                    }
+                    else
+                    {
+                        // Store in temporary dictionary only if item identity unchanged
+                        var key = GetResultKey(searchName, searchServerId);
+                        tempResults[key] = result;
                     }
 
                     // Update progress after each item completes
@@ -320,7 +424,7 @@ namespace RoMarketCrawler.Services
                     progress?.Report(new MonitorProgress
                     {
                         Phase = "병렬 조회 중",
-                        CurrentItem = item.ItemName,
+                        CurrentItem = searchName,
                         CurrentIndex = currentCompleted,
                         TotalItems = total,
                         ProgressPercent = (int)((double)currentCompleted / total * 100)
@@ -334,8 +438,32 @@ namespace RoMarketCrawler.Services
                 }
             }).ToList();
 
-            // Wait for all tasks to complete
+            // Wait for ALL tasks to complete
             await Task.WhenAll(tasks);
+
+            // ATOMIC UPDATE: Only update _results after ALL items complete successfully
+            // This prevents partial results when refresh is cancelled
+            // Also filter out stale keys from items that were renamed during refresh
+            lock (_lock)
+            {
+                // Get current item keys to filter out stale results from renamed items
+                var currentItemKeys = _config.Items
+                    .Select(i => GetResultKey(i.ItemName, i.ServerId))
+                    .ToHashSet();
+
+                foreach (var kvp in tempResults)
+                {
+                    // Only copy if this key still corresponds to a currently monitored item
+                    if (currentItemKeys.Contains(kvp.Key))
+                    {
+                        _results[kvp.Key] = kvp.Value;
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"[MonitoringService] RefreshAllAsync: Filtering stale key '{kvp.Key}' during atomic copy");
+                    }
+                }
+            }
 
             progress?.Report(new MonitorProgress
             {
@@ -346,7 +474,7 @@ namespace RoMarketCrawler.Services
                 ProgressPercent = 100
             });
 
-            Debug.WriteLine($"[MonitoringService] Parallel refresh completed for {total} items");
+            Debug.WriteLine($"[MonitoringService] Parallel refresh completed for {total} items (atomic update)");
         }
 
         /// <summary>
@@ -354,6 +482,11 @@ namespace RoMarketCrawler.Services
         /// </summary>
         private async Task<MonitorResult> RefreshItemAsync(MonitorItem item, CancellationToken cancellationToken)
         {
+            // Capture item identity at method start to ensure consistency throughout execution
+            // This prevents issues if item is renamed during async operations
+            var capturedItemName = item.ItemName;
+            var capturedServerId = item.ServerId;
+
             var result = new MonitorResult
             {
                 Item = item,
@@ -362,15 +495,15 @@ namespace RoMarketCrawler.Services
 
             try
             {
-                Debug.WriteLine($"[MonitoringService] RefreshItemAsync: item='{item.ItemName}', ServerId={item.ServerId}");
+                Debug.WriteLine($"[MonitoringService] RefreshItemAsync: item='{capturedItemName}', ServerId={capturedServerId}");
 
-                // Fetch current deals from ALL pages (not just page 1)
-                // GNJOY returns 10 items per page, and expensive items like EPIC/RARE may be on later pages
-                // Use maxPages: 10 to match deal search tab (up to 100 items)
+                // Fetch current deals from first 3 pages for speed optimization
+                // GNJOY returns 10 items per page - 3 pages = 30 items is sufficient for monitoring
+                // Most relevant deals appear on early pages anyway
                 var allDeals = await _gnjoyClient.SearchAllItemDealsAsync(
-                    item.ItemName,
-                    item.ServerId,
-                    maxPages: 10,  // Up to 100 items (same as deal search tab)
+                    capturedItemName,
+                    capturedServerId,
+                    maxPages: 3,  // Up to 30 items (optimized for monitoring speed)
                     cancellationToken);
 
                 // Filter to only include selling shops (exclude buying shops)
@@ -382,7 +515,7 @@ namespace RoMarketCrawler.Services
                 // Fetch price statistics for EACH unique item name in the deals
                 // This is necessary because a single search can return different item variants
                 // (e.g., "포링 선글래스" search returns both base item and enhanced "+" version)
-                var priceServerId = item.ServerId == -1 ? 1 : item.ServerId;
+                var priceServerId = capturedServerId == -1 ? 1 : capturedServerId;
 
                 // Group deals by actual item name for processing
                 var dealsByItemName = deals.GroupBy(d => d.ItemName ?? "").ToList();
@@ -468,8 +601,8 @@ namespace RoMarketCrawler.Services
                         if (priceListMatch != null)
                         {
                             Debug.WriteLine($"[MonitoringService] Match found: '{priceListMatch}'");
-                            // Use cached price statistics to reduce API calls
-                            stats = await GetCachedPriceStatisticsAsync(
+                            // Fetch price statistics directly from API
+                            stats = await _gnjoyClient.FetchPriceHistoryAsync(
                                 priceListMatch,
                                 priceServerId,
                                 cancellationToken);
@@ -492,12 +625,12 @@ namespace RoMarketCrawler.Services
                 // Store the first group's statistics as the overall result statistics
                 result.Statistics = statsCache.Values.FirstOrDefault(s => s != null);
 
-                Debug.WriteLine($"[MonitoringService] Refreshed '{item.ItemName}': {deals.Count} deals across {dealsByItemName.Count} item names");
+                Debug.WriteLine($"[MonitoringService] Refreshed '{capturedItemName}': {deals.Count} deals across {dealsByItemName.Count} item names");
             }
             catch (Exception ex)
             {
                 result.ErrorMessage = ex.Message;
-                Debug.WriteLine($"[MonitoringService] Failed to refresh '{item.ItemName}': {ex.Message}");
+                Debug.WriteLine($"[MonitoringService] Failed to refresh '{capturedItemName}': {ex.Message}");
             }
 
             return result;
@@ -633,45 +766,6 @@ namespace RoMarketCrawler.Services
             }
 
             return trimmed;
-        }
-
-        /// <summary>
-        /// Get price statistics with caching to reduce API calls.
-        /// Cache has a TTL of 5 minutes.
-        /// </summary>
-        private async Task<PriceStatistics?> GetCachedPriceStatisticsAsync(
-            string priceListMatchName,
-            int serverId,
-            CancellationToken cancellationToken)
-        {
-            var cacheKey = $"{priceListMatchName}|{serverId}";
-
-            // Check if we have a valid cached entry
-            if (_priceStatsCache.TryGetValue(cacheKey, out var cached))
-            {
-                var age = DateTime.Now - cached.CachedAt;
-                if (age.TotalMinutes < PriceCacheTtlMinutes)
-                {
-                    Debug.WriteLine($"[MonitoringService] Cache hit for '{priceListMatchName}' (age: {age.TotalSeconds:F0}s)");
-                    return cached.Stats;
-                }
-                else
-                {
-                    Debug.WriteLine($"[MonitoringService] Cache expired for '{priceListMatchName}' (age: {age.TotalMinutes:F1}m)");
-                }
-            }
-
-            // Fetch fresh statistics
-            var stats = await _gnjoyClient.FetchPriceHistoryAsync(
-                priceListMatchName,
-                serverId,
-                cancellationToken);
-
-            // Cache the result (even if null)
-            _priceStatsCache[cacheKey] = (stats, DateTime.Now);
-            Debug.WriteLine($"[MonitoringService] Cached price stats for '{priceListMatchName}': Yesterday={stats?.YesterdayAvgPrice:N0}");
-
-            return stats;
         }
 
         private static string GetResultKey(string itemName, int serverId)
