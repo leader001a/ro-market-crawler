@@ -78,6 +78,25 @@ public partial class Form1
             AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill
         };
         ApplyDataGridViewStyle(_dgvDeals);
+
+        // Force header center alignment by custom painting
+        _dgvDeals.CellPainting += (s, e) =>
+        {
+            if (e.RowIndex == -1 && e.ColumnIndex >= 0 && e.Graphics != null) // Header row
+            {
+                e.PaintBackground(e.ClipBounds, true);
+                TextRenderer.DrawText(
+                    e.Graphics,
+                    e.FormattedValue?.ToString() ?? "",
+                    e.CellStyle?.Font ?? _dgvDeals.Font,
+                    e.CellBounds,
+                    e.CellStyle?.ForeColor ?? ThemeText,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter
+                );
+                e.Handled = true;
+            }
+        };
+
         _dgvDeals.CellFormatting += DgvDeals_CellFormatting;
         SetupDealGridColumns();
         _dgvDeals.DataSource = _dealBindingSource;

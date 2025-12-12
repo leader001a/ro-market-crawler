@@ -236,6 +236,27 @@ public partial class Form1
         SetupMonitorItemsColumns();
         _dgvMonitorItems.DataSource = _monitorItemsBindingSource;
 
+        // Force header center alignment by custom painting
+        _dgvMonitorItems.CellPainting += (s, e) =>
+        {
+            if (e.RowIndex == -1 && e.ColumnIndex >= 0 && e.Graphics != null) // Header row
+            {
+                e.PaintBackground(e.ClipBounds, true);
+
+                // Draw header text centered manually
+                TextRenderer.DrawText(
+                    e.Graphics,
+                    e.FormattedValue?.ToString() ?? "",
+                    e.CellStyle?.Font ?? _dgvMonitorItems.Font,
+                    e.CellBounds,
+                    e.CellStyle?.ForeColor ?? ThemeText,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter
+                );
+
+                e.Handled = true; // Prevent default painting
+            }
+        };
+
         // Clear default selection after data binding
         _dgvMonitorItems.DataBindingComplete += (s, e) => _dgvMonitorItems.ClearSelection();
 
@@ -298,6 +319,27 @@ public partial class Form1
         _dgvMonitorResults.DataSource = _monitorResultsBindingSource;
         _dgvMonitorResults.CellFormatting += DgvMonitorResults_CellFormatting;
 
+        // Force header center alignment by custom painting
+        _dgvMonitorResults.CellPainting += (s, e) =>
+        {
+            if (e.RowIndex == -1 && e.ColumnIndex >= 0 && e.Graphics != null) // Header row
+            {
+                e.PaintBackground(e.ClipBounds, true);
+
+                // Draw header text centered manually
+                TextRenderer.DrawText(
+                    e.Graphics,
+                    e.FormattedValue?.ToString() ?? "",
+                    e.CellStyle?.Font ?? _dgvMonitorResults.Font,
+                    e.CellBounds,
+                    e.CellStyle?.ForeColor ?? ThemeText,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter
+                );
+
+                e.Handled = true; // Prevent default painting
+            }
+        };
+
         rightPanel.Controls.Add(_dgvMonitorResults);
         rightPanel.Controls.Add(lblResults);
         contentLayout.Controls.Add(rightPanel, 1, 0);
@@ -318,16 +360,6 @@ public partial class Form1
     {
         _dgvMonitorItems.Columns.Clear();
 
-        // Apply header style to entire grid
-        _dgvMonitorItems.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
-        {
-            Alignment = DataGridViewContentAlignment.MiddleCenter,
-            Font = new Font(_dgvMonitorItems.Font.FontFamily, 9, FontStyle.Bold),
-            BackColor = ThemePanel,
-            ForeColor = ThemeText
-        };
-        _dgvMonitorItems.EnableHeadersVisualStyles = false;
-
         // Item name column (editable for renaming)
         _dgvMonitorItems.Columns.Add(new DataGridViewTextBoxColumn
         {
@@ -335,24 +367,25 @@ public partial class Form1
             HeaderText = "아이템",
             DataPropertyName = "ItemName",
             AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
+            MinimumWidth = 100,
             ReadOnly = false
         });
 
         // Server column (ComboBox for editing)
-        var serverColumn = new DataGridViewComboBoxColumn
+        _dgvMonitorItems.Columns.Add(new DataGridViewComboBoxColumn
         {
             Name = "ServerId",
             HeaderText = "서버",
             DataPropertyName = "ServerId",
-            Width = 100,
+            Width = 95,
+            MinimumWidth = 80,
             DataSource = Server.GetAllServers(),
             ValueMember = "Id",
             DisplayMember = "Name",
             FlatStyle = FlatStyle.Flat,
             DisplayStyle = DataGridViewComboBoxDisplayStyle.ComboBox,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
-        };
-        _dgvMonitorItems.Columns.Add(serverColumn);
+        });
 
         // Watch price column (editable text box for price threshold)
         _dgvMonitorItems.Columns.Add(new DataGridViewTextBoxColumn
@@ -360,7 +393,8 @@ public partial class Form1
             Name = "WatchPrice",
             HeaderText = "감시가",
             DataPropertyName = "WatchPrice",
-            Width = 100,
+            Width = 90,
+            MinimumWidth = 70,
             DefaultCellStyle = new DataGridViewCellStyle
             {
                 Alignment = DataGridViewContentAlignment.MiddleRight,
@@ -374,7 +408,8 @@ public partial class Form1
         {
             Name = "RefreshStatus",
             HeaderText = "상태",
-            Width = 70,
+            Width = 80,
+            MinimumWidth = 65,
             ReadOnly = true,
             DefaultCellStyle = new DataGridViewCellStyle
             {
@@ -500,84 +535,84 @@ public partial class Form1
     {
         _dgvMonitorResults.Columns.Clear();
 
-        // Apply header style to entire grid
-        _dgvMonitorResults.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
-        {
-            Alignment = DataGridViewContentAlignment.MiddleCenter,
-            Font = new Font(_dgvMonitorResults.Font.FontFamily, 9, FontStyle.Bold),
-            BackColor = ThemePanel,
-            ForeColor = ThemeText
-        };
-        _dgvMonitorResults.EnableHeadersVisualStyles = false;
-
         // Column order: Grade, Refine, ItemName, Server, ...
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
             Name = "Grade",
             HeaderText = "등급",
-            Width = 50,
+            Width = 65,
+            MinimumWidth = 50,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
             Name = "Refine",
             HeaderText = "제련",
-            Width = 45,
+            Width = 50,
+            MinimumWidth = 45,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
             Name = "ItemName",
             HeaderText = "아이템",
-            Width = 180
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
+            MinimumWidth = 150
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
             Name = "ServerName",
             HeaderText = "서버",
-            Width = 80,
+            Width = 75,
+            MinimumWidth = 60,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
             Name = "DealCount",
             HeaderText = "수량",
-            Width = 45,
+            Width = 50,
+            MinimumWidth = 45,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
             Name = "LowestPrice",
             HeaderText = "최저가",
-            Width = 90,
+            Width = 95,
+            MinimumWidth = 80,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleRight }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
             Name = "YesterdayAvg",
             HeaderText = "어제평균",
-            Width = 90,
+            Width = 95,
+            MinimumWidth = 80,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleRight }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
             Name = "WeekAvg",
             HeaderText = "주간평균",
-            Width = 90,
+            Width = 95,
+            MinimumWidth = 80,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleRight }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
             Name = "PriceDiff",
             HeaderText = "%",
-            Width = 50,
+            Width = 55,
+            MinimumWidth = 45,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
             Name = "Status",
             HeaderText = "판정",
-            Width = 50,
+            Width = 55,
+            MinimumWidth = 45,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
         });
     }

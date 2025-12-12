@@ -115,6 +115,25 @@ public partial class Form1
             AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill
         };
         ApplyDataGridViewStyle(_dgvItems);
+
+        // Force header center alignment by custom painting
+        _dgvItems.CellPainting += (s, e) =>
+        {
+            if (e.RowIndex == -1 && e.ColumnIndex >= 0 && e.Graphics != null) // Header row
+            {
+                e.PaintBackground(e.ClipBounds, true);
+                TextRenderer.DrawText(
+                    e.Graphics,
+                    e.FormattedValue?.ToString() ?? "",
+                    e.CellStyle?.Font ?? _dgvItems.Font,
+                    e.CellBounds,
+                    e.CellStyle?.ForeColor ?? ThemeText,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter
+                );
+                e.Handled = true;
+            }
+        };
+
         SetupItemGridColumns();
         _dgvItems.DataSource = _itemBindingSource;
         _dgvItems.SelectionChanged += DgvItems_SelectionChanged;
