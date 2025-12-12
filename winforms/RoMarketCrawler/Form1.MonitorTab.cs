@@ -201,14 +201,26 @@ public partial class Form1
 
         // Handle server, item name, and watch price changes
         _dgvMonitorItems.CellValueChanged += DgvMonitorItems_CellValueChanged;
-        // Store original item name before editing (for rename tracking)
+        // Store original values before editing (for change tracking)
+        // Data binding updates the bound object BEFORE CellValueChanged fires,
+        // so we must capture original values in CellBeginEdit
         _dgvMonitorItems.CellBeginEdit += (s, e) =>
         {
-            if (_dgvMonitorItems.Columns[e.ColumnIndex].Name == "ItemName")
-            {
-                var row = _dgvMonitorItems.Rows[e.RowIndex];
-                row.Tag = row.Cells["ItemName"].Value?.ToString();
-            }
+            var row = _dgvMonitorItems.Rows[e.RowIndex];
+            var columnName = _dgvMonitorItems.Columns[e.ColumnIndex].Name;
+
+            // Get or create the dictionary for storing original values
+            var originalValues = row.Tag as Dictionary<string, object?> ?? new Dictionary<string, object?>();
+
+            // Store the original value for the column being edited
+            if (columnName == "ItemName")
+                originalValues["ItemName"] = row.Cells["ItemName"].Value?.ToString();
+            else if (columnName == "ServerId")
+                originalValues["ServerId"] = row.Cells["ServerId"].Value;
+            else if (columnName == "WatchPrice")
+                originalValues["WatchPrice"] = row.Cells["WatchPrice"].Value;
+
+            row.Tag = originalValues;
         };
 
         leftPanel.Controls.Add(_dgvMonitorItems);
@@ -329,10 +341,13 @@ public partial class Form1
         var columnName = _dgvMonitorItems.Columns[e.ColumnIndex].Name;
         var row = _dgvMonitorItems.Rows[e.RowIndex];
 
+        // Get stored original values from CellBeginEdit
+        var originalValues = row.Tag as Dictionary<string, object?>;
+
         if (columnName == "ItemName")
         {
             // Handle ItemName change (rename)
-            var oldName = row.Tag?.ToString();
+            var oldName = originalValues?.GetValueOrDefault("ItemName")?.ToString();
             var newName = row.Cells["ItemName"].Value?.ToString();
 
             if (string.IsNullOrEmpty(oldName) || string.IsNullOrEmpty(newName) || oldName == newName) return;
@@ -353,8 +368,8 @@ public partial class Form1
                 MessageBox.Show($"아이템 이름을 변경할 수 없습니다. 동일한 이름이 이미 존재합니다.", "오류", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
 
-            // Clear the stored old name
-            row.Tag = null;
+            // Clear the stored original values
+            originalValues?.Remove("ItemName");
 
             // Refresh the binding to update display
             UpdateMonitorItemList();
@@ -362,29 +377,31 @@ public partial class Form1
             return;
         }
 
-        var itemName = row.Cells["ItemName"].Value?.ToString();
-        if (string.IsNullOrEmpty(itemName)) return;
-
-        // Find the MonitorItem
-        var configItems = _monitoringService.Config.Items;
-        var monitorItem = configItems.FirstOrDefault(i => i.ItemName == itemName);
-        if (monitorItem == null) return;
-
         if (columnName == "ServerId")
         {
+            // Handle ServerId change
+            var oldServerId = originalValues?.GetValueOrDefault("ServerId") as int?;
             var newServerId = row.Cells["ServerId"].Value as int?;
-            if (newServerId == null) return;
 
-            var oldServerId = monitorItem.ServerId;
-            if (oldServerId == newServerId) return;
+            if (oldServerId == null || newServerId == null || oldServerId == newServerId) return;
 
-            // Update the server in the service
-            await _monitoringService.UpdateItemServerAsync(itemName, oldServerId, newServerId.Value);
+            // Get item name from the row (this is still the same, only ServerId changed)
+            var itemName = row.Cells["ItemName"].Value?.ToString();
+            if (string.IsNullOrEmpty(itemName)) return;
+
+            // Update the server in the service using the ORIGINAL serverId
+            await _monitoringService.UpdateItemServerAsync(itemName, oldServerId.Value, newServerId.Value);
+
+            // Clear the stored original value
+            originalValues?.Remove("ServerId");
 
             // Refresh the binding to update display
             UpdateMonitorItemList();
+            UpdateMonitorResults();
+            return;
         }
-        else if (columnName == "WatchPrice")
+
+        if (columnName == "WatchPrice")
         {
             // Handle WatchPrice change
             var cellValue = row.Cells["WatchPrice"].Value;
@@ -401,11 +418,29 @@ public partial class Form1
                     newWatchPrice = parsed;
             }
 
-            // Update the watch price
+            // Get item name and server from the row to find exact item
+            var itemName = row.Cells["ItemName"].Value?.ToString();
+            var serverId = row.Cells["ServerId"].Value as int?;
+            if (string.IsNullOrEmpty(itemName) || serverId == null) return;
+
+            // Find the MonitorItem by both name and server (for exact match)
+            var configItems = _monitoringService.Config.Items;
+            var monitorItem = configItems.FirstOrDefault(i =>
+                i.ItemName.Equals(itemName, StringComparison.OrdinalIgnoreCase) && i.ServerId == serverId);
+            if (monitorItem == null) return;
+
             monitorItem.WatchPrice = newWatchPrice;
 
-            // Save config
+            // Clear the stored original value
+            originalValues?.Remove("WatchPrice");
+
+            // Clear cache for this item (defensive: ensure fresh results on next refresh)
+            _monitoringService.ClearItemCache(itemName, serverId.Value);
+
+            // Save config and refresh UI
             await _monitoringService.SaveConfigAsync();
+            UpdateMonitorItemList();
+            UpdateMonitorResults();
         }
     }
 

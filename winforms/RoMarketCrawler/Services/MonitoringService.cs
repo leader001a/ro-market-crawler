@@ -171,25 +171,38 @@ namespace RoMarketCrawler.Services
         /// </summary>
         public async Task<bool> UpdateItemServerAsync(string itemName, int oldServerId, int newServerId)
         {
+            // NOTE: WinForms data binding updates item.ServerId to newServerId BEFORE CellValueChanged event fires
+            // So we must search by newServerId (not oldServerId) to find the item
             var item = _config.Items.FirstOrDefault(i =>
-                i.ItemName.Equals(itemName, StringComparison.OrdinalIgnoreCase) && i.ServerId == oldServerId);
+                i.ItemName.Equals(itemName, StringComparison.OrdinalIgnoreCase) && i.ServerId == newServerId);
 
             if (item == null)
                 return false;
 
-            // Remove old result from cache
+            // Remove old result from cache using the ORIGINAL serverId passed from CellBeginEdit
             lock (_lock)
             {
                 var oldKey = GetResultKey(itemName, oldServerId);
                 _results.Remove(oldKey);
             }
 
-            // Update the server ID
-            item.ServerId = newServerId;
-
+            // ServerId is already updated by data binding, just save config
             await SaveConfigAsync();
             Debug.WriteLine($"[MonitoringService] Updated item '{itemName}' server from {oldServerId} to {newServerId}");
             return true;
+        }
+
+        /// <summary>
+        /// Clear cached results for a specific item (used when settings change)
+        /// </summary>
+        public void ClearItemCache(string itemName, int serverId)
+        {
+            lock (_lock)
+            {
+                var key = GetResultKey(itemName, serverId);
+                _results.Remove(key);
+                Debug.WriteLine($"[MonitoringService] Cleared cache for '{itemName}' (server={serverId})");
+            }
         }
 
         /// <summary>
