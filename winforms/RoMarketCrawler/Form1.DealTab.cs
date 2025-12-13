@@ -20,13 +20,14 @@ public partial class Form1
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 4,
+            RowCount = 5,
             Padding = new Padding(10)
         };
         mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));   // Row 0: Toolbar
         mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));    // Row 1: Search history (dynamic)
         mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));   // Row 2: Results grid
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));   // Row 3: Status
+        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));   // Row 3: Pagination
+        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 25));   // Row 4: Status
         ApplyTableLayoutPanelStyle(mainPanel);
 
         // ToolStrip-based toolbar
@@ -87,43 +88,71 @@ public partial class Form1
         _btnDealCancel = new Button(); // Dummy for state management
         _btnDealCancelToolStrip = btnCancel;
 
-        // Pagination buttons
-        var btnPrev = new ToolStripButton
-        {
-            Text = "<",
-            Enabled = false,
-            ToolTipText = "이전 페이지"
-        };
-        btnPrev.Click += BtnDealPrev_Click;
-        _btnDealPrev = btnPrev;
-
-        var lblPage = new ToolStripLabel
-        {
-            Text = "0페이지",
-            ToolTipText = "현재 페이지"
-        };
-        _lblDealPage = lblPage;
-
-        var btnNext = new ToolStripButton
-        {
-            Text = ">",
-            Enabled = false,
-            ToolTipText = "다음 페이지"
-        };
-        btnNext.Click += BtnDealNext_Click;
-        _btnDealNext = btnNext;
-
-        // Add items to toolbar
+        // Add items to toolbar (without pagination)
         toolStrip.Items.Add(cboServer);
         toolStrip.Items.Add(new ToolStripSeparator());
         toolStrip.Items.Add(txtSearch);
         toolStrip.Items.Add(new ToolStripSeparator());
         toolStrip.Items.Add(btnSearch);
         toolStrip.Items.Add(btnCancel);
-        toolStrip.Items.Add(new ToolStripSeparator());
-        toolStrip.Items.Add(btnPrev);
-        toolStrip.Items.Add(lblPage);
-        toolStrip.Items.Add(btnNext);
+
+        // Pagination panel (bottom, centered)
+        var paginationPanel = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = ThemePanel,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            AutoSize = false,
+            Padding = new Padding(0, 3, 0, 0)
+        };
+
+        // Pagination buttons
+        _btnDealPrev = new Button
+        {
+            Text = "<",
+            Size = new Size(30, 24),
+            FlatStyle = FlatStyle.Flat,
+            BackColor = ThemePanel,
+            ForeColor = ThemeText,
+            Enabled = false,
+            Cursor = Cursors.Hand
+        };
+        _btnDealPrev.FlatAppearance.BorderColor = ThemeBorder;
+        _btnDealPrev.Click += BtnDealPrev_Click;
+
+        _lblDealPage = new Label
+        {
+            Text = "0페이지",
+            AutoSize = true,
+            ForeColor = ThemeText,
+            TextAlign = ContentAlignment.MiddleCenter,
+            Padding = new Padding(10, 5, 10, 0)
+        };
+
+        _btnDealNext = new Button
+        {
+            Text = ">",
+            Size = new Size(30, 24),
+            FlatStyle = FlatStyle.Flat,
+            BackColor = ThemePanel,
+            ForeColor = ThemeText,
+            Enabled = false,
+            Cursor = Cursors.Hand
+        };
+        _btnDealNext.FlatAppearance.BorderColor = ThemeBorder;
+        _btnDealNext.Click += BtnDealNext_Click;
+
+        paginationPanel.Controls.Add(_btnDealPrev);
+        paginationPanel.Controls.Add(_lblDealPage);
+        paginationPanel.Controls.Add(_btnDealNext);
+
+        // Center alignment by handling resize
+        paginationPanel.Resize += (s, e) =>
+        {
+            var totalWidth = _btnDealPrev.Width + _lblDealPage.Width + _btnDealNext.Width + 20;
+            paginationPanel.Padding = new Padding((paginationPanel.Width - totalWidth) / 2, 3, 0, 0);
+        };
 
         // Search history panel (horizontal flow of clickable labels)
         _pnlSearchHistory = new FlowLayoutPanel
@@ -195,7 +224,8 @@ public partial class Form1
         mainPanel.Controls.Add(toolStrip, 0, 0);
         mainPanel.Controls.Add(_pnlSearchHistory, 0, 1);
         mainPanel.Controls.Add(_dgvDeals, 0, 2);
-        mainPanel.Controls.Add(_lblDealStatus, 0, 3);
+        mainPanel.Controls.Add(paginationPanel, 0, 3);
+        mainPanel.Controls.Add(_lblDealStatus, 0, 4);
 
         tab.Controls.Add(mainPanel);
     }

@@ -52,9 +52,9 @@ public partial class Form1 : Form
     private const int MaxSearchHistoryCount = 10;
 
     // Deal Tab Pagination (server-side: API returns 10 items per page)
-    private ToolStripButton _btnDealPrev = null!;
-    private ToolStripButton _btnDealNext = null!;
-    private ToolStripLabel _lblDealPage = null!;
+    private Button _btnDealPrev = null!;
+    private Button _btnDealNext = null!;
+    private Label _lblDealPage = null!;
     private int _dealCurrentPage = 1;  // API uses 1-based page numbers
 
     // Tab 2: Item Database (Kafra)
