@@ -82,10 +82,10 @@ public class DealItem
         Week7AvgPrice.HasValue ? Week7AvgPrice.Value.ToString("N0") : "-";
 
     /// <summary>
-    /// Slot info display for UI (enchants and cards)
+    /// Slot info display for UI (enchants and cards) - vertical layout
     /// </summary>
     public string SlotInfoDisplay =>
-        SlotInfo.Count > 0 ? string.Join(", ", SlotInfo) : "-";
+        SlotInfo.Count > 0 ? string.Join(Environment.NewLine, SlotInfo) : "-";
 
     /// <summary>
     /// Random options display for UI

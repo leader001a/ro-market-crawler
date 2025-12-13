@@ -8,252 +8,322 @@ namespace RoMarketCrawler;
 
 /// <summary>
 /// Item detail popup form - shows image, price stats, enchants/cards
+/// Dark theme styled with modern UI
 /// </summary>
 public class ItemDetailForm : Form
 {
     private readonly DealItem _item;
-    private readonly GnjoyClient _gnjoyClient;
+    private readonly ItemIndexService? _itemIndexService;
     private readonly HttpClient _imageClient;
+
+    // Theme colors (matching Form1 dark theme)
+    private static readonly Color ThemeBackground = Color.FromArgb(30, 30, 35);
+    private static readonly Color ThemePanel = Color.FromArgb(45, 45, 55);
+    private static readonly Color ThemeCard = Color.FromArgb(38, 38, 46);
+    private static readonly Color ThemeAccent = Color.FromArgb(70, 130, 200);
+    private static readonly Color ThemeText = Color.FromArgb(230, 230, 235);
+    private static readonly Color ThemeTextMuted = Color.FromArgb(160, 160, 170);
+    private static readonly Color ThemeTextHighlight = Color.FromArgb(100, 180, 255);
+    private static readonly Color ThemeBorder = Color.FromArgb(70, 75, 90);
+    private static readonly Color ThemePositive = Color.FromArgb(100, 200, 120);
+    private static readonly Color ThemeNegative = Color.FromArgb(255, 100, 100);
+    private static readonly Color ThemeWarning = Color.FromArgb(255, 180, 80);
 
     // UI Controls
     private PictureBox _picItem = null!;
     private Label _lblItemName = null!;
     private Label _lblBasicInfo = null!;
-    private GroupBox _grpPriceStats = null!;
-    private Label _lblCurrentPrice = null!;
-    private Label _lblYesterdayAvg = null!;
-    private Label _lblWeek7Avg = null!;
-    private Label _lblPriceCompare = null!;
-    private GroupBox _grpItemDesc = null!;
-    private TextBox _txtItemDesc = null!;
-    private GroupBox _grpSlotInfo = null!;
-    private TextBox _txtSlotInfo = null!;
-    private GroupBox _grpRandomOptions = null!;
-    private ListBox _lstRandomOptions = null!;
+    private RichTextBox _rtbItemDesc = null!;
+    private RichTextBox _rtbSlotInfo = null!;
+    private RichTextBox _rtbRandomOptions = null!;
     private Label _lblStatus = null!;
     private Button _btnClose = null!;
 
-    public ItemDetailForm(DealItem item, GnjoyClient gnjoyClient)
+    public ItemDetailForm(DealItem item, ItemIndexService? itemIndexService = null)
     {
         _item = item;
-        _gnjoyClient = gnjoyClient;
+        _itemIndexService = itemIndexService;
         _imageClient = new HttpClient();
         _imageClient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0");
         _imageClient.DefaultRequestHeaders.Referrer = new Uri("https://ro.gnjoy.com/");
 
-        // Initialize KafraClient for enchant lookup
-        EnchantDatabase.Instance.InitializeKafraClient();
-
         InitializeUI();
-        _ = LoadDataAsync();
+
+        // Load data after form is shown (handle must be created for Invoke to work)
+        Load += async (s, e) => await LoadDataAsync();
     }
 
     private void InitializeUI()
     {
         Text = "아이템 상세정보";
-        Size = new Size(600, 800);
+        Size = new Size(1050, 650);
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.Sizable;
         MaximizeBox = true;
         MinimizeBox = false;
-        MinimumSize = new Size(500, 650);
+        MinimumSize = new Size(900, 550);
+        BackColor = ThemeBackground;
+        ForeColor = ThemeText;
 
+        // Main layout: Header | Content | Random Options | Status
         var mainPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 2,
-            RowCount = 7,
-            Padding = new Padding(10)
+            ColumnCount = 1,
+            RowCount = 4,
+            Padding = new Padding(15),
+            BackColor = ThemeBackground
         };
-        mainPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
-        mainPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 80));  // Row 0: Image + Name
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));  // Row 1: Basic info
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 100)); // Row 2: Price stats
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 30));   // Row 3: Item description
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 45));   // Row 4: Slot info (enchants+effects)
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 25));   // Row 5: Random options
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 45));  // Row 6: Status + Close
+        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 140));  // Top: Header
+        mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));   // Middle: Content
+        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 125)); // Random Options (4 lines)
+        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));   // Bottom: Status
 
-        // Row 0: Item image and name
+        // === TOP: Header card (image + name + basic info + price) ===
+        var headerCard = CreateCard(new Size(0, 130));
+        headerCard.Dock = DockStyle.Fill;
+
+        // Use TableLayoutPanel for header layout
+        var headerLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            BackColor = Color.Transparent,
+            Margin = new Padding(0)
+        };
+        headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));  // Image column
+        headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));   // Name/info column
+
+        // Item image (column 0)
         _picItem = new PictureBox
         {
-            Size = new Size(80, 80),
+            Size = new Size(100, 100),
             SizeMode = PictureBoxSizeMode.Zoom,
-            BorderStyle = BorderStyle.FixedSingle,
-            BackColor = Color.White
+            BackColor = Color.FromArgb(55, 55, 65),
+            Margin = new Padding(5)
         };
-        mainPanel.Controls.Add(_picItem, 0, 0);
+        headerLayout.Controls.Add(_picItem, 0, 0);
 
-        var namePanel = new Panel { Dock = DockStyle.Fill };
+        // Name and basic info panel (column 1)
+        var infoPanel = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Color.Transparent,
+            Padding = new Padding(10, 5, 10, 5)
+        };
+
         _lblItemName = new Label
         {
             Text = _item.DisplayName ?? _item.ItemName,
-            Font = new Font(Font.FontFamily, 12, FontStyle.Bold),
+            Font = new Font("Malgun Gothic", 14, FontStyle.Bold),
+            ForeColor = ThemeTextHighlight,
             AutoSize = false,
-            Dock = DockStyle.Fill,
+            Location = new Point(0, 0),
+            Size = new Size(600, 28),
             TextAlign = ContentAlignment.MiddleLeft
         };
-        namePanel.Controls.Add(_lblItemName);
-        mainPanel.Controls.Add(namePanel, 1, 0);
+        infoPanel.Controls.Add(_lblItemName);
 
-        // Row 1: Basic info
         _lblBasicInfo = new Label
         {
             Text = BuildBasicInfoText(),
+            Font = new Font("Malgun Gothic", 9),
+            ForeColor = ThemeTextMuted,
             AutoSize = false,
-            Dock = DockStyle.Fill,
-            TextAlign = ContentAlignment.TopLeft
+            Location = new Point(0, 32),
+            Size = new Size(600, 70)
         };
-        mainPanel.Controls.Add(_lblBasicInfo, 0, 1);
-        mainPanel.SetColumnSpan(_lblBasicInfo, 2);
+        infoPanel.Controls.Add(_lblBasicInfo);
 
-        // Row 2: Price statistics group
-        _grpPriceStats = new GroupBox
-        {
-            Text = "시세 정보",
-            Dock = DockStyle.Fill
-        };
-        var pricePanel = new TableLayoutPanel
+        headerLayout.Controls.Add(infoPanel, 1, 0);
+
+        headerCard.Controls.Add(headerLayout);
+        mainPanel.Controls.Add(headerCard, 0, 0);
+
+        // === MIDDLE: Content area (left: desc, right: enchants) ===
+        var contentPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             ColumnCount = 2,
-            RowCount = 4,
-            Padding = new Padding(5)
+            RowCount = 1,
+            BackColor = ThemeBackground,
+            Margin = new Padding(0, 10, 0, 0)
         };
-        pricePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40));
-        pricePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 60));
+        contentPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));  // Left: Item desc
+        contentPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));  // Right: Enchants
 
-        _lblCurrentPrice = new Label { Text = "현재가: " + _item.PriceFormatted, Dock = DockStyle.Fill };
-        _lblYesterdayAvg = new Label { Text = "전일평균: 로딩중...", Dock = DockStyle.Fill };
-        _lblWeek7Avg = new Label { Text = "7일평균: 로딩중...", Dock = DockStyle.Fill };
-        _lblPriceCompare = new Label { Text = "시세비교: 로딩중...", Dock = DockStyle.Fill };
+        // Left: Item description card
+        var descCard = CreateCard(new Size(0, 0));
+        descCard.Dock = DockStyle.Fill;
+        descCard.Margin = new Padding(0, 0, 8, 0);
 
-        pricePanel.Controls.Add(_lblCurrentPrice, 0, 0);
-        pricePanel.Controls.Add(_lblYesterdayAvg, 1, 0);
-        pricePanel.Controls.Add(_lblWeek7Avg, 0, 1);
-        pricePanel.Controls.Add(_lblPriceCompare, 1, 1);
-
-        _grpPriceStats.Controls.Add(pricePanel);
-        mainPanel.Controls.Add(_grpPriceStats, 0, 2);
-        mainPanel.SetColumnSpan(_grpPriceStats, 2);
-
-        // Row 3: Item description (base effect from kafra.kr)
-        _grpItemDesc = new GroupBox
+        var descTitle = new Label
         {
             Text = "아이템 설명",
-            Dock = DockStyle.Fill
+            Font = new Font("Malgun Gothic", 10, FontStyle.Bold),
+            ForeColor = ThemeText,
+            Location = new Point(15, 12),
+            AutoSize = true
         };
-        _txtItemDesc = new TextBox
-        {
-            Dock = DockStyle.Fill,
-            Multiline = true,
-            ReadOnly = true,
-            ScrollBars = ScrollBars.Vertical,
-            BackColor = SystemColors.Window,
-            Font = new Font("Malgun Gothic", 9.5f),
-            Text = "로딩중..."
-        };
-        _grpItemDesc.Controls.Add(_txtItemDesc);
-        mainPanel.Controls.Add(_grpItemDesc, 0, 3);
-        mainPanel.SetColumnSpan(_grpItemDesc, 2);
+        descCard.Controls.Add(descTitle);
 
-        // Row 4: Slot info (enchants/cards) - ALL effects shown at once
-        _grpSlotInfo = new GroupBox
+        _rtbItemDesc = CreateRichTextBox();
+        _rtbItemDesc.Location = new Point(15, 40);
+        _rtbItemDesc.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
+        _rtbItemDesc.Size = new Size(descCard.Width - 30, descCard.Height - 55);
+        _rtbItemDesc.Text = "로딩중...";
+        descCard.Controls.Add(_rtbItemDesc);
+
+        contentPanel.Controls.Add(descCard, 0, 0);
+
+        // Right: Enchants only (random options moved to bottom)
+        var slotCard = CreateCard(new Size(0, 0));
+        slotCard.Dock = DockStyle.Fill;
+        slotCard.Margin = new Padding(8, 0, 0, 0);
+
+        var slotTitle = new Label
         {
             Text = "인챈트/카드 효과",
-            Dock = DockStyle.Fill
+            Font = new Font("Malgun Gothic", 10, FontStyle.Bold),
+            ForeColor = ThemeText,
+            Location = new Point(15, 12),
+            AutoSize = true
         };
-        _txtSlotInfo = new TextBox
-        {
-            Dock = DockStyle.Fill,
-            Multiline = true,
-            ReadOnly = true,
-            ScrollBars = ScrollBars.Vertical,
-            BackColor = SystemColors.Window,
-            Font = new Font("Malgun Gothic", 9.5f),
-            Text = "로딩중..."
-        };
-        _grpSlotInfo.Controls.Add(_txtSlotInfo);
-        mainPanel.Controls.Add(_grpSlotInfo, 0, 4);
-        mainPanel.SetColumnSpan(_grpSlotInfo, 2);
+        slotCard.Controls.Add(slotTitle);
 
-        // Row 5: Random options
-        _grpRandomOptions = new GroupBox
+        _rtbSlotInfo = CreateRichTextBox();
+        _rtbSlotInfo.Location = new Point(15, 40);
+        _rtbSlotInfo.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
+        _rtbSlotInfo.Size = new Size(slotCard.Width - 30, slotCard.Height - 55);
+        _rtbSlotInfo.Text = "로딩중...";
+        slotCard.Controls.Add(_rtbSlotInfo);
+
+        contentPanel.Controls.Add(slotCard, 1, 0);
+
+        mainPanel.Controls.Add(contentPanel, 0, 1);
+
+        // === ROW 2: Random options card (separate bottom section) ===
+        var optionsCard = CreateCard(new Size(0, 0));
+        optionsCard.Dock = DockStyle.Fill;
+        optionsCard.Margin = new Padding(0, 10, 0, 0);
+
+        var optionsTitle = new Label
         {
             Text = "랜덤 옵션",
-            Dock = DockStyle.Fill
+            Font = new Font("Malgun Gothic", 10, FontStyle.Bold),
+            ForeColor = ThemeText,
+            Location = new Point(15, 12),
+            AutoSize = true
         };
-        _lstRandomOptions = new ListBox
-        {
-            Dock = DockStyle.Fill,
-            BorderStyle = BorderStyle.None,
-            IntegralHeight = false
-        };
-        _lstRandomOptions.Items.Add("로딩중...");
-        _grpRandomOptions.Controls.Add(_lstRandomOptions);
-        mainPanel.Controls.Add(_grpRandomOptions, 0, 5);
-        mainPanel.SetColumnSpan(_grpRandomOptions, 2);
+        optionsCard.Controls.Add(optionsTitle);
 
-        // Row 6: Status and close button
-        var bottomPanel = new FlowLayoutPanel
+        _rtbRandomOptions = CreateRichTextBox();
+        _rtbRandomOptions.Location = new Point(15, 38);
+        _rtbRandomOptions.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
+        _rtbRandomOptions.Size = new Size(optionsCard.Width - 30, optionsCard.Height - 50);
+        _rtbRandomOptions.Text = "로딩중...";
+        optionsCard.Controls.Add(_rtbRandomOptions);
+
+        mainPanel.Controls.Add(optionsCard, 0, 2);
+
+        // === BOTTOM: Status and Close button ===
+        var bottomPanel = new Panel
         {
             Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.LeftToRight
+            BackColor = ThemeBackground
         };
+
         _lblStatus = new Label
         {
             Text = "데이터 로딩중...",
+            Font = new Font("Malgun Gothic", 9),
+            ForeColor = ThemeTextMuted,
             AutoSize = true,
-            Margin = new Padding(0, 10, 20, 0)
+            Location = new Point(0, 15)
         };
+        bottomPanel.Controls.Add(_lblStatus);
+
         _btnClose = new Button
         {
             Text = "닫기",
-            Width = 80,
-            Height = 30
+            Size = new Size(90, 35),
+            FlatStyle = FlatStyle.Flat,
+            BackColor = ThemePanel,
+            ForeColor = ThemeText,
+            Font = new Font("Malgun Gothic", 9, FontStyle.Bold),
+            Cursor = Cursors.Hand,
+            Anchor = AnchorStyles.Top | AnchorStyles.Right
         };
+        _btnClose.FlatAppearance.BorderColor = ThemeBorder;
+        _btnClose.FlatAppearance.MouseOverBackColor = ThemeAccent;
+        _btnClose.Location = new Point(bottomPanel.Width - 100, 8);
         _btnClose.Click += (s, e) => Close();
-        bottomPanel.Controls.Add(_lblStatus);
         bottomPanel.Controls.Add(_btnClose);
-        mainPanel.Controls.Add(bottomPanel, 0, 6);
-        mainPanel.SetColumnSpan(bottomPanel, 2);
+
+        mainPanel.Controls.Add(bottomPanel, 0, 3);
 
         Controls.Add(mainPanel);
     }
 
+    private Panel CreateCard(Size size)
+    {
+        var card = new Panel
+        {
+            BackColor = ThemeCard,
+            Size = size,
+            Padding = new Padding(15)
+        };
+        card.Paint += (s, e) =>
+        {
+            using var pen = new Pen(ThemeBorder, 1);
+            e.Graphics.DrawRectangle(pen, 0, 0, card.Width - 1, card.Height - 1);
+        };
+        return card;
+    }
+
+    private RichTextBox CreateRichTextBox()
+    {
+        return new RichTextBox
+        {
+            BackColor = ThemeCard,
+            ForeColor = ThemeText,
+            Font = new Font("Malgun Gothic", 9.5f),
+            BorderStyle = BorderStyle.None,
+            ReadOnly = true,
+            ScrollBars = RichTextBoxScrollBars.Vertical
+        };
+    }
+
+    private void AppendColoredText(RichTextBox rtb, string text, Color color, bool bold = false, bool newLine = true)
+    {
+        rtb.SelectionStart = rtb.TextLength;
+        rtb.SelectionLength = 0;
+        rtb.SelectionColor = color;
+        rtb.SelectionFont = new Font(rtb.Font, bold ? FontStyle.Bold : FontStyle.Regular);
+        rtb.AppendText(newLine ? text + Environment.NewLine : text);
+        rtb.SelectionColor = rtb.ForeColor;
+    }
+
     private string BuildBasicInfoText()
     {
-        var parts = new List<string>
+        var lines = new List<string>
         {
-            $"서버: {_item.ServerName}",
-            $"유형: {_item.DealTypeDisplay}",
-            $"수량: {_item.Quantity}",
-            $"상점: {_item.ShopName}"
+            $"서버: {_item.ServerName}  |  유형: {_item.DealTypeDisplay}  |  수량: {_item.Quantity}",
+            $"상점: {_item.ShopName}" + (!string.IsNullOrEmpty(_item.MapName) ? $"  |  위치: {_item.MapName}" : ""),
+            $"현재가: {_item.PriceFormatted} z"
         };
-        if (!string.IsNullOrEmpty(_item.MapName))
-        {
-            parts.Add($"위치: {_item.MapName}");
-        }
-        return string.Join("  |  ", parts);
+        return string.Join(Environment.NewLine, lines);
     }
 
     private async Task LoadDataAsync()
     {
         try
         {
-            // Load image and stats in parallel (they don't depend on SlotInfo)
             var imageTask = LoadImageAsync();
-            var statsTask = LoadPriceStatsAsync();
-
-            // Load detail info FIRST to get SlotInfo (card names)
-            // This is needed to extract base item name for kafra.kr search
-            await LoadDetailInfoAsync();
-
-            // Now load item description with base item name (card prefixes removed)
+            LoadDetailInfo();
             var itemDescTask = LoadItemDescriptionAsync();
-
-            await Task.WhenAll(imageTask, statsTask, itemDescTask);
+            await Task.WhenAll(imageTask, itemDescTask);
             _lblStatus.Text = "로딩 완료";
         }
         catch (Exception ex)
@@ -263,116 +333,112 @@ public class ItemDetailForm : Form
         }
     }
 
-    private async Task LoadItemDescriptionAsync()
+    private Task LoadItemDescriptionAsync()
     {
         try
         {
-            // Get base item name (card prefixes removed)
             var baseItemName = _item.GetBaseItemName();
             var originalName = _item.ItemName;
+            var effectiveItemId = _item.GetEffectiveItemId();
 
-            Debug.WriteLine($"[ItemDetailForm] Original item name: '{originalName}'");
-            Debug.WriteLine($"[ItemDetailForm] Base item name (card prefixes removed): '{baseItemName}'");
-            Debug.WriteLine($"[ItemDetailForm] Loading item data from kafra.kr for: '{baseItemName}'");
+            KafraItem? kafraItem = null;
 
-            var kafraClient = new KafraClient();
-            try
+            // Check if ItemIndexService is available
+            if (_itemIndexService == null || !_itemIndexService.IsLoaded)
             {
-                // Use GetFullItemDataAsync with base item name (card prefixes removed)
-                var kafraItem = await kafraClient.GetFullItemDataAsync(baseItemName);
-
-                // If not found with base name, try original name as fallback
-                if (kafraItem == null && baseItemName != originalName)
+                if (!IsDisposed)
                 {
-                    Debug.WriteLine($"[ItemDetailForm] Base name not found, trying original: '{originalName}'");
-                    kafraItem = await kafraClient.GetFullItemDataAsync(originalName);
-                }
-
-                // If still not found, try direct ID lookup using effective ItemId
-                // (either from parser or extracted from image URL)
-                var effectiveItemId = _item.GetEffectiveItemId();
-                if (kafraItem == null && effectiveItemId.HasValue)
-                {
-                    Debug.WriteLine($"[ItemDetailForm] Name search failed, trying ID lookup: {effectiveItemId}");
-                    Debug.WriteLine($"[ItemDetailForm] Image URL: {_item.ItemImageUrl}");
-                    kafraItem = await kafraClient.GetItemByIdAsync(effectiveItemId.Value);
-                }
-
-                if (kafraItem != null)
-                {
-                    if (!IsDisposed)
+                    Invoke(() =>
                     {
-                        Invoke(() =>
-                        {
-                            // Build comprehensive item info from kafra.kr
-                            var sb = new StringBuilder();
-
-                            // Item basic info header
-                            sb.AppendLine($"[kafra.kr 아이템 정보]");
-                            sb.AppendLine(new string('-', 40));
-
-                            // Item metadata
-                            var infoLines = new List<string>();
-                            infoLines.Add($"분류: {kafraItem.GetTypeDisplayName()}");
-
-                            if (kafraItem.Slots > 0)
-                            {
-                                infoLines.Add($"슬롯: {kafraItem.Slots}");
-                            }
-
-                            if (kafraItem.Weight > 0)
-                            {
-                                infoLines.Add($"무게: {kafraItem.GetFormattedWeight()}");
-                            }
-
-                            var npcBuy = kafraItem.GetFormattedNpcBuyPrice();
-                            var npcSell = kafraItem.GetFormattedNpcSellPrice();
-                            if (npcBuy != "-" || npcSell != "-")
-                            {
-                                infoLines.Add($"NPC가격: 구매 {npcBuy} / 판매 {npcSell}");
-                            }
-
-                            sb.AppendLine(string.Join("  |  ", infoLines));
-
-                            // Equip jobs if available
-                            if (!string.IsNullOrEmpty(kafraItem.EquipJobsText))
-                            {
-                                sb.AppendLine($"착용직업: {kafraItem.EquipJobsText}");
-                            }
-
-                            sb.AppendLine(new string('-', 40));
-                            sb.AppendLine();
-
-                            // Item description/effect
-                            if (!string.IsNullOrEmpty(kafraItem.ItemText))
-                            {
-                                sb.AppendLine("[아이템 효과]");
-                                sb.AppendLine(kafraItem.ItemText);
-                            }
-                            else
-                            {
-                                sb.AppendLine("(아이템 효과 설명 없음)");
-                            }
-
-                            _txtItemDesc.Text = sb.ToString().TrimEnd();
-                            _grpItemDesc.Text = $"아이템 설명 (kafra.kr)";
-                        });
-                    }
+                        _rtbItemDesc.Clear();
+                        AppendColoredText(_rtbItemDesc, "아이템 캐시가 로드되지 않았습니다.", ThemeTextMuted);
+                        AppendColoredText(_rtbItemDesc, "(아이템 정보 수집 메뉴에서 데이터를 먼저 수집해주세요)", ThemeTextMuted);
+                        _rtbItemDesc.SelectionStart = 0;
+                        _rtbItemDesc.ScrollToCaret();
+                    });
                 }
-                else
+                return Task.CompletedTask;
+            }
+
+            // Try by ID first (most accurate)
+            if (effectiveItemId.HasValue)
+            {
+                var cachedItem = _itemIndexService.GetItemById(effectiveItemId.Value);
+                if (cachedItem != null)
                 {
-                    if (!IsDisposed)
-                    {
-                        Invoke(() =>
-                        {
-                            _txtItemDesc.Text = "(kafra.kr에서 아이템 정보를 찾을 수 없음)";
-                        });
-                    }
+                    kafraItem = cachedItem.ToKafraItem();
                 }
             }
-            finally
+
+            // Try by name if not found by ID
+            if (kafraItem == null)
             {
-                kafraClient.Dispose();
+                var cachedItem = _itemIndexService.GetItemByName(baseItemName);
+                if (cachedItem == null && baseItemName != originalName)
+                {
+                    cachedItem = _itemIndexService.GetItemByName(originalName);
+                }
+                if (cachedItem != null)
+                {
+                    kafraItem = cachedItem.ToKafraItem();
+                }
+            }
+
+            // Display result
+            if (kafraItem != null && !IsDisposed)
+            {
+                Invoke(() =>
+                {
+                    _rtbItemDesc.Clear();
+
+                    // Item metadata section
+                    AppendColoredText(_rtbItemDesc, "기본 정보", ThemeTextHighlight, true);
+
+                    var infoText = $"분류: {kafraItem.GetTypeDisplayName()}";
+                    if (kafraItem.Slots > 0) infoText += $"  |  슬롯: {kafraItem.Slots}";
+                    if (kafraItem.Weight > 0) infoText += $"  |  무게: {kafraItem.GetFormattedWeight()}";
+                    AppendColoredText(_rtbItemDesc, infoText, ThemeTextMuted);
+
+                    var npcBuy = kafraItem.GetFormattedNpcBuyPrice();
+                    var npcSell = kafraItem.GetFormattedNpcSellPrice();
+                    if (npcBuy != "-" || npcSell != "-")
+                    {
+                        AppendColoredText(_rtbItemDesc, $"NPC: 구매 {npcBuy} / 판매 {npcSell}", ThemeTextMuted);
+                    }
+
+                    if (!string.IsNullOrEmpty(kafraItem.EquipJobsText))
+                    {
+                        AppendColoredText(_rtbItemDesc, $"착용: {kafraItem.EquipJobsText}", ThemeTextMuted);
+                    }
+
+                    AppendColoredText(_rtbItemDesc, "", ThemeText); // Spacer
+
+                    // Item effect section
+                    AppendColoredText(_rtbItemDesc, "아이템 효과", ThemeTextHighlight, true);
+                    if (!string.IsNullOrEmpty(kafraItem.ItemText))
+                    {
+                        AppendColoredText(_rtbItemDesc, kafraItem.ItemText, ThemeText);
+                    }
+                    else
+                    {
+                        AppendColoredText(_rtbItemDesc, "(효과 설명 없음)", ThemeTextMuted);
+                    }
+
+                    // Scroll to top
+                    _rtbItemDesc.SelectionStart = 0;
+                    _rtbItemDesc.ScrollToCaret();
+                });
+            }
+            else if (!IsDisposed)
+            {
+                Invoke(() =>
+                {
+                    _rtbItemDesc.Clear();
+                    AppendColoredText(_rtbItemDesc, "아이템 정보를 찾을 수 없습니다.", ThemeTextMuted);
+                    AppendColoredText(_rtbItemDesc, "(아이템 정보 수집을 먼저 실행해주세요)", ThemeTextMuted);
+                    _rtbItemDesc.SelectionStart = 0;
+                    _rtbItemDesc.ScrollToCaret();
+                });
             }
         }
         catch (Exception ex)
@@ -382,18 +448,20 @@ public class ItemDetailForm : Form
             {
                 Invoke(() =>
                 {
-                    _txtItemDesc.Text = "kafra.kr 정보 로딩 실패: " + ex.Message;
+                    _rtbItemDesc.Clear();
+                    AppendColoredText(_rtbItemDesc, "정보 로딩 실패: " + ex.Message, ThemeNegative);
+                    _rtbItemDesc.SelectionStart = 0;
+                    _rtbItemDesc.ScrollToCaret();
                 });
             }
         }
+
+        return Task.CompletedTask;
     }
 
     private async Task LoadImageAsync()
     {
-        if (string.IsNullOrEmpty(_item.ItemImageUrl))
-        {
-            return;
-        }
+        if (string.IsNullOrEmpty(_item.ItemImageUrl)) return;
 
         try
         {
@@ -403,7 +471,6 @@ public class ItemDetailForm : Form
                 imageUrl = "https://ro.gnjoy.com" + imageUrl;
             }
 
-            Debug.WriteLine($"[ItemDetailForm] Loading image: {imageUrl}");
             var imageBytes = await _imageClient.GetByteArrayAsync(imageUrl);
             using var ms = new MemoryStream(imageBytes);
             var image = Image.FromStream(ms);
@@ -419,193 +486,85 @@ public class ItemDetailForm : Form
         }
     }
 
-    private async Task LoadPriceStatsAsync()
+    private void LoadDetailInfo()
     {
-        try
+        if (IsDisposed) return;
+
+        _rtbSlotInfo.Clear();
+        _rtbRandomOptions.Clear();
+
+        // Display slot info (enchants/cards)
+        if (_item.SlotInfo.Count > 0)
         {
-            // Use the item name for price lookup
-            var searchName = _item.ItemName;
-            Debug.WriteLine($"[ItemDetailForm] Loading price stats for: {searchName}, serverId={_item.ServerId}");
-
-            var stats = await _gnjoyClient.FetchPriceHistoryWithFallbackAsync(
-                searchName,
-                _item.ItemName,
-                _item.ServerId);
-
-            if (stats != null)
+            var slotCount = 0;
+            foreach (var slot in _item.SlotInfo)
             {
-                _item.ApplyStatistics(stats);
+                slotCount++;
 
-                if (!IsDisposed)
+                // Get effect from ItemIndexService cache
+                string? effect = null;
+                if (_itemIndexService?.IsLoaded == true)
                 {
-                    Invoke(() =>
+                    // Try exact name first
+                    var cachedItem = _itemIndexService.GetItemByName(slot);
+
+                    // If not found and it's a card, try with "카드" suffix
+                    if (cachedItem == null && !slot.Contains("카드"))
                     {
-                        _lblYesterdayAvg.Text = "전일평균: " + _item.YesterdayPriceDisplay;
-                        _lblWeek7Avg.Text = "7일평균: " + _item.Week7AvgPriceDisplay;
-                        _lblPriceCompare.Text = "시세비교: " + _item.PriceCompareDisplay;
-
-                        // Color code price comparison
-                        var compare = _item.PriceCompareDisplay;
-                        if (compare.StartsWith("+"))
-                        {
-                            _lblPriceCompare.ForeColor = Color.Red;
-                        }
-                        else if (compare.StartsWith("-"))
-                        {
-                            _lblPriceCompare.ForeColor = Color.Blue;
-                        }
-                    });
-                }
-            }
-            else
-            {
-                if (!IsDisposed)
-                {
-                    Invoke(() =>
-                    {
-                        _lblYesterdayAvg.Text = "전일평균: -";
-                        _lblWeek7Avg.Text = "7일평균: -";
-                        _lblPriceCompare.Text = "시세비교: -";
-                    });
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"[ItemDetailForm] Price stats error: {ex.Message}");
-            if (!IsDisposed)
-            {
-                Invoke(() =>
-                {
-                    _lblYesterdayAvg.Text = "전일평균: 오류";
-                    _lblWeek7Avg.Text = "7일평균: 오류";
-                    _lblPriceCompare.Text = "시세비교: 오류";
-                });
-            }
-        }
-    }
-
-    private async Task LoadDetailInfoAsync()
-    {
-        if (!_item.HasDetailParams)
-        {
-            if (!IsDisposed)
-            {
-                Invoke(() =>
-                {
-                    _txtSlotInfo.Text = "상세 정보 없음";
-                    _lstRandomOptions.Items.Clear();
-                    _lstRandomOptions.Items.Add("상세 정보 없음");
-                });
-            }
-            return;
-        }
-
-        try
-        {
-            Debug.WriteLine($"[ItemDetailForm] Loading detail: serverId={_item.ServerId}, mapId={_item.MapId}, ssi={_item.Ssi}");
-
-            var detail = await _gnjoyClient.FetchItemDetailAsync(
-                _item.ServerId,
-                _item.MapId!.Value,
-                _item.Ssi!);
-
-            if (detail != null)
-            {
-                _item.ApplyDetailInfo(detail);
-
-                if (!IsDisposed)
-                {
-                    // Build ALL enchant effects text at once
-                    var enchantDb = EnchantDatabase.Instance;
-                    var sb = new StringBuilder();
-                    var slotCount = 0;
-
-                    if (_item.SlotInfo.Count > 0)
-                    {
-                        foreach (var slot in _item.SlotInfo)
-                        {
-                            slotCount++;
-                            sb.AppendLine($"[{slotCount}] {slot}");
-                            sb.AppendLine(new string('-', 40));
-
-                            try
-                            {
-                                // Fetch full effect text from Kafra API
-                                var effect = await enchantDb.GetSlotEffectAsync(slot);
-                                if (!string.IsNullOrEmpty(effect))
-                                {
-                                    sb.AppendLine(effect);
-                                }
-                                else
-                                {
-                                    sb.AppendLine("(효과 정보 없음)");
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                Debug.WriteLine($"[ItemDetailForm] Effect fetch error for '{slot}': {ex.Message}");
-                                sb.AppendLine("(효과 조회 실패)");
-                            }
-
-                            sb.AppendLine();
-                        }
-                    }
-                    else
-                    {
-                        sb.AppendLine("인챈트/카드 없음");
+                        cachedItem = _itemIndexService.GetItemByName(slot + " 카드");
                     }
 
-                    var finalText = sb.ToString().TrimEnd();
-
-                    Invoke(() =>
+                    // If not found, try without "카드" suffix
+                    if (cachedItem == null && slot.EndsWith(" 카드"))
                     {
-                        // Update slot info with ALL effects
-                        _txtSlotInfo.Text = finalText;
-                        _grpSlotInfo.Text = $"인챈트/카드 효과 ({_item.SlotInfo.Count}개)";
+                        var baseName = slot.Replace(" 카드", "");
+                        cachedItem = _itemIndexService.GetItemByName(baseName);
+                    }
 
-                        // Update random options
-                        _lstRandomOptions.Items.Clear();
-                        if (_item.RandomOptions.Count > 0)
-                        {
-                            foreach (var option in _item.RandomOptions)
-                            {
-                                _lstRandomOptions.Items.Add(option);
-                            }
-                        }
-                        else
-                        {
-                            _lstRandomOptions.Items.Add("없음");
-                        }
-                    });
+                    if (cachedItem != null)
+                    {
+                        effect = cachedItem.ItemText;
+                    }
                 }
-            }
-            else
-            {
-                if (!IsDisposed)
+
+                AppendColoredText(_rtbSlotInfo, $"[{slotCount}] {slot}", ThemeTextHighlight, true);
+
+                if (!string.IsNullOrEmpty(effect))
                 {
-                    Invoke(() =>
-                    {
-                        _txtSlotInfo.Text = "조회 실패";
-                        _lstRandomOptions.Items.Clear();
-                        _lstRandomOptions.Items.Add("조회 실패");
-                    });
+                    AppendColoredText(_rtbSlotInfo, effect, ThemeText);
                 }
+                else
+                {
+                    AppendColoredText(_rtbSlotInfo, "(효과 정보 없음)", ThemeTextMuted);
+                }
+                AppendColoredText(_rtbSlotInfo, "", ThemeText); // Spacer
             }
         }
-        catch (Exception ex)
+        else
         {
-            Debug.WriteLine($"[ItemDetailForm] Detail load error: {ex.Message}");
-            if (!IsDisposed)
+            AppendColoredText(_rtbSlotInfo, "인챈트/카드 없음", ThemeTextMuted);
+        }
+
+        // Scroll slot info to top
+        _rtbSlotInfo.SelectionStart = 0;
+        _rtbSlotInfo.ScrollToCaret();
+
+        // Display random options
+        if (_item.RandomOptions.Count > 0)
+        {
+            foreach (var option in _item.RandomOptions)
             {
-                Invoke(() =>
-                {
-                    _txtSlotInfo.Text = "오류: " + ex.Message;
-                    _lstRandomOptions.Items.Clear();
-                    _lstRandomOptions.Items.Add("오류");
-                });
+                AppendColoredText(_rtbRandomOptions, option, ThemePositive);
             }
         }
+        else
+        {
+            AppendColoredText(_rtbRandomOptions, "없음", ThemeTextMuted);
+        }
+
+        // Scroll to top
+        _rtbRandomOptions.SelectionStart = 0;
+        _rtbRandomOptions.ScrollToCaret();
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)

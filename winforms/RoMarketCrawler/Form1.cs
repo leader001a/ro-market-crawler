@@ -41,13 +41,18 @@ public partial class Form1 : Form
     // Tab 1: Deal Search (GNJOY)
     private TextBox _txtDealSearch = null!;
     private ComboBox _cboDealServer = null!;
-    private ComboBox _cboDealType = null!;
     private Button _btnDealSearch = null!;
     private Button _btnDealCancel = null!;
     private ToolStripButton _btnDealSearchToolStrip = null!;
     private ToolStripButton _btnDealCancelToolStrip = null!;
     private DataGridView _dgvDeals = null!;
     private Label _lblDealStatus = null!;
+
+    // Deal Tab Pagination (server-side: API returns 10 items per page)
+    private ToolStripButton _btnDealPrev = null!;
+    private ToolStripButton _btnDealNext = null!;
+    private ToolStripLabel _lblDealPage = null!;
+    private int _dealCurrentPage = 1;  // API uses 1-based page numbers
 
     // Tab 2: Item Database (Kafra)
     private TextBox _txtItemSearch = null!;

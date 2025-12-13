@@ -5,10 +5,14 @@ namespace RoMarketCrawler;
 
 /// <summary>
 /// Form1 partial class - Deal Search Tab (GNJOY)
+/// Server-side pagination: API returns 10 items per page
 /// </summary>
 public partial class Form1
 {
     #region Tab 1: Deal Search (GNJOY)
+
+    // Server-side pagination state
+    private bool _hasMorePages = false;
 
     private void SetupDealTab(TabPage tab)
     {
@@ -47,20 +51,6 @@ public partial class Form1
         cboServer.SelectedIndex = 0;
         _cboDealServer = cboServer.ComboBox;
 
-        // Deal type combo
-        var cboDealType = new ToolStripComboBox
-        {
-            DropDownStyle = ComboBoxStyle.DropDownList,
-            Width = 80,
-            BackColor = ThemeGrid,
-            ForeColor = ThemeText,
-            ToolTipText = "거래 유형"
-        };
-        cboDealType.Items.AddRange(new object[] { "전체", "판매", "구매" });
-        cboDealType.SelectedIndex = 0;
-        cboDealType.SelectedIndexChanged += CboDealType_SelectedIndexChanged;
-        _cboDealType = cboDealType.ComboBox;
-
         // Search text
         var txtSearch = new ToolStripTextBox
         {
@@ -96,14 +86,43 @@ public partial class Form1
         _btnDealCancel = new Button(); // Dummy for state management
         _btnDealCancelToolStrip = btnCancel;
 
+        // Pagination buttons
+        var btnPrev = new ToolStripButton
+        {
+            Text = "<",
+            Enabled = false,
+            ToolTipText = "이전 페이지"
+        };
+        btnPrev.Click += BtnDealPrev_Click;
+        _btnDealPrev = btnPrev;
+
+        var lblPage = new ToolStripLabel
+        {
+            Text = "0페이지",
+            ToolTipText = "현재 페이지"
+        };
+        _lblDealPage = lblPage;
+
+        var btnNext = new ToolStripButton
+        {
+            Text = ">",
+            Enabled = false,
+            ToolTipText = "다음 페이지"
+        };
+        btnNext.Click += BtnDealNext_Click;
+        _btnDealNext = btnNext;
+
         // Add items to toolbar
         toolStrip.Items.Add(cboServer);
-        toolStrip.Items.Add(cboDealType);
         toolStrip.Items.Add(new ToolStripSeparator());
         toolStrip.Items.Add(txtSearch);
         toolStrip.Items.Add(new ToolStripSeparator());
         toolStrip.Items.Add(btnSearch);
         toolStrip.Items.Add(btnCancel);
+        toolStrip.Items.Add(new ToolStripSeparator());
+        toolStrip.Items.Add(btnPrev);
+        toolStrip.Items.Add(lblPage);
+        toolStrip.Items.Add(btnNext);
 
         // Results grid
         _dgvDeals = new DataGridView
@@ -115,14 +134,15 @@ public partial class Form1
             AllowUserToDeleteRows = false,
             SelectionMode = DataGridViewSelectionMode.FullRowSelect,
             RowHeadersVisible = false,
-            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill
+            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None,
+            AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCells
         };
         ApplyDataGridViewStyle(_dgvDeals);
 
         // Force header center alignment by custom painting
         _dgvDeals.CellPainting += (s, e) =>
         {
-            if (e.RowIndex == -1 && e.ColumnIndex >= 0 && e.Graphics != null) // Header row
+            if (e.RowIndex == -1 && e.ColumnIndex >= 0 && e.Graphics != null)
             {
                 e.PaintBackground(e.ClipBounds, true);
                 TextRenderer.DrawText(
@@ -161,28 +181,95 @@ public partial class Form1
     {
         _dgvDeals.Columns.AddRange(new DataGridViewColumn[]
         {
-            new DataGridViewTextBoxColumn { Name = "ServerName", HeaderText = "서버", DataPropertyName = "ServerName", Width = 70 },
-            new DataGridViewTextBoxColumn { Name = "DealTypeDisplay", HeaderText = "유형", DataPropertyName = "DealTypeDisplay", Width = 50 },
-            new DataGridViewTextBoxColumn { Name = "DisplayName", HeaderText = "아이템", DataPropertyName = "DisplayName", FillWeight = 150 },
-            new DataGridViewTextBoxColumn { Name = "SlotInfoDisplay", HeaderText = "카드/인챈트", DataPropertyName = "SlotInfoDisplay", FillWeight = 150 },
-            new DataGridViewTextBoxColumn { Name = "Quantity", HeaderText = "수량", DataPropertyName = "Quantity", Width = 50 },
-            new DataGridViewTextBoxColumn { Name = "PriceFormatted", HeaderText = "가격", DataPropertyName = "PriceFormatted", Width = 90 },
-            new DataGridViewTextBoxColumn { Name = "ShopName", HeaderText = "상점명", DataPropertyName = "ShopName", FillWeight = 100 }
+            new DataGridViewTextBoxColumn
+            {
+                Name = "ServerName",
+                HeaderText = "서버",
+                DataPropertyName = "ServerName",
+                Width = 60,
+                MinimumWidth = 50,
+                AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
+                DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
+            },
+            new DataGridViewTextBoxColumn
+            {
+                Name = "DealTypeDisplay",
+                HeaderText = "유형",
+                DataPropertyName = "DealTypeDisplay",
+                Width = 45,
+                MinimumWidth = 40,
+                AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
+                DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
+            },
+            new DataGridViewTextBoxColumn
+            {
+                Name = "DisplayName",
+                HeaderText = "아이템",
+                DataPropertyName = "DisplayName",
+                Width = 200,
+                MinimumWidth = 120,
+                AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
+                FillWeight = 150
+            },
+            new DataGridViewTextBoxColumn
+            {
+                Name = "SlotInfoDisplay",
+                HeaderText = "카드/인챈트",
+                DataPropertyName = "SlotInfoDisplay",
+                Width = 180,
+                MinimumWidth = 100,
+                AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
+                FillWeight = 120,
+                DefaultCellStyle = new DataGridViewCellStyle { WrapMode = DataGridViewTriState.True }
+            },
+            new DataGridViewTextBoxColumn
+            {
+                Name = "Quantity",
+                HeaderText = "수량",
+                DataPropertyName = "Quantity",
+                Width = 45,
+                MinimumWidth = 40,
+                AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
+                DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
+            },
+            new DataGridViewTextBoxColumn
+            {
+                Name = "PriceFormatted",
+                HeaderText = "가격",
+                DataPropertyName = "PriceFormatted",
+                Width = 90,
+                MinimumWidth = 75,
+                AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
+                DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleRight }
+            },
+            new DataGridViewTextBoxColumn
+            {
+                Name = "ShopName",
+                HeaderText = "상점명",
+                DataPropertyName = "ShopName",
+                Width = 140,
+                MinimumWidth = 80,
+                AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
+                FillWeight = 80
+            }
         });
 
         _dgvDeals.CellDoubleClick += DgvDeals_CellDoubleClick;
     }
 
-    private void TxtDealSearch_KeyDown(object? sender, KeyEventArgs e)
+    /// <summary>
+    /// Search button click - fetch first page from API
+    /// </summary>
+    private async void BtnDealSearch_Click(object? sender, EventArgs e)
     {
-        if (e.KeyCode == Keys.Enter)
-        {
-            e.SuppressKeyPress = true;
-            BtnDealSearch_Click(sender, e);
-        }
+        _dealCurrentPage = 1;  // API uses 1-based page numbers
+        await FetchDealPageAsync();
     }
 
-    private async void BtnDealSearch_Click(object? sender, EventArgs e)
+    /// <summary>
+    /// Fetch a specific page from the API
+    /// </summary>
+    private async Task FetchDealPageAsync()
     {
         var searchText = _txtDealSearch.Text.Trim();
         if (string.IsNullOrEmpty(searchText))
@@ -194,79 +281,55 @@ public partial class Form1
         var selectedServer = _cboDealServer.SelectedItem as Server;
         var serverId = selectedServer?.Id ?? -1;
 
-        // Cancel previous search/background tasks before starting new one
-        // Note: Don't Dispose() immediately - background tasks may still hold token reference
+        // Cancel previous operations
         var oldCts = _cts;
         _cts = new CancellationTokenSource();
 
-        // Cancel old CTS to stop background tasks and free up connections
         if (oldCts != null)
         {
-            try
-            {
-                oldCts.Cancel();
-                Debug.WriteLine("[Form1] Previous CTS cancelled");
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[Form1] Failed to cancel old CTS: {ex.Message}");
-            }
+            try { oldCts.Cancel(); }
+            catch { }
         }
 
-        // Clear results immediately to prevent race condition with old background task
-        _searchResults.Clear();
-        _dealBindingSource.DataSource = new List<DealItem>();
-        _dealBindingSource.ResetBindings(false);
-
-        // Increment search ID to invalidate any pending background UI updates
         var searchId = ++_currentSearchId;
-        Debug.WriteLine($"[Form1] Starting search #{searchId}");
+        _lastSearchTerm = searchText;
 
         SetDealSearchingState(true);
+        _lblDealStatus.Text = $"{_dealCurrentPage}페이지 조회 중...";
 
         try
         {
-            _lblDealStatus.Text = $"검색 #{searchId} 시작 중...";
-            _lastSearchTerm = searchText;
-            Debug.WriteLine($"[Form1] ====== SEARCH #{searchId} START ======");
-            Debug.WriteLine($"[Form1] searchText='{searchText}', serverId={serverId}");
-            Debug.WriteLine($"[Form1] _cts.IsCancellationRequested={_cts.IsCancellationRequested}");
+            // Fetch single page from API (API uses 1-based page numbers)
+            var items = await _gnjoyClient.SearchItemDealsAsync(searchText, serverId, _dealCurrentPage, _cts.Token);
 
-            // Ensure the token is not already cancelled before starting
-            if (_cts.IsCancellationRequested)
-            {
-                Debug.WriteLine("[Form1] ERROR: CancellationToken is already cancelled before search!");
-                _lblDealStatus.Text = "오류: 검색 토큰이 이미 취소됨";
-                return;
-            }
+            Debug.WriteLine($"[Form1] Page {_dealCurrentPage}: Got {items.Count} items");
 
-            _lblDealStatus.Text = $"검색 #{searchId}: API 호출 중...";
-            Debug.WriteLine($"[Form1] Calling SearchAllItemDealsAsync...");
+            // Determine if there are more pages (API returns 10 items per page)
+            _hasMorePages = items.Count >= 10;
 
-            var items = await _gnjoyClient.SearchAllItemDealsAsync(searchText, serverId, 10, _cts.Token);
-
-            Debug.WriteLine($"[Form1] SearchAllItemDealsAsync returned {items.Count} items");
-            Debug.WriteLine($"[Form1] _cts.IsCancellationRequested after search={_cts.IsCancellationRequested}");
-            _lblDealStatus.Text = $"검색 #{searchId}: {items.Count}개 결과 처리 중...";
-
+            // Compute display fields
             foreach (var item in items)
             {
                 item.ComputeFields();
             }
 
+            // Update grid
             _searchResults.Clear();
             _searchResults.AddRange(items);
+            _dealBindingSource.DataSource = items;
+            _dealBindingSource.ResetBindings(false);
 
-            // Apply deal type filter (판매/구매/전체) to results
-            ApplyDealTypeFilter();
+            // Update pagination UI
+            UpdateDealPaginationUI();
 
-            // Get filtered count for status message
-            var filteredCount = (_dealBindingSource.DataSource as List<DealItem>)?.Count ?? items.Count;
-            var filterText = filteredCount != items.Count ? $" (전체 {items.Count}개 중 필터됨)" : "";
-            _lblDealStatus.Text = $"검색 완료: {filteredCount}개 결과{filterText} - 카드/인챈트 정보 로딩 중...";
+            // Update status
+            _lblDealStatus.Text = $"{_dealCurrentPage}페이지: {items.Count}개 결과 - 상세정보 로딩 중...";
 
-            // Background load item details for card/enchant info (like kafra.kr)
-            _ = LoadItemDetailsAsync(items, searchId, _cts.Token);
+            // Load details for current page items
+            await LoadCurrentPageDetailsAsync(searchId, _cts.Token);
+
+            // Final status update
+            _lblDealStatus.Text = $"{_dealCurrentPage}페이지: {items.Count}개 결과 (더블클릭으로 상세정보 조회)";
         }
         catch (OperationCanceledException)
         {
@@ -285,34 +348,36 @@ public partial class Form1
     }
 
     /// <summary>
-    /// Load item details (card/enchant info) in background for all items with detail params
-    /// This mimics kafra.kr's behavior of showing card/enchant info in the grid
+    /// Load item details (card/enchant info) for current page items only
     /// </summary>
-    private async Task LoadItemDetailsAsync(List<DealItem> items, int searchId, CancellationToken cancellationToken)
+    private async Task LoadCurrentPageDetailsAsync(int searchId, CancellationToken cancellationToken)
     {
-        // Helper to check if this background task should still update UI
         bool IsCurrentSearch() => searchId == _currentSearchId && !cancellationToken.IsCancellationRequested;
 
-        var itemsWithDetails = items.Where(i => i.HasDetailParams).ToList();
+        var currentPageItems = (_dealBindingSource.DataSource as List<DealItem>) ?? new List<DealItem>();
+        // Check SlotInfo.Count == 0 (not SlotInfoDisplay which returns "-" when empty)
+        var itemsWithDetails = currentPageItems.Where(i => i.HasDetailParams && i.SlotInfo.Count == 0).ToList();
+
         if (itemsWithDetails.Count == 0)
         {
-            // Check if still the current search before UI update
-            if (!IsDisposed && IsCurrentSearch())
-            {
-                Invoke(() =>
-                {
-                    if (IsCurrentSearch())  // Double-check inside Invoke
-                        _lblDealStatus.Text = $"검색 완료: {items.Count}개 결과 (더블클릭으로 상세정보 조회)";
-                });
-            }
+            Debug.WriteLine($"[Form1] No items need detail loading on page {_dealCurrentPage}");
             return;
         }
 
-        Debug.WriteLine($"[Form1] Loading details for search #{searchId}: {itemsWithDetails.Count} items with detail params");
+        Debug.WriteLine($"[Form1] Loading details for {itemsWithDetails.Count} items on page {_dealCurrentPage}");
         var loadedCount = 0;
+        var totalCount = itemsWithDetails.Count;
 
-        // Load details in parallel WITHOUT limits (kafra.kr style - async.forEachOf without concurrency limit)
-        // Google Proxy load balancing handles the distribution across multiple proxy servers
+        // Update status to show loading started
+        if (!IsDisposed && IsCurrentSearch())
+        {
+            Invoke(() =>
+            {
+                if (IsCurrentSearch())
+                    _lblDealStatus.Text = $"{_dealCurrentPage}페이지: 상세정보 로딩 중... (0/{totalCount})";
+            });
+        }
+
         var tasks = itemsWithDetails.Select(async item =>
         {
             try
@@ -328,17 +393,16 @@ public partial class Form1
                 if (detail != null && IsCurrentSearch())
                 {
                     item.ApplyDetailInfo(detail);
-                    Interlocked.Increment(ref loadedCount);
+                    var count = Interlocked.Increment(ref loadedCount);
 
-                    // Update UI periodically - check if still current search
-                    if (loadedCount % 10 == 0 && !IsDisposed && IsCurrentSearch())
+                    if (!IsDisposed && IsCurrentSearch())
                     {
                         Invoke(() =>
                         {
-                            if (IsCurrentSearch())  // Double-check inside Invoke
+                            if (IsCurrentSearch())
                             {
                                 _dealBindingSource.ResetBindings(false);
-                                _lblDealStatus.Text = $"카드/인챈트 로딩: {loadedCount}/{itemsWithDetails.Count}...";
+                                _lblDealStatus.Text = $"{_dealCurrentPage}페이지: 상세정보 로딩 중... ({count}/{totalCount})";
                             }
                         });
                     }
@@ -359,22 +423,50 @@ public partial class Form1
             Debug.WriteLine("[Form1] Detail loading cancelled");
         }
 
-        // Final UI update - only if still the current search
+        // Final update
         if (!IsDisposed && IsCurrentSearch())
         {
             Invoke(() =>
             {
-                if (IsCurrentSearch())  // Double-check inside Invoke
+                if (IsCurrentSearch())
                 {
                     _dealBindingSource.ResetBindings(false);
-                    _lblDealStatus.Text = $"검색 완료: {items.Count}개 결과 ({loadedCount}개 상세정보 로딩됨, 더블클릭으로 상세정보 조회)";
+                    var displayCount = (_dealBindingSource.DataSource as List<DealItem>)?.Count ?? 0;
+                    _lblDealStatus.Text = $"{_dealCurrentPage}페이지: {displayCount}개 결과 (상세정보 {loadedCount}개 로딩됨, 더블클릭으로 상세정보 조회)";
                 }
             });
         }
-        else
+    }
+
+    /// <summary>
+    /// Previous page button - fetch previous page from API
+    /// </summary>
+    private async void BtnDealPrev_Click(object? sender, EventArgs e)
+    {
+        if (_dealCurrentPage > 1)
         {
-            Debug.WriteLine($"[Form1] Skipping final UI update for search #{searchId} (current is #{_currentSearchId})");
+            _dealCurrentPage--;
+            await FetchDealPageAsync();
         }
+    }
+
+    /// <summary>
+    /// Next page button - fetch next page from API
+    /// </summary>
+    private async void BtnDealNext_Click(object? sender, EventArgs e)
+    {
+        if (_hasMorePages)
+        {
+            _dealCurrentPage++;
+            await FetchDealPageAsync();
+        }
+    }
+
+    private void UpdateDealPaginationUI()
+    {
+        _lblDealPage.Text = $"{_dealCurrentPage}페이지";
+        _btnDealPrev.Enabled = _dealCurrentPage > 1;
+        _btnDealNext.Enabled = _hasMorePages;
     }
 
     private void BtnDealCancel_Click(object? sender, EventArgs e)
@@ -388,79 +480,24 @@ public partial class Form1
         _btnDealCancelToolStrip.Enabled = searching;
         _txtDealSearch.Enabled = !searching;
         _cboDealServer.Enabled = !searching;
-        _cboDealType.Enabled = !searching;
-    }
-
-    private void CboDealType_SelectedIndexChanged(object? sender, EventArgs e)
-    {
-        ApplyDealTypeFilter();
-    }
-
-    private void ApplyDealTypeFilter()
-    {
-        var selectedDealType = _cboDealType.SelectedItem?.ToString();
-
-        List<DealItem> filteredItems;
-
-        // Handle 0 results case - must update DataGridView to show empty list
-        if (_searchResults.Count == 0)
-        {
-            filteredItems = new List<DealItem>();
-        }
-        else if (selectedDealType == "전체" || string.IsNullOrEmpty(selectedDealType))
-        {
-            filteredItems = _searchResults;
-        }
-        else if (selectedDealType == "판매")
-        {
-            filteredItems = _searchResults.Where(i => i.DealType == "sale").ToList();
-        }
-        else if (selectedDealType == "구매")
-        {
-            filteredItems = _searchResults.Where(i => i.DealType == "buy").ToList();
-        }
-        else
-        {
-            filteredItems = _searchResults;
-        }
-
-        _dealBindingSource.DataSource = filteredItems;
-        _dealBindingSource.ResetBindings(false);
-
-        var totalCount = _searchResults.Count;
-        var filteredCount = filteredItems.Count;
-
-        if (totalCount == 0)
-        {
-            _lblDealStatus.Text = "검색 완료: 결과 없음";
-        }
-        else if (selectedDealType == "전체" || string.IsNullOrEmpty(selectedDealType))
-        {
-            _lblDealStatus.Text = "검색 완료: " + totalCount.ToString() + "개 결과";
-        }
-        else
-        {
-            _lblDealStatus.Text = "검색 완료: " + filteredCount.ToString() + "개 결과 (전체 " + totalCount.ToString() + "개 중 " + selectedDealType + ")";
-        }
+        _btnDealPrev.Enabled = !searching && _dealCurrentPage > 1;
+        _btnDealNext.Enabled = !searching && _hasMorePages;
     }
 
     private void DgvDeals_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
     {
-        if (e.CellStyle == null) return;
+        if (e.CellStyle == null || e.RowIndex < 0) return;
 
         var columnName = _dgvDeals.Columns[e.ColumnIndex].Name;
 
+        // Deal type color
         if (columnName == "DealTypeDisplay" && e.Value != null)
         {
             var value = e.Value.ToString();
             if (value == "판매")
-            {
                 e.CellStyle.ForeColor = ThemeSaleColor;
-            }
             else if (value == "구매")
-            {
                 e.CellStyle.ForeColor = ThemeBuyColor;
-            }
         }
     }
 
@@ -474,7 +511,7 @@ public partial class Form1
         var selectedItem = dataSource[e.RowIndex];
         Debug.WriteLine($"[Form1] Opening detail for: {selectedItem.DisplayName}");
 
-        using var detailForm = new ItemDetailForm(selectedItem, _gnjoyClient);
+        using var detailForm = new ItemDetailForm(selectedItem, _itemIndexService);
         detailForm.ShowDialog(this);
     }
 
