@@ -43,6 +43,8 @@ public partial class Form1 : Form
     private ComboBox _cboDealType = null!;
     private Button _btnDealSearch = null!;
     private Button _btnDealCancel = null!;
+    private ToolStripButton _btnDealSearchToolStrip = null!;
+    private ToolStripButton _btnDealCancelToolStrip = null!;
     private DataGridView _dgvDeals = null!;
     private Label _lblDealStatus = null!;
 
@@ -51,7 +53,9 @@ public partial class Form1 : Form
     private ComboBox _cboItemType = null!;
     private Button _btnItemSearch = null!;
     private Button _btnIndexRebuild = null!;
-    private Button _btnScanWeapons = null!;
+    private ToolStripButton _btnItemSearchToolStrip = null!;
+    private ToolStripButton _btnIndexRebuildToolStrip = null!;
+    private ToolStripControlHost _progressIndexHost = null!;
     private DataGridView _dgvItems = null!;
     private TextBox _txtItemDetail = null!;
     private PictureBox _picItemImage = null!;
@@ -167,7 +171,7 @@ public partial class Form1 : Form
         }
         else
         {
-            _lblItemStatus.Text = "인덱스가 없습니다. [인덱스 생성] 버튼을 클릭하세요.";
+            _lblItemStatus.Text = "인덱스가 없습니다. [아이템정보 수집] 버튼을 클릭하세요.";
         }
     }
 
@@ -212,9 +216,6 @@ public partial class Form1 : Form
         // Apply loaded settings to all controls
         ApplyFontSizeToAllControls(this);
         ApplyThemeToAllControls(this);
-
-        // Load servers for deal tab
-        LoadServers();
     }
 
     private void SetupMenuStrip()

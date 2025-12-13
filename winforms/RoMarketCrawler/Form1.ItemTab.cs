@@ -20,25 +20,29 @@ public partial class Form1
             RowCount = 3,
             Padding = new Padding(10)
         };
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));  // Search panel
+        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));  // Toolbar
         mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); // Content (left-right)
         mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));  // Status bar
         ApplyTableLayoutPanelStyle(mainPanel);
 
-        // Search panel
-        var searchPanel = new FlowLayoutPanel
+        // ToolStrip-based toolbar
+        var toolStrip = new ToolStrip
         {
-            Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false
+            GripStyle = ToolStripGripStyle.Hidden,
+            BackColor = ThemePanel,
+            Renderer = new DarkToolStripRenderer()
         };
-        ApplyFlowLayoutPanelStyle(searchPanel);
 
-        var lblType = new Label { Text = "아이템 타입:", AutoSize = true, Margin = new Padding(0, 8, 5, 0) };
-        ApplyLabelStyle(lblType);
-
-        _cboItemType = new ComboBox { Width = 120, DropDownStyle = ComboBoxStyle.DropDownList };
-        _cboItemType.Items.AddRange(new object[] {
+        // Item type combo
+        var cboType = new ToolStripComboBox
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Width = 120,
+            BackColor = ThemeGrid,
+            ForeColor = ThemeText,
+            ToolTipText = "아이템 타입"
+        };
+        cboType.Items.AddRange(new object[] {
             new ItemTypeItem(999, "전체"),
             new ItemTypeItem(0, "힐링 아이템"),
             new ItemTypeItem(2, "사용 아이템"),
@@ -50,37 +54,66 @@ public partial class Form1
             new ItemTypeItem(10, "화살/탄환"),
             new ItemTypeItem(12, "쉐도우 장비")
         });
-        _cboItemType.SelectedIndex = 0;
-        ApplyComboBoxStyle(_cboItemType);
+        cboType.SelectedIndex = 0;
+        _cboItemType = cboType.ComboBox;
 
-        var lblSearch = new Label { Text = "아이템명:", AutoSize = true, Margin = new Padding(10, 8, 5, 0) };
-        ApplyLabelStyle(lblSearch);
+        // Search text
+        var txtSearch = new ToolStripTextBox
+        {
+            AutoSize = false,
+            Width = 250,
+            BackColor = ThemeGrid,
+            ForeColor = ThemeText,
+            ToolTipText = "검색할 아이템명 입력"
+        };
+        txtSearch.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; BtnItemSearch_Click(s, e); } };
+        _txtItemSearch = txtSearch.TextBox;
 
-        _txtItemSearch = new TextBox { Width = 200 };
-        _txtItemSearch.KeyDown += TxtItemSearch_KeyDown;
-        ApplyTextBoxStyle(_txtItemSearch);
+        // Search button
+        var btnSearch = new ToolStripButton
+        {
+            Text = "검색",
+            BackColor = ThemeAccent,
+            ForeColor = ThemeAccentText,
+            ToolTipText = "검색 실행"
+        };
+        btnSearch.Click += BtnItemSearch_Click;
+        _btnItemSearch = new Button(); // Dummy
+        _btnItemSearchToolStrip = btnSearch;
 
-        _btnItemSearch = new Button { Text = "검색", Width = 80, Margin = new Padding(10, 0, 0, 0) };
-        _btnItemSearch.Click += BtnItemSearch_Click;
-        ApplyButtonStyle(_btnItemSearch, true);
+        // Index rebuild button (right-aligned)
+        var btnIndexRebuild = new ToolStripButton
+        {
+            Text = "아이템정보 수집",
+            Alignment = ToolStripItemAlignment.Right,
+            ToolTipText = "kafra.kr에서 아이템 정보 수집"
+        };
+        btnIndexRebuild.Click += BtnIndexRebuild_Click;
+        _btnIndexRebuild = new Button(); // Dummy
+        _btnIndexRebuildToolStrip = btnIndexRebuild;
 
-        _btnIndexRebuild = new Button { Text = "인덱스 생성", Width = 100, Margin = new Padding(20, 0, 0, 0) };
-        _btnIndexRebuild.Click += BtnIndexRebuild_Click;
-        ApplyButtonStyle(_btnIndexRebuild, false);
-
-        _btnScanWeapons = new Button { Text = "누락 스캔", Width = 90, Margin = new Padding(5, 0, 0, 0) };
-        _btnScanWeapons.Click += BtnScanWeapons_Click;
-        ApplyButtonStyle(_btnScanWeapons, false);
-
+        // Progress bar (right-aligned)
         _progressIndex = new ProgressBar
         {
             Width = 150,
-            Margin = new Padding(10, 5, 0, 0),
             Visible = false,
             Style = ProgressBarStyle.Continuous
         };
+        var progressHost = new ToolStripControlHost(_progressIndex)
+        {
+            Alignment = ToolStripItemAlignment.Right,
+            Visible = false
+        };
+        _progressIndexHost = progressHost;
 
-        searchPanel.Controls.AddRange(new Control[] { lblType, _cboItemType, lblSearch, _txtItemSearch, _btnItemSearch, _btnIndexRebuild, _btnScanWeapons, _progressIndex });
+        // Add items to toolbar
+        toolStrip.Items.Add(cboType);
+        toolStrip.Items.Add(new ToolStripSeparator());
+        toolStrip.Items.Add(txtSearch);
+        toolStrip.Items.Add(new ToolStripSeparator());
+        toolStrip.Items.Add(btnSearch);
+        toolStrip.Items.Add(progressHost);
+        toolStrip.Items.Add(btnIndexRebuild);
 
         // Content area: Left-Right layout
         var contentPanel = new TableLayoutPanel
@@ -280,7 +313,7 @@ public partial class Form1
 
         statusPanel.Controls.AddRange(new Control[] { _lblItemStatus, _btnItemPrev, _lblItemPage, _btnItemNext });
 
-        mainPanel.Controls.Add(searchPanel, 0, 0);
+        mainPanel.Controls.Add(toolStrip, 0, 0);
         mainPanel.Controls.Add(contentPanel, 0, 1);
         mainPanel.Controls.Add(statusPanel, 0, 2);
 
@@ -532,8 +565,9 @@ public partial class Form1
         }
 
         _indexCts = new CancellationTokenSource();
-        _btnIndexRebuild.Text = "취소";
-        _btnItemSearch.Enabled = false;
+        _btnIndexRebuildToolStrip.Text = "취소";
+        _btnItemSearchToolStrip.Enabled = false;
+        _progressIndexHost.Visible = true;
         _progressIndex.Visible = true;
         _progressIndex.Value = 0;
 
@@ -578,8 +612,9 @@ public partial class Form1
         }
         finally
         {
-            _btnIndexRebuild.Text = "인덱스 생성";
-            _btnItemSearch.Enabled = true;
+            _btnIndexRebuildToolStrip.Text = "아이템정보 수집";
+            _btnItemSearchToolStrip.Enabled = true;
+            _progressIndexHost.Visible = false;
             _progressIndex.Visible = false;
             _indexCts = null;
         }
@@ -604,85 +639,6 @@ public partial class Form1
         {
             _progressIndex.Value = (int)Math.Min(p.ProgressPercent, 100);
             _lblItemStatus.Text = $"{p.Phase} ({p.CategoryIndex}/{p.TotalCategories}) - {p.ItemsCollected:N0}개 수집됨";
-        }
-    }
-
-    private async void BtnScanWeapons_Click(object? sender, EventArgs e)
-    {
-        if (_itemIndexService.IsLoading)
-        {
-            _indexCts?.Cancel();
-            return;
-        }
-
-        _indexCts = new CancellationTokenSource();
-        _btnScanWeapons.Text = "취소";
-        _btnIndexRebuild.Enabled = false;
-        _btnItemSearch.Enabled = false;
-        _progressIndex.Visible = true;
-        _progressIndex.Value = 0;
-
-        var progress = new Progress<IndexProgress>(p =>
-        {
-            if (InvokeRequired)
-            {
-                Invoke(new Action(() => UpdateProgress(p)));
-            }
-            else
-            {
-                UpdateProgress(p);
-            }
-        });
-
-        try
-        {
-            // Scan weapon ID ranges: 1101-2000, 13000-14999
-            _lblItemStatus.Text = "무기/누락 아이템 ID 범위 스캔 중...";
-
-            var found1 = await _itemIndexService.ScanIdRangeAsync(1101, 2000, progress, _indexCts.Token);
-            var found2 = 0;
-            var found3 = 0;
-
-            if (!_indexCts.Token.IsCancellationRequested)
-            {
-                found2 = await _itemIndexService.ScanIdRangeAsync(13000, 15000, progress, _indexCts.Token);
-            }
-
-            // Also scan some additional ranges for "기타" items
-            if (!_indexCts.Token.IsCancellationRequested)
-            {
-                found3 = await _itemIndexService.ScanIdRangeAsync(21000, 25000, progress, _indexCts.Token);
-            }
-
-            var totalFound = found1 + found2 + found3;
-            UpdateIndexStatus();
-
-            MessageBox.Show(
-                $"스캔 완료!\n\n새로 발견된 아이템: {totalFound:N0}개\n총 인덱스: {_itemIndexService.TotalCount:N0}개",
-                "완료",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
-        }
-        catch (OperationCanceledException)
-        {
-            _lblItemStatus.Text = "스캔이 취소되었습니다.";
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(
-                $"스캔 중 오류가 발생했습니다:\n{ex.Message}",
-                "오류",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Error);
-            Debug.WriteLine($"[Form1] Scan error: {ex}");
-        }
-        finally
-        {
-            _btnScanWeapons.Text = "누락 스캔";
-            _btnIndexRebuild.Enabled = true;
-            _btnItemSearch.Enabled = true;
-            _progressIndex.Visible = false;
-            _indexCts = null;
         }
     }
 

@@ -177,11 +177,142 @@ public partial class Form1
             {
                 pic.BackColor = ThemeGrid;
             }
+            else if (control is ToolStrip toolStrip)
+            {
+                ApplyToolStripStyle(toolStrip);
+            }
 
             // Recurse
             if (control.HasChildren)
             {
                 ApplyThemeToAllControls(control);
+            }
+        }
+    }
+
+    private void ApplyToolStripStyle(ToolStrip toolStrip)
+    {
+        if (_currentTheme == ThemeType.Dark)
+        {
+            toolStrip.BackColor = ThemePanel;
+            toolStrip.ForeColor = ThemeText;
+            toolStrip.Renderer = new DarkToolStripRenderer();
+        }
+        else
+        {
+            // Classic theme - use system default rendering
+            toolStrip.BackColor = SystemColors.Control;
+            toolStrip.ForeColor = SystemColors.ControlText;
+            toolStrip.RenderMode = ToolStripRenderMode.System;
+        }
+
+        // Apply theme to all items
+        foreach (ToolStripItem item in toolStrip.Items)
+        {
+            ApplyToolStripItemStyle(item);
+        }
+    }
+
+    private void ApplyToolStripItemStyle(ToolStripItem item)
+    {
+        if (item is ToolStripComboBox combo)
+        {
+            if (_currentTheme == ThemeType.Dark)
+            {
+                combo.BackColor = ThemeGrid;
+                combo.ForeColor = ThemeText;
+                combo.ComboBox.BackColor = ThemeGrid;
+                combo.ComboBox.ForeColor = ThemeText;
+                combo.ComboBox.FlatStyle = FlatStyle.Flat;
+            }
+            else
+            {
+                combo.BackColor = SystemColors.Window;
+                combo.ForeColor = SystemColors.WindowText;
+                combo.ComboBox.BackColor = SystemColors.Window;
+                combo.ComboBox.ForeColor = SystemColors.WindowText;
+                combo.ComboBox.FlatStyle = FlatStyle.Standard;
+            }
+        }
+        else if (item is ToolStripTextBox textBox)
+        {
+            if (_currentTheme == ThemeType.Dark)
+            {
+                textBox.BackColor = ThemeGrid;
+                textBox.ForeColor = ThemeText;
+                textBox.TextBox.BackColor = ThemeGrid;
+                textBox.TextBox.ForeColor = ThemeText;
+                textBox.BorderStyle = BorderStyle.FixedSingle;
+            }
+            else
+            {
+                textBox.BackColor = SystemColors.Window;
+                textBox.ForeColor = SystemColors.WindowText;
+                textBox.TextBox.BackColor = SystemColors.Window;
+                textBox.TextBox.ForeColor = SystemColors.WindowText;
+                textBox.BorderStyle = BorderStyle.Fixed3D;
+            }
+        }
+        else if (item is ToolStripButton button)
+        {
+            if (_currentTheme == ThemeType.Dark)
+            {
+                button.ForeColor = ThemeText;
+                // Don't set BackColor for buttons in dark theme - renderer handles it
+            }
+            else
+            {
+                button.ForeColor = SystemColors.ControlText;
+                button.BackColor = SystemColors.Control;
+            }
+        }
+        else if (item is ToolStripDropDownButton dropDown)
+        {
+            if (_currentTheme == ThemeType.Dark)
+            {
+                dropDown.ForeColor = ThemeText;
+            }
+            else
+            {
+                dropDown.ForeColor = SystemColors.ControlText;
+                dropDown.BackColor = SystemColors.Control;
+            }
+
+            // Apply to dropdown items
+            foreach (ToolStripItem subItem in dropDown.DropDownItems)
+            {
+                ApplyToolStripItemStyle(subItem);
+            }
+        }
+        else if (item is ToolStripLabel label)
+        {
+            if (_currentTheme == ThemeType.Dark)
+            {
+                label.ForeColor = ThemeText;
+            }
+            else
+            {
+                label.ForeColor = SystemColors.ControlText;
+            }
+        }
+        else if (item is ToolStripControlHost host)
+        {
+            // Handle hosted controls like Panel, NumericUpDown, etc.
+            if (host.Control is Panel panel)
+            {
+                ApplyThemeToAllControls(panel);
+                if (_currentTheme == ThemeType.Dark)
+                {
+                    panel.BackColor = ThemePanel;
+                }
+                else
+                {
+                    panel.BackColor = SystemColors.Control;
+                }
+            }
+            else if (host.Control is ProgressBar progress)
+            {
+                // ProgressBar doesn't need special theming
             }
         }
     }
@@ -417,128 +548,191 @@ public partial class Form1
 
     private void ApplyButtonStyle(Button button, bool isPrimary = true)
     {
-        button.FlatStyle = _currentTheme == ThemeType.Dark ? FlatStyle.Flat : FlatStyle.Standard;
-        button.FlatAppearance.BorderSize = 1;
         button.Cursor = Cursors.Hand;
         button.Font = new Font("Malgun Gothic", _baseFontSize - 3, FontStyle.Bold);
         button.Height = 30;
         button.Tag = isPrimary ? "Primary" : "Secondary";
 
-        if (isPrimary)
+        if (_currentTheme == ThemeType.Dark)
         {
-            button.BackColor = ThemeAccent;
-            button.ForeColor = ThemeAccentText;
-            button.FlatAppearance.BorderColor = ThemeAccent;
-            button.FlatAppearance.MouseOverBackColor = ThemeAccentHover;
+            button.FlatStyle = FlatStyle.Flat;
+            button.FlatAppearance.BorderSize = 1;
+
+            if (isPrimary)
+            {
+                button.BackColor = ThemeAccent;
+                button.ForeColor = ThemeAccentText;
+                button.FlatAppearance.BorderColor = ThemeAccent;
+                button.FlatAppearance.MouseOverBackColor = ThemeAccentHover;
+            }
+            else
+            {
+                button.BackColor = ThemePanel;
+                button.ForeColor = ThemeText;
+                button.FlatAppearance.BorderColor = ThemeBorder;
+                button.FlatAppearance.MouseOverBackColor = ThemeGridAlt;
+            }
         }
         else
         {
-            button.BackColor = ThemePanel;
-            button.ForeColor = ThemeText;
-            button.FlatAppearance.BorderColor = ThemeBorder;
-            button.FlatAppearance.MouseOverBackColor = ThemeGridAlt;
+            // Classic theme - use standard Windows button style
+            button.FlatStyle = FlatStyle.Standard;
+            button.BackColor = SystemColors.Control;
+            button.ForeColor = SystemColors.ControlText;
+            button.UseVisualStyleBackColor = true;
         }
     }
 
     private void ApplyTextBoxStyle(TextBox textBox)
     {
-        // Use slightly brighter background for better visibility in dark theme
-        textBox.BackColor = _currentTheme == ThemeType.Dark
-            ? Color.FromArgb(50, 50, 60)  // Brighter than grid for contrast
-            : ThemeGrid;
-        textBox.ForeColor = ThemeText;
-        textBox.BorderStyle = BorderStyle.FixedSingle;
+        if (_currentTheme == ThemeType.Dark)
+        {
+            textBox.BackColor = Color.FromArgb(50, 50, 60);
+            textBox.ForeColor = ThemeText;
+            textBox.BorderStyle = BorderStyle.FixedSingle;
+        }
+        else
+        {
+            textBox.BackColor = SystemColors.Window;
+            textBox.ForeColor = SystemColors.WindowText;
+            textBox.BorderStyle = BorderStyle.Fixed3D;
+        }
         textBox.Font = new Font("Malgun Gothic", _baseFontSize - 2);
     }
 
     private void ApplyComboBoxStyle(ComboBox comboBox)
     {
-        // Use slightly brighter background for better visibility in dark theme
-        comboBox.BackColor = _currentTheme == ThemeType.Dark
-            ? Color.FromArgb(50, 50, 60)  // Brighter than grid for contrast
-            : ThemeGrid;
-        comboBox.ForeColor = ThemeText;
-        comboBox.FlatStyle = _currentTheme == ThemeType.Dark ? FlatStyle.Flat : FlatStyle.Standard;
+        if (_currentTheme == ThemeType.Dark)
+        {
+            comboBox.BackColor = Color.FromArgb(50, 50, 60);
+            comboBox.ForeColor = ThemeText;
+            comboBox.FlatStyle = FlatStyle.Flat;
+        }
+        else
+        {
+            comboBox.BackColor = SystemColors.Window;
+            comboBox.ForeColor = SystemColors.WindowText;
+            comboBox.FlatStyle = FlatStyle.Standard;
+        }
         comboBox.Font = new Font("Malgun Gothic", _baseFontSize - 3);
     }
 
     private void ApplyLabelStyle(Label label, bool isHeader = false)
     {
-        label.ForeColor = isHeader ? ThemeText : ThemeTextMuted;
+        if (_currentTheme == ThemeType.Dark)
+        {
+            label.ForeColor = isHeader ? ThemeText : ThemeTextMuted;
+        }
+        else
+        {
+            label.ForeColor = isHeader ? SystemColors.ControlText : SystemColors.GrayText;
+        }
         label.Font = new Font("Malgun Gothic", isHeader ? _baseFontSize - 2 : _baseFontSize - 3, isHeader ? FontStyle.Bold : FontStyle.Regular);
     }
 
     private void ApplyDataGridViewStyle(DataGridView dgv)
     {
-        dgv.BackgroundColor = ThemeGrid;
-        dgv.ForeColor = ThemeText;
-        dgv.GridColor = ThemeBorder;
-
         if (_currentTheme == ThemeType.Dark)
         {
-            dgv.BorderStyle = BorderStyle.FixedSingle;  // Add outer border
-            dgv.CellBorderStyle = DataGridViewCellBorderStyle.Single;  // Full cell borders
+            dgv.BackgroundColor = ThemeGrid;
+            dgv.ForeColor = ThemeText;
+            dgv.GridColor = ThemeBorder;
+            dgv.BorderStyle = BorderStyle.FixedSingle;
+            dgv.CellBorderStyle = DataGridViewCellBorderStyle.Single;
             dgv.EnableHeadersVisualStyles = false;
             dgv.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single;
+
+            // Header style - dark theme
+            dgv.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(55, 55, 68);
+            dgv.ColumnHeadersDefaultCellStyle.ForeColor = ThemeText;
+            dgv.ColumnHeadersDefaultCellStyle.SelectionBackColor = Color.FromArgb(55, 55, 68);
+
+            // Cell style - dark theme
+            dgv.DefaultCellStyle.BackColor = ThemeGrid;
+            dgv.DefaultCellStyle.ForeColor = ThemeText;
+            dgv.DefaultCellStyle.SelectionBackColor = ThemeAccent;
+            dgv.DefaultCellStyle.SelectionForeColor = ThemeAccentText;
+
+            // Alternating row style
+            dgv.AlternatingRowsDefaultCellStyle.BackColor = ThemeGridAlt;
+            dgv.AlternatingRowsDefaultCellStyle.ForeColor = ThemeText;
         }
         else
         {
-            // Classic theme - more traditional look
-            dgv.BorderStyle = BorderStyle.FixedSingle;
+            // Classic theme - use system colors for native look
+            dgv.BackgroundColor = SystemColors.Window;
+            dgv.ForeColor = SystemColors.WindowText;
+            dgv.GridColor = SystemColors.ControlDark;
+            dgv.BorderStyle = BorderStyle.Fixed3D;
             dgv.CellBorderStyle = DataGridViewCellBorderStyle.Single;
             dgv.EnableHeadersVisualStyles = true;  // Use Windows visual styles for headers
             dgv.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Raised;
+
+            // Header style - classic theme (will be overridden by EnableHeadersVisualStyles)
+            dgv.ColumnHeadersDefaultCellStyle.BackColor = SystemColors.Control;
+            dgv.ColumnHeadersDefaultCellStyle.ForeColor = SystemColors.ControlText;
+            dgv.ColumnHeadersDefaultCellStyle.SelectionBackColor = SystemColors.Highlight;
+
+            // Cell style - classic theme
+            dgv.DefaultCellStyle.BackColor = SystemColors.Window;
+            dgv.DefaultCellStyle.ForeColor = SystemColors.WindowText;
+            dgv.DefaultCellStyle.SelectionBackColor = SystemColors.Highlight;
+            dgv.DefaultCellStyle.SelectionForeColor = SystemColors.HighlightText;
+
+            // Alternating row style
+            dgv.AlternatingRowsDefaultCellStyle.BackColor = Color.FromArgb(245, 245, 250);
+            dgv.AlternatingRowsDefaultCellStyle.ForeColor = SystemColors.WindowText;
         }
 
-        // Header style - make distinct from data rows
-        var headerBackColor = _currentTheme == ThemeType.Dark
-            ? Color.FromArgb(55, 55, 68)  // Distinctly brighter than grid
-            : ThemePanel;
-        dgv.ColumnHeadersDefaultCellStyle.BackColor = headerBackColor;
-        dgv.ColumnHeadersDefaultCellStyle.ForeColor = ThemeText;
+        // Common styles
         dgv.ColumnHeadersDefaultCellStyle.Font = new Font("Malgun Gothic", _baseFontSize - 3, FontStyle.Bold);
-        dgv.ColumnHeadersDefaultCellStyle.SelectionBackColor = headerBackColor;
         dgv.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
         dgv.ColumnHeadersHeight = 35;
-
-        // Cell style
-        dgv.DefaultCellStyle.BackColor = ThemeGrid;
-        dgv.DefaultCellStyle.ForeColor = ThemeText;
-        dgv.DefaultCellStyle.SelectionBackColor = ThemeAccent;
-        dgv.DefaultCellStyle.SelectionForeColor = ThemeAccentText;
         dgv.DefaultCellStyle.Font = new Font("Malgun Gothic", _baseFontSize - 3);
         dgv.DefaultCellStyle.Padding = new Padding(5, 3, 5, 3);
-
-        // Alternating row style
-        dgv.AlternatingRowsDefaultCellStyle.BackColor = ThemeGridAlt;
-        dgv.AlternatingRowsDefaultCellStyle.ForeColor = ThemeText;
-
         dgv.RowTemplate.Height = 28;
     }
 
     private void ApplyTableLayoutPanelStyle(TableLayoutPanel panel)
     {
-        panel.BackColor = ThemeBackground;
+        panel.BackColor = _currentTheme == ThemeType.Dark ? ThemeBackground : SystemColors.Control;
     }
 
     private void ApplyFlowLayoutPanelStyle(FlowLayoutPanel panel)
     {
-        panel.BackColor = ThemeBackground;
+        panel.BackColor = _currentTheme == ThemeType.Dark ? ThemeBackground : SystemColors.Control;
     }
 
     private void ApplyDetailTextBoxStyle(TextBox textBox)
     {
-        textBox.BackColor = ThemePanel;
-        textBox.ForeColor = ThemeText;
-        textBox.BorderStyle = BorderStyle.FixedSingle;
+        if (_currentTheme == ThemeType.Dark)
+        {
+            textBox.BackColor = ThemePanel;
+            textBox.ForeColor = ThemeText;
+            textBox.BorderStyle = BorderStyle.FixedSingle;
+        }
+        else
+        {
+            textBox.BackColor = SystemColors.Window;
+            textBox.ForeColor = SystemColors.WindowText;
+            textBox.BorderStyle = BorderStyle.Fixed3D;
+        }
         textBox.Font = new Font("Consolas", _baseFontSize - 2);
     }
 
     private void ApplyStatusLabelStyle(Label label)
     {
-        label.ForeColor = ThemeTextMuted;
+        if (_currentTheme == ThemeType.Dark)
+        {
+            label.ForeColor = ThemeTextMuted;
+            label.BackColor = ThemeBackground;
+        }
+        else
+        {
+            label.ForeColor = SystemColors.ControlText;
+            label.BackColor = SystemColors.Control;
+        }
         label.Font = new Font("Malgun Gothic", _baseFontSize - 3);
-        label.BackColor = ThemeBackground;  // Match main background for darker look
         label.Padding = new Padding(10, 0, 0, 0);
     }
 

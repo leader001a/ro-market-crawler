@@ -19,51 +19,91 @@ public partial class Form1
             RowCount = 3,
             Padding = new Padding(10)
         };
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
+        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
         mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
         ApplyTableLayoutPanelStyle(mainPanel);
 
-        // Search panel
-        var searchPanel = new FlowLayoutPanel
+        // ToolStrip-based toolbar
+        var toolStrip = new ToolStrip
         {
-            Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false
+            GripStyle = ToolStripGripStyle.Hidden,
+            BackColor = ThemePanel,
+            Renderer = new DarkToolStripRenderer()
         };
-        ApplyFlowLayoutPanelStyle(searchPanel);
 
-        var lblServer = new Label { Text = "서버:", AutoSize = true, Margin = new Padding(0, 8, 5, 0) };
-        ApplyLabelStyle(lblServer);
+        // Server combo
+        var cboServer = new ToolStripComboBox
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Width = 100,
+            BackColor = ThemeGrid,
+            ForeColor = ThemeText,
+            ToolTipText = "서버 선택"
+        };
+        foreach (var server in Server.GetAllServers())
+            cboServer.Items.Add(server);
+        cboServer.ComboBox.DisplayMember = "Name";
+        cboServer.SelectedIndex = 0;
+        _cboDealServer = cboServer.ComboBox;
 
-        _cboDealServer = new ComboBox { Width = 100, DropDownStyle = ComboBoxStyle.DropDownList };
-        ApplyComboBoxStyle(_cboDealServer);
+        // Deal type combo
+        var cboDealType = new ToolStripComboBox
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Width = 80,
+            BackColor = ThemeGrid,
+            ForeColor = ThemeText,
+            ToolTipText = "거래 유형"
+        };
+        cboDealType.Items.AddRange(new object[] { "전체", "판매", "구매" });
+        cboDealType.SelectedIndex = 0;
+        cboDealType.SelectedIndexChanged += CboDealType_SelectedIndexChanged;
+        _cboDealType = cboDealType.ComboBox;
 
-        var lblDealType = new Label { Text = "유형:", AutoSize = true, Margin = new Padding(10, 8, 5, 0) };
-        ApplyLabelStyle(lblDealType);
+        // Search text
+        var txtSearch = new ToolStripTextBox
+        {
+            AutoSize = false,
+            Width = 250,
+            BackColor = ThemeGrid,
+            ForeColor = ThemeText,
+            ToolTipText = "검색할 아이템명 입력"
+        };
+        txtSearch.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; BtnDealSearch_Click(s, e); } };
+        _txtDealSearch = txtSearch.TextBox;
 
-        _cboDealType = new ComboBox { Width = 80, DropDownStyle = ComboBoxStyle.DropDownList };
-        _cboDealType.Items.AddRange(new object[] { "전체", "판매", "구매" });
-        _cboDealType.SelectedIndex = 0;
-        _cboDealType.SelectedIndexChanged += CboDealType_SelectedIndexChanged;
-        ApplyComboBoxStyle(_cboDealType);
+        // Search button
+        var btnSearch = new ToolStripButton
+        {
+            Text = "검색",
+            BackColor = ThemeAccent,
+            ForeColor = ThemeAccentText,
+            ToolTipText = "검색 실행"
+        };
+        btnSearch.Click += BtnDealSearch_Click;
+        _btnDealSearch = new Button(); // Dummy for state management
+        _btnDealSearchToolStrip = btnSearch;
 
-        var lblSearch = new Label { Text = "아이템명:", AutoSize = true, Margin = new Padding(10, 8, 5, 0) };
-        ApplyLabelStyle(lblSearch);
+        // Cancel button
+        var btnCancel = new ToolStripButton
+        {
+            Text = "취소",
+            Enabled = false,
+            ToolTipText = "검색 취소"
+        };
+        btnCancel.Click += BtnDealCancel_Click;
+        _btnDealCancel = new Button(); // Dummy for state management
+        _btnDealCancelToolStrip = btnCancel;
 
-        _txtDealSearch = new TextBox { Width = 200 };
-        _txtDealSearch.KeyDown += TxtDealSearch_KeyDown;
-        ApplyTextBoxStyle(_txtDealSearch);
-
-        _btnDealSearch = new Button { Text = "검색", Width = 80, Margin = new Padding(10, 0, 5, 0) };
-        _btnDealSearch.Click += BtnDealSearch_Click;
-        ApplyButtonStyle(_btnDealSearch, true);
-
-        _btnDealCancel = new Button { Text = "취소", Width = 80, Enabled = false };
-        _btnDealCancel.Click += BtnDealCancel_Click;
-        ApplyButtonStyle(_btnDealCancel, false);
-
-        searchPanel.Controls.AddRange(new Control[] { lblServer, _cboDealServer, lblDealType, _cboDealType, lblSearch, _txtDealSearch, _btnDealSearch, _btnDealCancel });
+        // Add items to toolbar
+        toolStrip.Items.Add(cboServer);
+        toolStrip.Items.Add(cboDealType);
+        toolStrip.Items.Add(new ToolStripSeparator());
+        toolStrip.Items.Add(txtSearch);
+        toolStrip.Items.Add(new ToolStripSeparator());
+        toolStrip.Items.Add(btnSearch);
+        toolStrip.Items.Add(btnCancel);
 
         // Results grid
         _dgvDeals = new DataGridView
@@ -110,7 +150,7 @@ public partial class Form1
         };
         ApplyStatusLabelStyle(_lblDealStatus);
 
-        mainPanel.Controls.Add(searchPanel, 0, 0);
+        mainPanel.Controls.Add(toolStrip, 0, 0);
         mainPanel.Controls.Add(_dgvDeals, 0, 1);
         mainPanel.Controls.Add(_lblDealStatus, 0, 2);
 
@@ -131,17 +171,6 @@ public partial class Form1
         });
 
         _dgvDeals.CellDoubleClick += DgvDeals_CellDoubleClick;
-    }
-
-    private void LoadServers()
-    {
-        _cboDealServer.Items.Clear();
-        foreach (var server in Server.GetAllServers())
-        {
-            _cboDealServer.Items.Add(server);
-        }
-        _cboDealServer.DisplayMember = "Name";
-        _cboDealServer.SelectedIndex = 0;
     }
 
     private void TxtDealSearch_KeyDown(object? sender, KeyEventArgs e)
@@ -294,8 +323,8 @@ public partial class Form1
 
     private void SetDealSearchingState(bool searching)
     {
-        _btnDealSearch.Enabled = !searching;
-        _btnDealCancel.Enabled = searching;
+        _btnDealSearchToolStrip.Enabled = !searching;
+        _btnDealCancelToolStrip.Enabled = searching;
         _txtDealSearch.Enabled = !searching;
         _cboDealServer.Enabled = !searching;
         _cboDealType.Enabled = !searching;
