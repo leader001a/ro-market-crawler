@@ -65,6 +65,12 @@ namespace RoMarketCrawler.Models
         /// </summary>
         [System.Text.Json.Serialization.JsonIgnore]
         public bool IsRefreshing { get; set; }
+
+        /// <summary>
+        /// Whether this item's results are being processed/rendered (runtime only)
+        /// </summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool IsProcessing { get; set; }
     }
 
     /// <summary>

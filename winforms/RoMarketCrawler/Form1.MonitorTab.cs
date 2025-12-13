@@ -643,156 +643,167 @@ public partial class Form1
 
         var results = _monitoringService.Results.Values.ToList();
 
-        // Unbind DataSource to allow manual row manipulation
-        _dgvMonitorResults.DataSource = null;
-        _dgvMonitorResults.Rows.Clear();
+        // Suspend layout for batch update performance
+        _dgvMonitorResults.SuspendLayout();
 
-        var gradeOrder = new Dictionary<string, int> { { "S", 0 }, { "A", 1 }, { "B", 2 }, { "C", 3 }, { "D", 4 } };
-
-        // Helper to get display name from cache or fallback to deal item name
-        string GetDisplayName(DealItem deal)
+        try
         {
-            var itemId = deal.GetEffectiveItemId();
-            if (itemId.HasValue && _itemIndexService.IsLoaded)
+            // Unbind DataSource to allow manual row manipulation
+            _dgvMonitorResults.DataSource = null;
+            _dgvMonitorResults.Rows.Clear();
+
+            var gradeOrder = new Dictionary<string, int> { { "S", 0 }, { "A", 1 }, { "B", 2 }, { "C", 3 }, { "D", 4 } };
+
+            // Helper to get display name from cache or fallback to deal item name
+            string GetDisplayName(DealItem deal)
             {
-                var cachedItem = _itemIndexService.GetItemById(itemId.Value);
-                if (cachedItem?.ScreenName != null)
+                var itemId = deal.GetEffectiveItemId();
+                if (itemId.HasValue && _itemIndexService.IsLoaded)
                 {
-                    return cachedItem.ScreenName;
+                    var cachedItem = _itemIndexService.GetItemById(itemId.Value);
+                    if (cachedItem?.ScreenName != null)
+                    {
+                        return cachedItem.ScreenName;
+                    }
                 }
+                // Fallback to original item name
+                return deal.ItemName;
             }
-            // Fallback to original item name
-            return deal.ItemName;
-        }
 
-        // Group by item ID + Refine + Grade + Server
-        // This ensures same base item with different refine levels are shown separately
-        var groupedDeals = results
-            .SelectMany(r => r.Deals.Select(d => new { Deal = d, Result = r }))
-            .GroupBy(x => new {
-                // Use item ID for grouping if available, otherwise use item name hash
-                GroupKey = x.Deal.GetEffectiveItemId()?.ToString() ?? $"name:{x.Deal.ItemName}",
-                Refine = x.Deal.Refine ?? 0,
-                Grade = x.Deal.Grade ?? "",
-                x.Deal.ServerName
-            })
-            .Select(g => {
-                var firstDeal = g.First().Deal;
-                var monitorItem = g.First().Result.Item;
-                return new
-                {
-                    // Display name from cache (base item name) or original
-                    DisplayName = GetDisplayName(firstDeal),
-                    OriginalName = firstDeal.ItemName,
-                    ItemId = firstDeal.GetEffectiveItemId(),
-                    Refine = g.Key.Refine,
-                    Grade = g.Key.Grade,
-                    ServerName = g.Key.ServerName,
-                    DealCount = g.Count(),
-                    LowestPrice = g.Min(x => x.Deal.Price),
-                    YesterdayAvg = firstDeal.YesterdayAvgPrice,
-                    WeekAvg = firstDeal.Week7AvgPrice,
-                    WatchPrice = monitorItem.WatchPrice,
-                    Deals = g.Select(x => x.Deal).ToList()
-                };
-            })
-            .OrderBy(x => x.DisplayName)
-            .ThenBy(x => x.Refine)
-            .ThenBy(x => gradeOrder.TryGetValue(x.Grade, out var g) ? g : 99)
-            .ThenBy(x => x.LowestPrice)
-            .ToList();
+            // Group by item ID + Refine + Grade + Server
+            // This ensures same base item with different refine levels are shown separately
+            var groupedDeals = results
+                .SelectMany(r => r.Deals.Select(d => new { Deal = d, Result = r }))
+                .GroupBy(x => new {
+                    // Use item ID for grouping if available, otherwise use item name hash
+                    GroupKey = x.Deal.GetEffectiveItemId()?.ToString() ?? $"name:{x.Deal.ItemName}",
+                    Refine = x.Deal.Refine ?? 0,
+                    Grade = x.Deal.Grade ?? "",
+                    x.Deal.ServerName
+                })
+                .Select(g => {
+                    var firstDeal = g.First().Deal;
+                    var monitorItem = g.First().Result.Item;
+                    return new
+                    {
+                        // Display name from cache (base item name) or original
+                        DisplayName = GetDisplayName(firstDeal),
+                        OriginalName = firstDeal.ItemName,
+                        ItemId = firstDeal.GetEffectiveItemId(),
+                        Refine = g.Key.Refine,
+                        Grade = g.Key.Grade,
+                        ServerName = g.Key.ServerName,
+                        DealCount = g.Count(),
+                        LowestPrice = g.Min(x => x.Deal.Price),
+                        YesterdayAvg = firstDeal.YesterdayAvgPrice,
+                        WeekAvg = firstDeal.Week7AvgPrice,
+                        WatchPrice = monitorItem.WatchPrice,
+                        Deals = g.Select(x => x.Deal).ToList()
+                    };
+                })
+                .OrderBy(x => x.DisplayName)
+                .ThenBy(x => x.Refine)
+                .ThenBy(x => gradeOrder.TryGetValue(x.Grade, out var g) ? g : 99)
+                .ThenBy(x => x.LowestPrice)
+                .ToList();
 
-        foreach (var group in groupedDeals)
-        {
-            var row = _dgvMonitorResults.Rows.Add();
-            _dgvMonitorResults.Rows[row].Cells["Refine"].Value = group.Refine > 0 ? $"+{group.Refine}" : "-";
-            _dgvMonitorResults.Rows[row].Cells["Grade"].Value = string.IsNullOrEmpty(group.Grade) ? "-" : group.Grade;
-            _dgvMonitorResults.Rows[row].Cells["ItemName"].Value = group.DisplayName;
-            _dgvMonitorResults.Rows[row].Cells["ServerName"].Value = group.ServerName;
-            _dgvMonitorResults.Rows[row].Cells["DealCount"].Value = group.DealCount;
-            _dgvMonitorResults.Rows[row].Cells["LowestPrice"].Value = group.LowestPrice.ToString("N0");
-
-            // Check if item has grade - graded items don't have reliable price stats
-            var hasGrade = !string.IsNullOrEmpty(group.Grade);
-
-            // Check if price is below watch price threshold (only trigger for WatchPrice-based alerts)
-            var belowWatchPrice = group.WatchPrice.HasValue && group.LowestPrice <= group.WatchPrice.Value;
-
-            // For graded items: always show "-" for price averages (no reliable data)
-            // For non-graded items: show actual values from API
-            if (hasGrade)
+            foreach (var group in groupedDeals)
             {
-                _dgvMonitorResults.Rows[row].Cells["YesterdayAvg"].Value = "-";
-                _dgvMonitorResults.Rows[row].Cells["WeekAvg"].Value = "-";
-                _dgvMonitorResults.Rows[row].Cells["PriceDiff"].Value = "-";
+                var row = _dgvMonitorResults.Rows.Add();
+                _dgvMonitorResults.Rows[row].Cells["Refine"].Value = group.Refine > 0 ? $"+{group.Refine}" : "-";
+                _dgvMonitorResults.Rows[row].Cells["Grade"].Value = string.IsNullOrEmpty(group.Grade) ? "-" : group.Grade;
+                _dgvMonitorResults.Rows[row].Cells["ItemName"].Value = group.DisplayName;
+                _dgvMonitorResults.Rows[row].Cells["ServerName"].Value = group.ServerName;
+                _dgvMonitorResults.Rows[row].Cells["DealCount"].Value = group.DealCount;
+                _dgvMonitorResults.Rows[row].Cells["LowestPrice"].Value = group.LowestPrice.ToString("N0");
 
-                // Graded items can still trigger watch price alert
-                if (belowWatchPrice)
-                    _dgvMonitorResults.Rows[row].Cells["Status"].Value = "득템!";
-                else
-                    _dgvMonitorResults.Rows[row].Cells["Status"].Value = "-";
+                // Check if item has grade - graded items don't have reliable price stats
+                var hasGrade = !string.IsNullOrEmpty(group.Grade);
 
-                // Store for formatting
-                _dgvMonitorResults.Rows[row].Tag = new {
-                    Grade = group.Grade,
-                    Refine = group.Refine,
-                    BelowYesterday = false,
-                    BelowWeek = false,
-                    IsBargain = belowWatchPrice
-                };
-            }
-            else
-            {
-                // Non-graded items: show price stats and calculate status
-                _dgvMonitorResults.Rows[row].Cells["YesterdayAvg"].Value = group.YesterdayAvg?.ToString("N0") ?? "-";
-                _dgvMonitorResults.Rows[row].Cells["WeekAvg"].Value = group.WeekAvg?.ToString("N0") ?? "-";
+                // Check if price is below watch price threshold (only trigger for WatchPrice-based alerts)
+                var belowWatchPrice = group.WatchPrice.HasValue && group.LowestPrice <= group.WatchPrice.Value;
 
-                // Price difference vs week average
-                double? priceDiff = null;
-                if (group.WeekAvg.HasValue && group.WeekAvg > 0)
+                // For graded items: always show "-" for price averages (no reliable data)
+                // For non-graded items: show actual values from API
+                if (hasGrade)
                 {
-                    priceDiff = ((double)group.LowestPrice / group.WeekAvg.Value - 1) * 100;
-                    _dgvMonitorResults.Rows[row].Cells["PriceDiff"].Value = priceDiff > 0 ? $"+{priceDiff:F0}%" : $"{priceDiff:F0}%";
-                }
-                else
-                {
+                    _dgvMonitorResults.Rows[row].Cells["YesterdayAvg"].Value = "-";
+                    _dgvMonitorResults.Rows[row].Cells["WeekAvg"].Value = "-";
                     _dgvMonitorResults.Rows[row].Cells["PriceDiff"].Value = "-";
+
+                    // Graded items can still trigger watch price alert
+                    if (belowWatchPrice)
+                        _dgvMonitorResults.Rows[row].Cells["Status"].Value = "득템!";
+                    else
+                        _dgvMonitorResults.Rows[row].Cells["Status"].Value = "-";
+
+                    // Store for formatting
+                    _dgvMonitorResults.Rows[row].Tag = new {
+                        Grade = group.Grade,
+                        Refine = group.Refine,
+                        BelowYesterday = false,
+                        BelowWeek = false,
+                        IsBargain = belowWatchPrice
+                    };
                 }
-
-                // Status based on watch price only
-                var belowYesterday = group.YesterdayAvg.HasValue && group.LowestPrice < group.YesterdayAvg;
-                var belowWeek = group.WeekAvg.HasValue && group.LowestPrice < group.WeekAvg;
-
-                // Watch price triggers "득템!" status
-                if (belowWatchPrice)
-                    _dgvMonitorResults.Rows[row].Cells["Status"].Value = "득템!";
-                else if (belowYesterday && belowWeek)
-                    _dgvMonitorResults.Rows[row].Cells["Status"].Value = "저렴!";
-                else if (belowYesterday || belowWeek)
-                    _dgvMonitorResults.Rows[row].Cells["Status"].Value = "양호";
                 else
-                    _dgvMonitorResults.Rows[row].Cells["Status"].Value = "정상";
+                {
+                    // Non-graded items: show price stats and calculate status
+                    _dgvMonitorResults.Rows[row].Cells["YesterdayAvg"].Value = group.YesterdayAvg?.ToString("N0") ?? "-";
+                    _dgvMonitorResults.Rows[row].Cells["WeekAvg"].Value = group.WeekAvg?.ToString("N0") ?? "-";
 
-                // Store for formatting: grade, refine and price comparison info
-                _dgvMonitorResults.Rows[row].Tag = new {
-                    Grade = group.Grade,
-                    Refine = group.Refine,
-                    BelowYesterday = belowYesterday,
-                    BelowWeek = belowWeek,
-                    IsBargain = belowWatchPrice
-                };
+                    // Price difference vs week average
+                    double? priceDiff = null;
+                    if (group.WeekAvg.HasValue && group.WeekAvg > 0)
+                    {
+                        priceDiff = ((double)group.LowestPrice / group.WeekAvg.Value - 1) * 100;
+                        _dgvMonitorResults.Rows[row].Cells["PriceDiff"].Value = priceDiff > 0 ? $"+{priceDiff:F0}%" : $"{priceDiff:F0}%";
+                    }
+                    else
+                    {
+                        _dgvMonitorResults.Rows[row].Cells["PriceDiff"].Value = "-";
+                    }
+
+                    // Status based on watch price only
+                    var belowYesterday = group.YesterdayAvg.HasValue && group.LowestPrice < group.YesterdayAvg;
+                    var belowWeek = group.WeekAvg.HasValue && group.LowestPrice < group.WeekAvg;
+
+                    // Watch price triggers "득템!" status
+                    if (belowWatchPrice)
+                        _dgvMonitorResults.Rows[row].Cells["Status"].Value = "득템!";
+                    else if (belowYesterday && belowWeek)
+                        _dgvMonitorResults.Rows[row].Cells["Status"].Value = "저렴!";
+                    else if (belowYesterday || belowWeek)
+                        _dgvMonitorResults.Rows[row].Cells["Status"].Value = "양호";
+                    else
+                        _dgvMonitorResults.Rows[row].Cells["Status"].Value = "정상";
+
+                    // Store for formatting: grade, refine and price comparison info
+                    _dgvMonitorResults.Rows[row].Tag = new {
+                        Grade = group.Grade,
+                        Refine = group.Refine,
+                        BelowYesterday = belowYesterday,
+                        BelowWeek = belowWeek,
+                        IsBargain = belowWatchPrice
+                    };
+                }
             }
-        }
 
-        // Play sound alert only if any item is below watch price (and not muted)
-        var hasBargain = groupedDeals.Any(g => g.WatchPrice.HasValue && g.LowestPrice <= g.WatchPrice.Value);
-        if (hasBargain && !_isSoundMuted)
+            // Play sound alert only if any item is below watch price (and not muted)
+            var hasBargain = groupedDeals.Any(g => g.WatchPrice.HasValue && g.LowestPrice <= g.WatchPrice.Value);
+            if (hasBargain && !_isSoundMuted)
+            {
+                PlayAlarmSound();
+            }
+
+            // Clear default first row selection
+            _dgvMonitorResults.ClearSelection();
+        }
+        finally
         {
-            PlayAlarmSound();
+            // Resume layout after batch update
+            _dgvMonitorResults.ResumeLayout();
         }
-
-        // Clear default first row selection
-        _dgvMonitorResults.ClearSelection();
     }
 
     private void DgvMonitorResults_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
@@ -1063,7 +1074,43 @@ public partial class Form1
             var resultCount = _monitoringService.Results.Count;
             Debug.WriteLine($"[Form1] RefreshMonitoringAsync complete, Results count={resultCount}, Elapsed={elapsedSeconds:F1}s");
 
-            UpdateMonitorResults();
+            // Set processing state for all items
+            var allItems = _monitoringService.Config.Items.ToList();
+            foreach (var item in allItems)
+            {
+                item.IsProcessing = true;
+            }
+            _lblMonitorStatus.Text = $"결과 처리 중... ({resultCount}건)";
+            UpdateItemStatusColumn();
+
+            // Start minimum display timer (ensures "처리 중..." is visible)
+            var minDisplayTask = Task.Delay(500);
+
+            try
+            {
+                UpdateMonitorResults();
+
+                // Wait for minimum display time to ensure user sees "처리 중..."
+                await minDisplayTask;
+            }
+            finally
+            {
+                // Clear processing state for all items
+                foreach (var item in allItems)
+                {
+                    item.IsProcessing = false;
+                }
+
+                // Schedule next refresh AFTER rendering is complete (if auto-refresh is enabled)
+                // This ensures countdown starts when user can see the results
+                if (_monitorTimer.Enabled)
+                {
+                    _monitoringService.ScheduleNextRefreshForAll();
+                }
+
+                UpdateItemStatusColumn();
+            }
+
             _lblMonitorStatus.Text = $"조회 완료 ({DateTime.Now:HH:mm:ss}) - {resultCount}건, {elapsedSeconds:F1}초";
 
             // Check for good deals
@@ -1118,83 +1165,131 @@ public partial class Form1
     }
 
 
-    private async void MonitorTimer_Tick(object? sender, EventArgs e)
+    private void MonitorTimer_Tick(object? sender, EventArgs e)
     {
-        // Get all items due for refresh (supports unlimited parallel processing)
-        var itemsDue = _monitoringService.GetAllItemsDueForRefresh();
+        // Get all items due for refresh, excluding items already being processed or refreshed
+        var itemsDue = _monitoringService.GetAllItemsDueForRefresh()
+            .Where(i => !i.IsRefreshing && !i.IsProcessing)
+            .ToList();
         if (itemsDue.Count == 0)
         {
-            // No items due yet, wait for next tick
             return;
         }
 
-        Debug.WriteLine($"[Form1] Processing {itemsDue.Count} items in parallel");
+        Debug.WriteLine($"[Form1] Starting {itemsDue.Count} items independently");
 
-        // Mark all items as refreshing
+        // Mark all items as refreshing and start independent processing
         foreach (var item in itemsDue)
         {
             item.IsRefreshing = true;
+            // Fire-and-forget: each item processes independently
+            _ = ProcessSingleItemAsync(item);
         }
+
+        UpdateItemStatusColumn();
 
         var itemNames = string.Join(", ", itemsDue.Select(i => i.ItemName).Take(3));
         if (itemsDue.Count > 3) itemNames += $" 외 {itemsDue.Count - 3}개";
         _lblMonitorStatus.Text = $"조회 중: {itemNames}...";
-        UpdateItemStatusColumn();
+    }
 
+    /// <summary>
+    /// Process a single item independently: query → process → countdown
+    /// Each item transitions through states without waiting for other items
+    /// </summary>
+    private async Task ProcessSingleItemAsync(MonitorItem item)
+    {
         var cancellationToken = _monitorCts?.Token ?? CancellationToken.None;
 
-        // Process all items in parallel (unlimited concurrency)
-        var tasks = itemsDue.Select(async item =>
+        try
         {
-            try
-            {
-                await _monitoringService.RefreshSingleItemAsync(item, cancellationToken);
-                Interlocked.Increment(ref _refreshedItemCount);
-                return (item, success: true, error: (string?)null);
-            }
-            catch (OperationCanceledException)
-            {
-                Debug.WriteLine($"[Form1] Item refresh cancelled: {item.ItemName}");
-                return (item, success: false, error: "취소됨");
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[Form1] Item refresh error: {item.ItemName}, {ex.Message}");
-                return (item, success: false, error: ex.Message);
-            }
-            finally
-            {
-                item.IsRefreshing = false;
-            }
-        }).ToList();
+            // 1. API Query (조회 중...)
+            Debug.WriteLine($"[Form1] Querying: {item.ItemName}");
+            await _monitoringService.RefreshSingleItemAsync(item, cancellationToken);
+            Interlocked.Increment(ref _refreshedItemCount);
 
-        await Task.WhenAll(tasks);
+            // 2. Transition to processing state (처리 중...)
+            item.IsRefreshing = false;
+            item.IsProcessing = true;
 
-        // Update UI after all items complete
-        if (InvokeRequired)
-        {
-            Invoke(new Action(() => AfterParallelRefreshComplete(itemsDue.Count)));
+            // 3. Update UI on UI thread
+            if (InvokeRequired)
+            {
+                Invoke(() =>
+                {
+                    UpdateItemStatusColumn();
+                    UpdateMonitorResults();
+                });
+            }
+            else
+            {
+                UpdateItemStatusColumn();
+                UpdateMonitorResults();
+            }
+
+            // 4. Minimum display time for "처리 중..."
+            await Task.Delay(500, cancellationToken);
+
+            // 5. Transition to countdown state (N초 후)
+            item.IsProcessing = false;
+            _monitoringService.ScheduleNextRefresh(new[] { item });
+
+            // 6. Update status column
+            if (!IsDisposed)
+            {
+                Invoke(() =>
+                {
+                    UpdateItemStatusColumn();
+                    UpdateStatusBarAfterItemComplete();
+                });
+            }
+
+            Debug.WriteLine($"[Form1] Completed: {item.ItemName}");
         }
-        else
+        catch (OperationCanceledException)
         {
-            AfterParallelRefreshComplete(itemsDue.Count);
+            Debug.WriteLine($"[Form1] Cancelled: {item.ItemName}");
+            item.IsRefreshing = false;
+            item.IsProcessing = false;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Form1] Error: {item.ItemName}, {ex.Message}");
+            item.IsRefreshing = false;
+            item.IsProcessing = false;
+        }
+        finally
+        {
+            if (!IsDisposed)
+            {
+                Invoke(() => UpdateItemStatusColumn());
+            }
         }
     }
 
-    private void AfterParallelRefreshComplete(int processedCount)
+    /// <summary>
+    /// Update status bar after an item completes processing
+    /// </summary>
+    private void UpdateStatusBarAfterItemComplete()
     {
-        UpdateMonitorResults();
-        UpdateItemStatusColumn();
+        var processingCount = _monitoringService.Config.Items.Count(i => i.IsRefreshing || i.IsProcessing);
+        var totalCount = _monitoringService.ItemCount;
+        var resultCount = _monitoringService.Results.Count;
 
-        var elapsed = _refreshStopwatch.Elapsed.TotalSeconds;
-        var totalItems = _monitoringService.ItemCount;
-        _lblMonitorStatus.Text = $"갱신 완료 ({DateTime.Now:HH:mm:ss}) - {_refreshedItemCount}/{totalItems}건, {elapsed:F0}초";
-
-        // Check for good deals
-        var goodDeals = _monitoringService.GetGoodDeals();
-        if (goodDeals.Count > 0)
+        if (processingCount > 0)
         {
-            _lblMonitorStatus.Text = $"저렴한 매물 {goodDeals.Count}건! ({DateTime.Now:HH:mm:ss})";
+            _lblMonitorStatus.Text = $"처리 중... ({processingCount}/{totalCount})";
+        }
+        else
+        {
+            _lblMonitorStatus.Text = $"갱신 완료 ({DateTime.Now:HH:mm:ss}) - {resultCount}건";
+
+            // Check for good deals
+            var goodDeals = _monitoringService.GetGoodDeals();
+            if (goodDeals.Count > 0)
+            {
+                _lblMonitorStatus.Text = $"저렴한 매물 {goodDeals.Count}건! ({DateTime.Now:HH:mm:ss})";
+            }
         }
     }
 
@@ -1202,6 +1297,45 @@ public partial class Form1
     {
         // Update status column every second to show countdown
         UpdateItemStatusColumn();
+    }
+
+    /// <summary>
+    /// Sets items to "처리 중..." status and forces immediate UI update.
+    /// If refreshedItems is provided, only those items are updated; otherwise all items are updated.
+    /// </summary>
+    private void SetProcessingStatusVisible(bool isProcessing, List<MonitorItem>? refreshedItems = null)
+    {
+        _isProcessingResults = isProcessing;
+
+        // Get the list of items to update
+        var itemsToUpdate = refreshedItems ?? _monitoringService.Config.Items.ToList();
+
+        for (int i = 0; i < _dgvMonitorItems.Rows.Count; i++)
+        {
+            var row = _dgvMonitorItems.Rows[i];
+            var rowItem = row.DataBoundItem as MonitorItem;
+
+            // Skip items not in the refresh list
+            if (rowItem == null || !itemsToUpdate.Contains(rowItem))
+            {
+                continue;
+            }
+
+            var cell = row.Cells["RefreshStatus"];
+            if (cell != null)
+            {
+                cell.Value = isProcessing ? "처리 중..." : "";
+            }
+        }
+
+        // Force synchronous repaint
+        _dgvMonitorItems.Invalidate();
+        _dgvMonitorItems.Update();
+
+        if (isProcessing)
+        {
+            Application.DoEvents();
+        }
     }
 
     private void UpdateItemStatusColumn()
@@ -1221,13 +1355,18 @@ public partial class Form1
             var row = _dgvMonitorItems.Rows[i];
             var statusCell = row.Cells["RefreshStatus"];
 
-            if (!isAutoRefreshEnabled)
-            {
-                statusCell.Value = "-";
-            }
-            else if (item.IsRefreshing)
+            // State priority: Refreshing > Processing > Countdown
+            if (item.IsRefreshing)
             {
                 statusCell.Value = "조회 중...";
+            }
+            else if (item.IsProcessing)
+            {
+                statusCell.Value = "처리 중...";
+            }
+            else if (!isAutoRefreshEnabled)
+            {
+                statusCell.Value = "-";
             }
             else if (item.NextRefreshTime.HasValue)
             {
@@ -1253,7 +1392,14 @@ public partial class Form1
 
         var cellValue = e.Value?.ToString() ?? "";
 
-        if (cellValue == "조회 중...")
+        if (cellValue == "처리 중...")
+        {
+            // Highlight processing state with blue background
+            e.CellStyle!.BackColor = Color.FromArgb(40, 80, 140);
+            e.CellStyle.ForeColor = Color.White;
+            e.CellStyle.Font = new Font(e.CellStyle.Font ?? SystemFonts.DefaultFont, FontStyle.Bold);
+        }
+        else if (cellValue == "조회 중...")
         {
             // Highlight refreshing item with yellow background
             e.CellStyle!.BackColor = Color.FromArgb(120, 100, 40);

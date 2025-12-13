@@ -12,11 +12,13 @@ using RoMarketCrawler.Models;
 namespace RoMarketCrawler.Services
 {
     /// <summary>
-    /// Service for managing item monitoring with persistent storage and auto-refresh
+    /// Service for managing item monitoring with persistent storage and auto-refresh.
+    /// Can operate with its own GnjoyClient for complete isolation from other tabs.
     /// </summary>
     public class MonitoringService : IDisposable
     {
         private readonly GnjoyClient _gnjoyClient;
+        private readonly bool _ownsGnjoyClient;
         private readonly string _configFilePath;
         private MonitorConfig _config;
         private readonly Dictionary<string, MonitorResult> _results;
@@ -26,9 +28,28 @@ namespace RoMarketCrawler.Services
         // Parallel processing with atomic update pattern to prevent race conditions
         private readonly SemaphoreSlim _refreshSemaphore = new(3); // Max 3 concurrent refreshes
 
+        /// <summary>
+        /// Creates MonitoringService with its own dedicated GnjoyClient.
+        /// This ensures complete isolation from other components using GnjoyClient.
+        /// </summary>
+        public MonitoringService(string? dataDirectory = null)
+        {
+            _gnjoyClient = new GnjoyClient();
+            _ownsGnjoyClient = true;
+            var dataDir = dataDirectory ?? Path.Combine(AppContext.BaseDirectory, "Data");
+            Directory.CreateDirectory(dataDir);
+            _configFilePath = Path.Combine(dataDir, "MonitorConfig.json");
+            _config = new MonitorConfig();
+            _results = new Dictionary<string, MonitorResult>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Creates MonitoringService with a shared GnjoyClient (legacy support).
+        /// </summary>
         public MonitoringService(GnjoyClient gnjoyClient, string? dataDirectory = null)
         {
             _gnjoyClient = gnjoyClient;
+            _ownsGnjoyClient = false;
             var dataDir = dataDirectory ?? Path.Combine(AppContext.BaseDirectory, "Data");
             Directory.CreateDirectory(dataDir);
             _configFilePath = Path.Combine(dataDir, "MonitorConfig.json");
@@ -325,6 +346,29 @@ namespace RoMarketCrawler.Services
         }
 
         /// <summary>
+        /// Schedule the next refresh time for the given items.
+        /// Should be called after UI rendering is complete to ensure countdown starts after results are visible.
+        /// </summary>
+        public void ScheduleNextRefresh(IEnumerable<MonitorItem> items)
+        {
+            var nextTime = DateTime.Now.AddSeconds(_config.RefreshIntervalSeconds);
+            foreach (var item in items)
+            {
+                item.NextRefreshTime = nextTime;
+                Debug.WriteLine($"[MonitoringService] Scheduled next refresh for '{item.ItemName}' at {nextTime:HH:mm:ss}");
+            }
+        }
+
+        /// <summary>
+        /// Schedule the next refresh time for all monitored items.
+        /// Should be called after UI rendering is complete (e.g., after manual refresh).
+        /// </summary>
+        public void ScheduleNextRefreshForAll()
+        {
+            ScheduleNextRefresh(_config.Items);
+        }
+
+        /// <summary>
         /// Refresh a single item and update its next refresh time.
         /// Captures item name at start to prevent race conditions when item is renamed during refresh.
         /// </summary>
@@ -356,10 +400,10 @@ namespace RoMarketCrawler.Services
                 _results[key] = result;
             }
 
-            // Schedule next refresh
-            item.NextRefreshTime = DateTime.Now.AddSeconds(_config.RefreshIntervalSeconds);
+            // Note: NextRefreshTime is now set by the caller after UI rendering completes
+            // This ensures the countdown starts after the user sees the results
 
-            Debug.WriteLine($"[MonitoringService] Refreshed '{searchName}', next at {item.NextRefreshTime:HH:mm:ss}");
+            Debug.WriteLine($"[MonitoringService] Refreshed '{searchName}' (next refresh will be scheduled after rendering)");
 
             return result;
         }
@@ -790,6 +834,13 @@ namespace RoMarketCrawler.Services
         {
             if (_disposed) return;
             _disposed = true;
+
+            // Dispose owned resources
+            if (_ownsGnjoyClient)
+            {
+                _gnjoyClient.Dispose();
+            }
+            _refreshSemaphore.Dispose();
         }
     }
 

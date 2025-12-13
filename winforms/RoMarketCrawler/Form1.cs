@@ -87,6 +87,9 @@ public partial class Form1 : Form
     private BindingSource _monitorItemsBindingSource = null!;
     private BindingSource _monitorResultsBindingSource = null!;
 
+    // Monitor Results Processing State
+    private bool _isProcessingResults = false;
+
     // Font Size Settings
     private float _baseFontSize = 12f;
     private readonly string _settingsFilePath;
@@ -101,10 +104,10 @@ public partial class Form1 : Form
     public Form1()
     {
         InitializeComponent();
-        _gnjoyClient = new GnjoyClient();
+        _gnjoyClient = new GnjoyClient();  // Deal tab only
         _kafraClient = new KafraClient();
         _itemIndexService = new ItemIndexService();
-        _monitoringService = new MonitoringService(_gnjoyClient);
+        _monitoringService = new MonitoringService();  // Uses its own GnjoyClient for isolation
         _searchResults = new List<DealItem>();
         _itemResults = new List<KafraItem>();
         _dealBindingSource = new BindingSource { DataSource = _searchResults };
