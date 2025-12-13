@@ -47,6 +47,9 @@ public partial class Form1 : Form
     private ToolStripButton _btnDealCancelToolStrip = null!;
     private DataGridView _dgvDeals = null!;
     private Label _lblDealStatus = null!;
+    private FlowLayoutPanel _pnlSearchHistory = null!;
+    private List<string> _dealSearchHistory = new();
+    private const int MaxSearchHistoryCount = 10;
 
     // Deal Tab Pagination (server-side: API returns 10 items per page)
     private ToolStripButton _btnDealPrev = null!;
@@ -83,9 +86,10 @@ public partial class Form1 : Form
     private readonly MonitoringService _monitoringService;
     private TextBox _txtMonitorItemName = null!;
     private ComboBox _cboMonitorServer = null!;
-    private Button _btnMonitorAdd = null!;
-    private Button _btnMonitorRemove = null!;
-    private Button _btnMonitorRefresh = null!;
+    private ToolStripButton _btnMonitorAdd = null!;
+    private ToolStripButton _btnMonitorRemove = null!;
+    private ToolStripButton _btnMonitorRefresh = null!;
+    private ToolStripProgressBar _progressMonitor = null!;
     private DataGridView _dgvMonitorItems = null!;
     private DataGridView _dgvMonitorResults = null!;
     private NumericUpDown _nudRefreshInterval = null!;
@@ -109,6 +113,7 @@ public partial class Form1 : Form
     private bool _isSoundMuted = false;
     private AlarmSoundType _selectedAlarmSound = AlarmSoundType.SystemSound;
     private ToolStripButton _btnSoundMute = null!;
+    private ToolStripLabel _lblAutoRefreshStatus = null!;
     private ComboBox _cboAlarmSound = null!;
 
     // Alarm Timer Settings (always running, controlled by mute button)
@@ -218,6 +223,8 @@ public partial class Form1 : Form
 
         // Refresh Monitor tab UI when switching to it
         _tabControl.SelectedIndexChanged += TabControl_SelectedIndexChanged;
+        // Confirm before leaving Monitor tab (if auto-refresh is running)
+        _tabControl.Selecting += TabControl_Selecting;
 
         Controls.Add(_tabControl);
         Controls.Add(_menuStrip); // Add menu after tabControl so it appears on top
@@ -600,6 +607,7 @@ public partial class Form1 : Form
                     _isSoundMuted = settings.IsSoundMuted;
                     _selectedAlarmSound = settings.AlarmSound;
                     _alarmIntervalSeconds = settings.AlarmIntervalSeconds;
+                    _dealSearchHistory = settings.DealSearchHistory ?? new List<string>();
                 }
             }
         }
@@ -619,7 +627,8 @@ public partial class Form1 : Form
                 Theme = _currentTheme,
                 IsSoundMuted = _isSoundMuted,
                 AlarmSound = _selectedAlarmSound,
-                AlarmIntervalSeconds = _alarmIntervalSeconds
+                AlarmIntervalSeconds = _alarmIntervalSeconds,
+                DealSearchHistory = _dealSearchHistory
             };
             var json = System.Text.Json.JsonSerializer.Serialize(settings);
             File.WriteAllText(_settingsFilePath, json);
@@ -672,6 +681,7 @@ internal class AppSettings
     public bool IsSoundMuted { get; set; } = false;
     public AlarmSoundType AlarmSound { get; set; } = AlarmSoundType.SystemSound;
     public int AlarmIntervalSeconds { get; set; } = 5;
+    public List<string> DealSearchHistory { get; set; } = new();
 }
 
 // Theme types

@@ -97,22 +97,31 @@ public partial class Form1
         _cboMonitorServer = cboServer.ComboBox;
 
         // Add/Remove buttons
-        var btnAdd = new ToolStripButton("추가") { ToolTipText = "모니터링 목록에 추가" };
-        btnAdd.Click += BtnMonitorAdd_Click;
+        _btnMonitorAdd = new ToolStripButton("추가") { ToolTipText = "모니터링 목록에 추가" };
+        _btnMonitorAdd.Click += BtnMonitorAdd_Click;
 
-        var btnRemoveSelected = new ToolStripButton("선택삭제") { ToolTipText = "선택한 항목 삭제" };
-        btnRemoveSelected.Click += BtnMonitorRemove_Click;
+        _btnMonitorRemove = new ToolStripButton("선택삭제") { ToolTipText = "선택한 항목 삭제" };
+        _btnMonitorRemove.Click += BtnMonitorRemove_Click;
 
         var btnClearAll = new ToolStripButton("전체삭제") { ToolTipText = "모든 항목 삭제" };
         btnClearAll.Click += BtnMonitorClearAll_Click;
 
         // Manual refresh button (right-aligned)
-        var btnRefresh = new ToolStripButton("수동조회")
+        _btnMonitorRefresh = new ToolStripButton("수동조회")
         {
             ToolTipText = "즉시 조회 실행",
             Alignment = ToolStripItemAlignment.Right
         };
-        btnRefresh.Click += BtnMonitorRefresh_Click;
+        _btnMonitorRefresh.Click += BtnMonitorRefresh_Click;
+
+        // Progress bar for refresh operation (right-aligned, hidden by default)
+        _progressMonitor = new ToolStripProgressBar
+        {
+            Alignment = ToolStripItemAlignment.Right,
+            Size = new Size(100, 16),
+            Visible = false,
+            Style = ProgressBarStyle.Continuous
+        };
 
         // Auto-refresh dropdown (right-aligned)
         var btnAutoRefresh = new ToolStripDropDownButton("자동조회")
@@ -145,6 +154,14 @@ public partial class Form1
         UpdateSoundMuteButton();
         _btnSoundMute.Click += BtnSoundMute_Click;
 
+        // Auto-refresh status label (right-aligned, before 자동조회 button)
+        _lblAutoRefreshStatus = new ToolStripLabel
+        {
+            Text = "[정지]",
+            ForeColor = ThemeTextMuted,
+            Alignment = ToolStripItemAlignment.Right
+        };
+
         // Separators for right-aligned items
         var sepRight1 = new ToolStripSeparator { Alignment = ToolStripItemAlignment.Right };
         var sepRight2 = new ToolStripSeparator { Alignment = ToolStripItemAlignment.Right };
@@ -159,21 +176,23 @@ public partial class Form1
         toolStrip.Items.Add(cboServer);
         toolStrip.Items.Add(txtItemName);
         toolStrip.Items.Add(new ToolStripSeparator());
-        toolStrip.Items.Add(btnAdd);
+        toolStrip.Items.Add(_btnMonitorAdd);
         toolStrip.Items.Add(new ToolStripSeparator());
-        toolStrip.Items.Add(btnRemoveSelected);
+        toolStrip.Items.Add(_btnMonitorRemove);
         toolStrip.Items.Add(new ToolStripSeparator());
         toolStrip.Items.Add(btnClearAll);
 
         // Right side: refresh and alarm controls (added in reverse display order)
-        // Display order: 수동조회 | 자동조회 | 알람설정 | 음소거
+        // Display order: [진행바] 수동조회 | [상태] 자동조회 | 알람설정 | 음소거
         toolStrip.Items.Add(_btnSoundMute);    // Rightmost
         toolStrip.Items.Add(sepRight1);        // |
         toolStrip.Items.Add(btnAlarmSettings); // Second from right
         toolStrip.Items.Add(sepRight2);        // |
-        toolStrip.Items.Add(btnAutoRefresh);   // Third from right
+        toolStrip.Items.Add(btnAutoRefresh);   // 자동조회 button
+        toolStrip.Items.Add(_lblAutoRefreshStatus); // Status label [정지/동작중]
         toolStrip.Items.Add(sepRight3);        // |
-        toolStrip.Items.Add(btnRefresh);       // Fourth from right (leftmost of right group)
+        toolStrip.Items.Add(_btnMonitorRefresh);       // 수동조회 button
+        toolStrip.Items.Add(_progressMonitor);         // Progress bar (hidden by default)
 
         mainLayout.Controls.Add(toolStrip, 0, 0);
 
@@ -883,11 +902,21 @@ public partial class Form1
         {
             _btnApplyInterval.Text = $"중지 ({interval}s)";
             _btnApplyInterval.ForeColor = ThemeSaleColor;
+            if (_lblAutoRefreshStatus != null)
+            {
+                _lblAutoRefreshStatus.Text = "[동작중]";
+                _lblAutoRefreshStatus.ForeColor = ThemeSaleColor;
+            }
         }
         else
         {
             _btnApplyInterval.Text = "자동갱신";
             _btnApplyInterval.ForeColor = ThemeText;
+            if (_lblAutoRefreshStatus != null)
+            {
+                _lblAutoRefreshStatus.Text = "[정지]";
+                _lblAutoRefreshStatus.ForeColor = ThemeTextMuted;
+            }
         }
     }
 
@@ -937,6 +966,34 @@ public partial class Form1
     }
 
     // Event Handlers
+
+    private void TabControl_Selecting(object? sender, TabControlCancelEventArgs e)
+    {
+        // Check if leaving Monitor tab (index 2) while auto-refresh is running
+        if (_tabControl.SelectedIndex == 2 && e.TabPageIndex != 2)
+        {
+            if (_monitorTimer.Enabled)
+            {
+                var result = MessageBox.Show(
+                    "다른 탭으로 이동하면 자동 갱신이 중지됩니다.\n이동하시겠습니까?",
+                    "노점 모니터링",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question);
+
+                if (result == DialogResult.No)
+                {
+                    e.Cancel = true;
+                    return;
+                }
+
+                // User confirmed - stop auto-refresh
+                StopMonitorTimer();
+                _monitoringService.Config.RefreshIntervalSeconds = 0;
+                UpdateMonitorRefreshLabel();
+                Debug.WriteLine("[Form1] Auto-refresh stopped due to tab change");
+            }
+        }
+    }
 
     private void TabControl_SelectedIndexChanged(object? sender, EventArgs e)
     {
@@ -1063,6 +1120,10 @@ public partial class Form1
         _btnMonitorAdd.Enabled = false;
         _btnMonitorRemove.Enabled = false;
 
+        // Show and initialize progress bar
+        _progressMonitor.Value = 0;
+        _progressMonitor.Visible = true;
+
         // Start timing
         var stopwatch = Stopwatch.StartNew();
 
@@ -1071,6 +1132,12 @@ public partial class Form1
             var progress = new Progress<MonitorProgress>(p =>
             {
                 _lblMonitorStatus.Text = $"{p.Phase}: {p.CurrentItem} ({p.CurrentIndex}/{p.TotalItems})";
+                // Update progress bar
+                if (p.TotalItems > 0)
+                {
+                    var percent = (int)(p.CurrentIndex * 100 / p.TotalItems);
+                    _progressMonitor.Value = Math.Min(percent, 100);
+                }
             });
 
             await _monitoringService.RefreshAllAsync(progress, _monitorCts.Token);
@@ -1143,6 +1210,7 @@ public partial class Form1
             _btnMonitorRefresh.Enabled = true;
             _btnMonitorAdd.Enabled = true;
             _btnMonitorRemove.Enabled = true;
+            _progressMonitor.Visible = false;
         }
     }
 
@@ -1162,7 +1230,7 @@ public partial class Form1
         {
             // Start auto-refresh
             var seconds = (int)_nudRefreshInterval.Value;
-            if (seconds < 5) seconds = 5; // Minimum 5 seconds
+            if (seconds < 10) seconds = 10; // Minimum 10 seconds
             await _monitoringService.SetRefreshIntervalAsync(seconds);
             StartMonitorTimer(seconds);
             _lblMonitorStatus.Text = $"자동 갱신 시작: {seconds}초";
@@ -1579,7 +1647,7 @@ public partial class Form1
         _nudRefreshInterval = new NumericUpDown
         {
             Name = "nudRefreshInterval",
-            Minimum = 5, Maximum = 600, Value = 30,
+            Minimum = 10, Maximum = 600, Value = 30,
             Location = new Point((int)(140 * scale), yPos),
             Size = new Size((int)(65 * scale), rowHeight),
             BackColor = ThemeGrid,

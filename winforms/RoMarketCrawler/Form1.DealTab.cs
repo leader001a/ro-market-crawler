@@ -20,12 +20,13 @@ public partial class Form1
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 3,
+            RowCount = 4,
             Padding = new Padding(10)
         };
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
+        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));   // Row 0: Toolbar
+        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));    // Row 1: Search history (dynamic)
+        mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));   // Row 2: Results grid
+        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));   // Row 3: Status
         ApplyTableLayoutPanelStyle(mainPanel);
 
         // ToolStrip-based toolbar
@@ -124,6 +125,27 @@ public partial class Form1
         toolStrip.Items.Add(lblPage);
         toolStrip.Items.Add(btnNext);
 
+        // Search history panel (horizontal flow of clickable labels)
+        _pnlSearchHistory = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            WrapContents = true,
+            BackColor = ThemePanel,
+            Padding = new Padding(5, 2, 5, 2),
+            Margin = new Padding(0)
+        };
+        // Add "최근검색:" label
+        var lblHistoryTitle = new Label
+        {
+            Text = "최근검색:",
+            AutoSize = true,
+            ForeColor = ThemeTextMuted,
+            Margin = new Padding(0, 3, 5, 0)
+        };
+        _pnlSearchHistory.Controls.Add(lblHistoryTitle);
+        UpdateSearchHistoryPanel();
+
         // Results grid
         _dgvDeals = new DataGridView
         {
@@ -171,8 +193,9 @@ public partial class Form1
         ApplyStatusLabelStyle(_lblDealStatus);
 
         mainPanel.Controls.Add(toolStrip, 0, 0);
-        mainPanel.Controls.Add(_dgvDeals, 0, 1);
-        mainPanel.Controls.Add(_lblDealStatus, 0, 2);
+        mainPanel.Controls.Add(_pnlSearchHistory, 0, 1);
+        mainPanel.Controls.Add(_dgvDeals, 0, 2);
+        mainPanel.Controls.Add(_lblDealStatus, 0, 3);
 
         tab.Controls.Add(mainPanel);
     }
@@ -293,6 +316,12 @@ public partial class Form1
 
         var searchId = ++_currentSearchId;
         _lastSearchTerm = searchText;
+
+        // Add to search history (only on first page / new search)
+        if (_dealCurrentPage == 1)
+        {
+            AddToSearchHistory(searchText);
+        }
 
         SetDealSearchingState(true);
         _lblDealStatus.Text = $"{_dealCurrentPage}페이지 조회 중...";
@@ -513,6 +542,76 @@ public partial class Form1
 
         using var detailForm = new ItemDetailForm(selectedItem, _itemIndexService);
         detailForm.ShowDialog(this);
+    }
+
+    private void UpdateSearchHistoryPanel()
+    {
+        if (_pnlSearchHistory == null) return;
+
+        // Keep only the title label, remove all history buttons
+        while (_pnlSearchHistory.Controls.Count > 1)
+        {
+            var ctrl = _pnlSearchHistory.Controls[1];
+            _pnlSearchHistory.Controls.RemoveAt(1);
+            ctrl.Dispose();
+        }
+
+        // Add history items as clickable labels
+        foreach (var term in _dealSearchHistory)
+        {
+            var btn = new Label
+            {
+                Text = term,
+                AutoSize = true,
+                ForeColor = ThemeAccent,
+                Cursor = Cursors.Hand,
+                Margin = new Padding(0, 3, 10, 0),
+                Tag = term
+            };
+            btn.Click += (s, e) =>
+            {
+                if (s is Label lbl && lbl.Tag is string searchTerm)
+                {
+                    _txtDealSearch.Text = searchTerm;
+                    BtnDealSearch_Click(s, e);
+                }
+            };
+            // Hover effect
+            btn.MouseEnter += (s, e) => { if (s is Label lbl) lbl.Font = new Font(lbl.Font, FontStyle.Underline); };
+            btn.MouseLeave += (s, e) => { if (s is Label lbl) lbl.Font = new Font(lbl.Font, FontStyle.Regular); };
+            _pnlSearchHistory.Controls.Add(btn);
+        }
+
+        // Update panel visibility and row height
+        var hasHistory = _dealSearchHistory.Count > 0;
+        _pnlSearchHistory.Visible = hasHistory;
+
+        // Update the row height in parent TableLayoutPanel
+        if (_pnlSearchHistory.Parent is TableLayoutPanel tableLayout)
+        {
+            tableLayout.RowStyles[1].Height = hasHistory ? 28 : 0;
+        }
+    }
+
+    private void AddToSearchHistory(string searchTerm)
+    {
+        if (string.IsNullOrWhiteSpace(searchTerm)) return;
+
+        // Remove if already exists (to move it to the front)
+        _dealSearchHistory.Remove(searchTerm);
+
+        // Add to the beginning
+        _dealSearchHistory.Insert(0, searchTerm);
+
+        // Trim to max count
+        while (_dealSearchHistory.Count > MaxSearchHistoryCount)
+        {
+            _dealSearchHistory.RemoveAt(_dealSearchHistory.Count - 1);
+        }
+
+        // Update UI and save
+        UpdateSearchHistoryPanel();
+        SaveSettings();
     }
 
     #endregion
