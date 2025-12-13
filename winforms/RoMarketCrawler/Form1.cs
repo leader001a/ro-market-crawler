@@ -241,7 +241,7 @@ public partial class Form1 : Form
 
         _lblCreator = new ToolStripStatusLabel
         {
-            Text = "Created by luckynunbi (https://github.com/luckynunbi)",
+            Text = "Created by PM-KiWoong (https://github.com/PM-KiWoong)",
             Spring = true,
             TextAlign = ContentAlignment.MiddleRight,
             ForeColor = ThemeTextMuted
