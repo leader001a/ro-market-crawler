@@ -177,6 +177,15 @@ public partial class Form1
             {
                 pic.BackColor = ThemeGrid;
             }
+            else if (control is StatusStrip statusStrip)
+            {
+                statusStrip.BackColor = _currentTheme == ThemeType.Dark ? ThemePanel : SystemColors.Control;
+                statusStrip.ForeColor = ThemeTextMuted;
+                foreach (ToolStripItem item in statusStrip.Items)
+                {
+                    item.ForeColor = ThemeTextMuted;
+                }
+            }
             else if (control is ToolStrip toolStrip)
             {
                 ApplyToolStripStyle(toolStrip);

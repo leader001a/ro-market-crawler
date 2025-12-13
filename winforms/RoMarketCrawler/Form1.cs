@@ -121,6 +121,10 @@ public partial class Form1 : Form
     private NumericUpDown _nudAlarmInterval = null!;
     private int _alarmIntervalSeconds = 5;
 
+    // Status Bar
+    private StatusStrip _statusStrip = null!;
+    private ToolStripStatusLabel _lblCreator = null!;
+
     public Form1()
     {
         InitializeComponent();
@@ -224,10 +228,34 @@ public partial class Form1 : Form
         // Refresh Monitor tab UI when switching to it
         _tabControl.SelectedIndexChanged += TabControl_SelectedIndexChanged;
         // Confirm before leaving Monitor tab (if auto-refresh is running)
-        _tabControl.Selecting += TabControl_Selecting;
+        _tabControl.Deselecting += TabControl_Deselecting;
 
+        // Status bar at bottom with creator info
+        _statusStrip = new StatusStrip
+        {
+            Dock = DockStyle.Bottom,
+            BackColor = ThemePanel,
+            ForeColor = ThemeTextMuted,
+            SizingGrip = false
+        };
+
+        _lblCreator = new ToolStripStatusLabel
+        {
+            Text = "Created by luckynunbi (https://github.com/luckynunbi)",
+            Spring = true,
+            TextAlign = ContentAlignment.MiddleRight,
+            ForeColor = ThemeTextMuted
+        };
+
+        _statusStrip.Items.Add(_lblCreator);
+
+        // Add controls in reverse dock order (last added = first docked)
+        // 1. TabControl (Fill) - added first, docked last - fills remaining space
+        // 2. StatusStrip (Bottom) - added second, docked second - takes bottom
+        // 3. MenuStrip (Top) - added third, docked first - takes top
         Controls.Add(_tabControl);
-        Controls.Add(_menuStrip); // Add menu after tabControl so it appears on top
+        Controls.Add(_statusStrip);
+        Controls.Add(_menuStrip);
 
         // Apply loaded settings to all controls
         ApplyFontSizeToAllControls(this);

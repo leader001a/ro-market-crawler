@@ -832,35 +832,70 @@ public partial class Form1
 
         var columnName = _dgvMonitorResults.Columns[e.ColumnIndex].Name;
 
-        // Refine color coding
+        // Refine color coding (theme-aware)
         if (columnName == "Refine" && refine > 0)
         {
-            e.CellStyle!.ForeColor = refine switch
+            if (_currentTheme == ThemeType.Dark)
             {
-                >= 15 => Color.FromArgb(255, 100, 100),  // Red for +15 and above
-                >= 12 => Color.FromArgb(255, 180, 100),  // Orange for +12-14
-                >= 10 => Color.FromArgb(255, 215, 0),    // Gold for +10-11
-                >= 7 => Color.FromArgb(100, 180, 255),   // Blue for +7-9
-                _ => Color.White                          // White for +1-6
-            };
-            if (refine >= 10)
+                // Dark theme: bright colors on dark background
+                e.CellStyle!.ForeColor = refine switch
+                {
+                    >= 15 => Color.FromArgb(255, 80, 80),    // Bright Red
+                    >= 12 => Color.FromArgb(255, 160, 80),   // Orange
+                    >= 10 => Color.FromArgb(255, 200, 50),   // Gold
+                    >= 7 => Color.FromArgb(80, 180, 255),    // Sky Blue
+                    _ => Color.FromArgb(180, 180, 180)       // Light Gray
+                };
+            }
+            else
+            {
+                // Classic theme: darker colors on light background
+                e.CellStyle!.ForeColor = refine switch
+                {
+                    >= 15 => Color.FromArgb(200, 0, 0),      // Dark Red
+                    >= 12 => Color.FromArgb(180, 90, 0),     // Dark Orange
+                    >= 10 => Color.FromArgb(160, 130, 0),    // Dark Gold
+                    >= 7 => Color.FromArgb(0, 100, 180),     // Dark Blue
+                    _ => Color.FromArgb(100, 100, 100)       // Dark Gray
+                };
+            }
+            if (refine >= 7)
             {
                 e.CellStyle.Font = new Font(e.CellStyle.Font ?? SystemFonts.DefaultFont, FontStyle.Bold);
             }
         }
 
-        // Grade color coding
+        // Grade color coding (theme-aware)
         if (columnName == "Grade" && !string.IsNullOrEmpty(grade) && grade != "-")
         {
-            e.CellStyle!.ForeColor = grade switch
+            if (_currentTheme == ThemeType.Dark)
             {
-                "S" => Color.FromArgb(255, 215, 0),   // Gold
-                "A" => Color.FromArgb(200, 150, 255), // Purple
-                "B" => Color.FromArgb(100, 180, 255), // Blue
-                "C" => Color.FromArgb(100, 255, 100), // Green
-                "D" => Color.FromArgb(200, 200, 200), // Gray
-                _ => Color.White
-            };
+                // Dark theme: bright colors on dark background
+                e.CellStyle!.ForeColor = grade.ToLower() switch
+                {
+                    "s" => Color.FromArgb(255, 200, 50),     // Gold
+                    "a" => Color.FromArgb(200, 130, 255),    // Purple
+                    "b" => Color.FromArgb(80, 180, 255),     // Sky Blue
+                    "c" => Color.FromArgb(100, 220, 100),    // Green
+                    "d" => Color.FromArgb(160, 160, 160),    // Gray
+                    "unique" => Color.FromArgb(255, 180, 0), // Orange-Gold
+                    _ => Color.FromArgb(200, 200, 200)       // Light Gray
+                };
+            }
+            else
+            {
+                // Classic theme: darker colors on light background
+                e.CellStyle!.ForeColor = grade.ToLower() switch
+                {
+                    "s" => Color.FromArgb(180, 140, 0),      // Dark Gold
+                    "a" => Color.FromArgb(130, 0, 130),      // Dark Purple
+                    "b" => Color.FromArgb(0, 100, 180),      // Dark Blue
+                    "c" => Color.FromArgb(0, 130, 0),        // Dark Green
+                    "d" => Color.FromArgb(110, 110, 110),    // Dark Gray
+                    "unique" => Color.FromArgb(180, 100, 0), // Dark Orange
+                    _ => Color.FromArgb(80, 80, 80)          // Darker default
+                };
+            }
             e.CellStyle.Font = new Font(e.CellStyle.Font ?? SystemFonts.DefaultFont, FontStyle.Bold);
         }
 
@@ -967,33 +1002,31 @@ public partial class Form1
 
     // Event Handlers
 
-    private void TabControl_Selecting(object? sender, TabControlCancelEventArgs e)
+    private void TabControl_Deselecting(object? sender, TabControlCancelEventArgs e)
     {
-        Debug.WriteLine($"[Form1] TabControl_Selecting: CurrentIndex={_tabControl.SelectedIndex}, TargetIndex={e.TabPageIndex}, TimerEnabled={_monitorTimer?.Enabled}");
+        Debug.WriteLine($"[Form1] TabControl_Deselecting: TabPageIndex={e.TabPageIndex}, RefreshInterval={_monitoringService.Config.RefreshIntervalSeconds}");
 
         // Check if leaving Monitor tab (index 2) while auto-refresh is running
-        if (_tabControl.SelectedIndex == 2 && e.TabPageIndex != 2)
+        // In Deselecting event, e.TabPageIndex is the tab being deselected (left)
+        if (e.TabPageIndex == 2 && _monitoringService.Config.RefreshIntervalSeconds > 0)
         {
-            if (_monitorTimer != null && _monitorTimer.Enabled)
+            var result = MessageBox.Show(
+                "다른 탭으로 이동하면 자동 갱신이 중지됩니다.\n이동하시겠습니까?",
+                "노점 모니터링",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question);
+
+            if (result == DialogResult.No)
             {
-                var result = MessageBox.Show(
-                    "다른 탭으로 이동하면 자동 갱신이 중지됩니다.\n이동하시겠습니까?",
-                    "노점 모니터링",
-                    MessageBoxButtons.YesNo,
-                    MessageBoxIcon.Question);
-
-                if (result == DialogResult.No)
-                {
-                    e.Cancel = true;
-                    return;
-                }
-
-                // User confirmed - stop auto-refresh
-                StopMonitorTimer();
-                _monitoringService.Config.RefreshIntervalSeconds = 0;
-                UpdateMonitorRefreshLabel();
-                Debug.WriteLine("[Form1] Auto-refresh stopped due to tab change");
+                e.Cancel = true;
+                return;
             }
+
+            // User confirmed - stop auto-refresh
+            StopMonitorTimer();
+            _monitoringService.Config.RefreshIntervalSeconds = 0;
+            UpdateMonitorRefreshLabel();
+            Debug.WriteLine("[Form1] Auto-refresh stopped due to tab change");
         }
     }
 

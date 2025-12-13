@@ -8,7 +8,7 @@ namespace RoMarketCrawler;
 
 /// <summary>
 /// Item detail popup form - shows image, price stats, enchants/cards
-/// Dark theme styled with modern UI
+/// Supports both Dark and Classic themes
 /// </summary>
 public class ItemDetailForm : Form
 {
@@ -16,19 +16,20 @@ public class ItemDetailForm : Form
     private readonly ItemIndexService? _itemIndexService;
     private readonly HttpClient _imageClient;
     private readonly string _imageCacheDir;
+    private readonly ThemeType _theme;
 
-    // Theme colors (matching Form1 dark theme)
-    private static readonly Color ThemeBackground = Color.FromArgb(30, 30, 35);
-    private static readonly Color ThemePanel = Color.FromArgb(45, 45, 55);
-    private static readonly Color ThemeCard = Color.FromArgb(38, 38, 46);
-    private static readonly Color ThemeAccent = Color.FromArgb(70, 130, 200);
-    private static readonly Color ThemeText = Color.FromArgb(230, 230, 235);
-    private static readonly Color ThemeTextMuted = Color.FromArgb(160, 160, 170);
-    private static readonly Color ThemeTextHighlight = Color.FromArgb(100, 180, 255);
-    private static readonly Color ThemeBorder = Color.FromArgb(70, 75, 90);
-    private static readonly Color ThemePositive = Color.FromArgb(100, 200, 120);
-    private static readonly Color ThemeNegative = Color.FromArgb(255, 100, 100);
-    private static readonly Color ThemeWarning = Color.FromArgb(255, 180, 80);
+    // Theme colors (set dynamically based on theme)
+    private Color ThemeBackground;
+    private Color ThemePanel;
+    private Color ThemeCard;
+    private Color ThemeAccent;
+    private Color ThemeText;
+    private Color ThemeTextMuted;
+    private Color ThemeTextHighlight;
+    private Color ThemeBorder;
+    private Color ThemePositive;
+    private Color ThemeNegative;
+    private Color ThemeWarning;
 
     // UI Controls
     private PictureBox _picItem = null!;
@@ -38,10 +39,11 @@ public class ItemDetailForm : Form
     private RichTextBox _rtbSlotInfo = null!;
     private RichTextBox _rtbRandomOptions = null!;
 
-    public ItemDetailForm(DealItem item, ItemIndexService? itemIndexService = null)
+    public ItemDetailForm(DealItem item, ItemIndexService? itemIndexService = null, ThemeType theme = ThemeType.Dark)
     {
         _item = item;
         _itemIndexService = itemIndexService;
+        _theme = theme;
         _imageClient = new HttpClient();
         _imageClient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0");
         _imageClient.DefaultRequestHeaders.Referrer = new Uri("https://ro.gnjoy.com/");
@@ -51,10 +53,45 @@ public class ItemDetailForm : Form
         _imageCacheDir = Path.Combine(dataDir, "ItemImages");
         Directory.CreateDirectory(_imageCacheDir);
 
+        ApplyThemeColors();
         InitializeUI();
 
         // Load data after form is shown (handle must be created for Invoke to work)
         Load += async (s, e) => await LoadDataAsync();
+    }
+
+    private void ApplyThemeColors()
+    {
+        if (_theme == ThemeType.Dark)
+        {
+            // Dark Theme
+            ThemeBackground = Color.FromArgb(30, 30, 35);
+            ThemePanel = Color.FromArgb(45, 45, 55);
+            ThemeCard = Color.FromArgb(38, 38, 46);
+            ThemeAccent = Color.FromArgb(70, 130, 200);
+            ThemeText = Color.FromArgb(230, 230, 235);
+            ThemeTextMuted = Color.FromArgb(160, 160, 170);
+            ThemeTextHighlight = Color.FromArgb(100, 180, 255);
+            ThemeBorder = Color.FromArgb(70, 75, 90);
+            ThemePositive = Color.FromArgb(100, 200, 120);
+            ThemeNegative = Color.FromArgb(255, 100, 100);
+            ThemeWarning = Color.FromArgb(255, 180, 80);
+        }
+        else
+        {
+            // Classic Theme - use system colors
+            ThemeBackground = SystemColors.Control;
+            ThemePanel = SystemColors.Control;
+            ThemeCard = SystemColors.Window;
+            ThemeAccent = SystemColors.Highlight;
+            ThemeText = SystemColors.WindowText;
+            ThemeTextMuted = SystemColors.GrayText;
+            ThemeTextHighlight = Color.FromArgb(0, 102, 204);
+            ThemeBorder = SystemColors.ActiveBorder;
+            ThemePositive = Color.FromArgb(0, 128, 0);
+            ThemeNegative = Color.FromArgb(200, 0, 0);
+            ThemeWarning = Color.FromArgb(180, 100, 0);
+        }
     }
 
     private void InitializeUI()
@@ -105,7 +142,7 @@ public class ItemDetailForm : Form
         {
             Size = new Size(100, 100),
             SizeMode = PictureBoxSizeMode.Zoom,
-            BackColor = Color.FromArgb(55, 55, 65),
+            BackColor = ThemeCard,
             Margin = new Padding(5)
         };
         headerLayout.Controls.Add(_picItem, 0, 0);

@@ -14,6 +14,9 @@ public partial class Form1
     // Server-side pagination state
     private bool _hasMorePages = false;
 
+    // Item types that have enchant/card/random options (무기, 방어구, 쉐도우, 의상)
+    private static readonly HashSet<int> EquipmentItemTypes = new() { 4, 5, 19, 20 };
+
     private void SetupDealTab(TabPage tab)
     {
         var mainPanel = new TableLayoutPanel
@@ -407,15 +410,39 @@ public partial class Form1
     }
 
     /// <summary>
+    /// Check if an item is equipment type that can have enchant/card info
+    /// Types: 4=무기, 5=방어구, 19=쉐도우, 20=의상
+    /// </summary>
+    private bool IsEquipmentItem(DealItem item)
+    {
+        var effectiveItemId = item.GetEffectiveItemId();
+        if (!effectiveItemId.HasValue) return true; // If can't determine, assume it's equipment
+
+        if (!_itemIndexService.IsLoaded) return true; // If index not loaded, assume it's equipment
+
+        var cachedItem = _itemIndexService.GetItemById(effectiveItemId.Value);
+        if (cachedItem == null) return true; // If not in index, assume it's equipment
+
+        var itemType = cachedItem.Type;
+        var isEquipment = EquipmentItemTypes.Contains(itemType);
+
+        Debug.WriteLine($"[Form1] Item '{item.ItemName}' (ID:{effectiveItemId}) Type:{itemType} IsEquipment:{isEquipment}");
+        return isEquipment;
+    }
+
+    /// <summary>
     /// Load item details (card/enchant info) for current page items only
+    /// Only loads for equipment items (무기, 방어구, 쉐도우, 의상)
     /// </summary>
     private async Task LoadCurrentPageDetailsAsync(int searchId, CancellationToken cancellationToken)
     {
         bool IsCurrentSearch() => searchId == _currentSearchId && !cancellationToken.IsCancellationRequested;
 
         var currentPageItems = (_dealBindingSource.DataSource as List<DealItem>) ?? new List<DealItem>();
-        // Check SlotInfo.Count == 0 (not SlotInfoDisplay which returns "-" when empty)
-        var itemsWithDetails = currentPageItems.Where(i => i.HasDetailParams && i.SlotInfo.Count == 0).ToList();
+        // Filter: has detail params, not loaded yet, AND is equipment type
+        var itemsWithDetails = currentPageItems
+            .Where(i => i.HasDetailParams && i.SlotInfo.Count == 0 && IsEquipmentItem(i))
+            .ToList();
 
         if (itemsWithDetails.Count == 0)
         {
@@ -570,7 +597,7 @@ public partial class Form1
         var selectedItem = dataSource[e.RowIndex];
         Debug.WriteLine($"[Form1] Opening detail for: {selectedItem.DisplayName}");
 
-        using var detailForm = new ItemDetailForm(selectedItem, _itemIndexService);
+        using var detailForm = new ItemDetailForm(selectedItem, _itemIndexService, _currentTheme);
         detailForm.ShowDialog(this);
     }
 
@@ -588,7 +615,7 @@ public partial class Form1
         }
 
         // Add history items as clickable labels
-        foreach (var term in _dealSearchHistory)
+        foreach (var term in _dealSearchHistory ?? Enumerable.Empty<string>())
         {
             var btn = new Label
             {
@@ -614,7 +641,7 @@ public partial class Form1
         }
 
         // Update panel visibility and row height
-        var hasHistory = _dealSearchHistory.Count > 0;
+        var hasHistory = _dealSearchHistory?.Count > 0;
         _pnlSearchHistory.Visible = hasHistory;
 
         // Update the row height in parent TableLayoutPanel
