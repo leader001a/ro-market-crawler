@@ -232,6 +232,9 @@ public partial class Form1 : Form
         // Apply loaded settings to all controls
         ApplyFontSizeToAllControls(this);
         ApplyThemeToAllControls(this);
+
+        // Refresh search history panel after layout is complete
+        UpdateSearchHistoryPanel();
     }
 
     private void SetupMenuStrip()
@@ -608,7 +611,12 @@ public partial class Form1 : Form
                     _selectedAlarmSound = settings.AlarmSound;
                     _alarmIntervalSeconds = settings.AlarmIntervalSeconds;
                     _dealSearchHistory = settings.DealSearchHistory ?? new List<string>();
+                    Debug.WriteLine($"[Form1] LoadSettings: Loaded {_dealSearchHistory.Count} search history items");
                 }
+            }
+            else
+            {
+                Debug.WriteLine($"[Form1] LoadSettings: Settings file not found at {_settingsFilePath}");
             }
         }
         catch (Exception ex)
@@ -632,6 +640,7 @@ public partial class Form1 : Form
             };
             var json = System.Text.Json.JsonSerializer.Serialize(settings);
             File.WriteAllText(_settingsFilePath, json);
+            Debug.WriteLine($"[Form1] SaveSettings: Saved {_dealSearchHistory.Count} search history items");
         }
         catch (Exception ex)
         {

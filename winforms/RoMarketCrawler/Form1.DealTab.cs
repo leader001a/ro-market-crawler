@@ -236,13 +236,13 @@ public partial class Form1
             },
             new DataGridViewTextBoxColumn
             {
-                Name = "SlotInfoDisplay",
-                HeaderText = "카드/인챈트",
-                DataPropertyName = "SlotInfoDisplay",
-                Width = 180,
-                MinimumWidth = 100,
+                Name = "SlotAndOptionsDisplay",
+                HeaderText = "카드/인챈트/랜덤옵션",
+                DataPropertyName = "SlotAndOptionsDisplay",
+                Width = 200,
+                MinimumWidth = 120,
                 AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
-                FillWeight = 120,
+                FillWeight = 140,
                 DefaultCellStyle = new DataGridViewCellStyle { WrapMode = DataGridViewTriState.True }
             },
             new DataGridViewTextBoxColumn
@@ -546,6 +546,7 @@ public partial class Form1
 
     private void UpdateSearchHistoryPanel()
     {
+        Debug.WriteLine($"[Form1] UpdateSearchHistoryPanel: _dealSearchHistory count = {_dealSearchHistory?.Count ?? -1}");
         if (_pnlSearchHistory == null) return;
 
         // Keep only the title label, remove all history buttons

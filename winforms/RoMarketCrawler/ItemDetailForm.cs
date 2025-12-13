@@ -15,6 +15,7 @@ public class ItemDetailForm : Form
     private readonly DealItem _item;
     private readonly ItemIndexService? _itemIndexService;
     private readonly HttpClient _imageClient;
+    private readonly string _imageCacheDir;
 
     // Theme colors (matching Form1 dark theme)
     private static readonly Color ThemeBackground = Color.FromArgb(30, 30, 35);
@@ -36,8 +37,6 @@ public class ItemDetailForm : Form
     private RichTextBox _rtbItemDesc = null!;
     private RichTextBox _rtbSlotInfo = null!;
     private RichTextBox _rtbRandomOptions = null!;
-    private Label _lblStatus = null!;
-    private Button _btnClose = null!;
 
     public ItemDetailForm(DealItem item, ItemIndexService? itemIndexService = null)
     {
@@ -46,6 +45,11 @@ public class ItemDetailForm : Form
         _imageClient = new HttpClient();
         _imageClient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0");
         _imageClient.DefaultRequestHeaders.Referrer = new Uri("https://ro.gnjoy.com/");
+
+        // Setup image cache directory
+        var dataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RoMarketCrawler");
+        _imageCacheDir = Path.Combine(dataDir, "ItemImages");
+        Directory.CreateDirectory(_imageCacheDir);
 
         InitializeUI();
 
@@ -65,19 +69,19 @@ public class ItemDetailForm : Form
         BackColor = ThemeBackground;
         ForeColor = ThemeText;
 
-        // Main layout: Header | Content | Random Options | Status
+        // Main layout: Header | Content | Random Options
         var mainPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 4,
+            RowCount = 3,
             Padding = new Padding(15),
-            BackColor = ThemeBackground
+            BackColor = ThemeBackground,
+            CellBorderStyle = TableLayoutPanelCellBorderStyle.None
         };
         mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 140));  // Top: Header
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));   // Middle: Content
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 125)); // Random Options (4 lines)
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));   // Bottom: Status
+        mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));   // Middle: Content (+50 from removed bottom)
+        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 175)); // Random Options (+50)
 
         // === TOP: Header card (image + name + basic info + price) ===
         var headerCard = CreateCard(new Size(0, 130));
@@ -90,7 +94,8 @@ public class ItemDetailForm : Form
             ColumnCount = 2,
             RowCount = 1,
             BackColor = Color.Transparent,
-            Margin = new Padding(0)
+            Margin = new Padding(0),
+            CellBorderStyle = TableLayoutPanelCellBorderStyle.None
         };
         headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));  // Image column
         headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));   // Name/info column
@@ -148,7 +153,8 @@ public class ItemDetailForm : Form
             ColumnCount = 2,
             RowCount = 1,
             BackColor = ThemeBackground,
-            Margin = new Padding(0, 10, 0, 0)
+            Margin = new Padding(0, 10, 0, 0),
+            CellBorderStyle = TableLayoutPanelCellBorderStyle.None
         };
         contentPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));  // Left: Item desc
         contentPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));  // Right: Enchants
@@ -227,42 +233,6 @@ public class ItemDetailForm : Form
 
         mainPanel.Controls.Add(optionsCard, 0, 2);
 
-        // === BOTTOM: Status and Close button ===
-        var bottomPanel = new Panel
-        {
-            Dock = DockStyle.Fill,
-            BackColor = ThemeBackground
-        };
-
-        _lblStatus = new Label
-        {
-            Text = "데이터 로딩중...",
-            Font = new Font("Malgun Gothic", 9),
-            ForeColor = ThemeTextMuted,
-            AutoSize = true,
-            Location = new Point(0, 15)
-        };
-        bottomPanel.Controls.Add(_lblStatus);
-
-        _btnClose = new Button
-        {
-            Text = "닫기",
-            Size = new Size(90, 35),
-            FlatStyle = FlatStyle.Flat,
-            BackColor = ThemePanel,
-            ForeColor = ThemeText,
-            Font = new Font("Malgun Gothic", 9, FontStyle.Bold),
-            Cursor = Cursors.Hand,
-            Anchor = AnchorStyles.Top | AnchorStyles.Right
-        };
-        _btnClose.FlatAppearance.BorderColor = ThemeBorder;
-        _btnClose.FlatAppearance.MouseOverBackColor = ThemeAccent;
-        _btnClose.Location = new Point(bottomPanel.Width - 100, 8);
-        _btnClose.Click += (s, e) => Close();
-        bottomPanel.Controls.Add(_btnClose);
-
-        mainPanel.Controls.Add(bottomPanel, 0, 3);
-
         Controls.Add(mainPanel);
     }
 
@@ -272,12 +242,8 @@ public class ItemDetailForm : Form
         {
             BackColor = ThemeCard,
             Size = size,
-            Padding = new Padding(15)
-        };
-        card.Paint += (s, e) =>
-        {
-            using var pen = new Pen(ThemeBorder, 1);
-            e.Graphics.DrawRectangle(pen, 0, 0, card.Width - 1, card.Height - 1);
+            Padding = new Padding(15),
+            BorderStyle = BorderStyle.None
         };
         return card;
     }
@@ -324,12 +290,10 @@ public class ItemDetailForm : Form
             LoadDetailInfo();
             var itemDescTask = LoadItemDescriptionAsync();
             await Task.WhenAll(imageTask, itemDescTask);
-            _lblStatus.Text = "로딩 완료";
         }
         catch (Exception ex)
         {
             Debug.WriteLine($"[ItemDetailForm] LoadDataAsync error: {ex.Message}");
-            _lblStatus.Text = "일부 데이터 로딩 실패";
         }
     }
 
@@ -461,22 +425,68 @@ public class ItemDetailForm : Form
 
     private async Task LoadImageAsync()
     {
-        if (string.IsNullOrEmpty(_item.ItemImageUrl)) return;
-
         try
         {
-            var imageUrl = _item.ItemImageUrl;
-            if (!imageUrl.StartsWith("http"))
+            byte[]? imageBytes = null;
+            var effectiveItemId = _item.GetEffectiveItemId();
+
+            // Check local cache first
+            if (effectiveItemId.HasValue)
             {
-                imageUrl = "https://ro.gnjoy.com" + imageUrl;
+                var cacheFilePath = Path.Combine(_imageCacheDir, $"{effectiveItemId.Value}.png");
+                if (File.Exists(cacheFilePath))
+                {
+                    imageBytes = await File.ReadAllBytesAsync(cacheFilePath);
+                    Debug.WriteLine($"[ItemDetailForm] Image loaded from cache: {effectiveItemId.Value}.png");
+                }
             }
 
-            var imageBytes = await _imageClient.GetByteArrayAsync(imageUrl);
-            using var ms = new MemoryStream(imageBytes);
-            var image = Image.FromStream(ms);
-
-            if (!IsDisposed)
+            // Try divine-pride.net if not cached
+            if (imageBytes == null && effectiveItemId.HasValue)
             {
+                try
+                {
+                    var divineUrl = $"https://static.divine-pride.net/images/items/item/{effectiveItemId.Value}.png";
+                    imageBytes = await _imageClient.GetByteArrayAsync(divineUrl);
+                    Debug.WriteLine($"[ItemDetailForm] Image loaded from divine-pride: {effectiveItemId.Value}");
+
+                    // Save to cache
+                    var cacheFilePath = Path.Combine(_imageCacheDir, $"{effectiveItemId.Value}.png");
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await File.WriteAllBytesAsync(cacheFilePath, imageBytes);
+                            Debug.WriteLine($"[ItemDetailForm] Image cached: {effectiveItemId.Value}.png");
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"[ItemDetailForm] Failed to cache image: {ex.Message}");
+                        }
+                    });
+                }
+                catch
+                {
+                    Debug.WriteLine($"[ItemDetailForm] divine-pride image not found: {effectiveItemId.Value}");
+                }
+            }
+
+            // Fall back to GNJOY URL (no caching for GNJOY images)
+            if (imageBytes == null && !string.IsNullOrEmpty(_item.ItemImageUrl))
+            {
+                var imageUrl = _item.ItemImageUrl;
+                if (!imageUrl.StartsWith("http"))
+                {
+                    imageUrl = "https://ro.gnjoy.com" + imageUrl;
+                }
+                imageBytes = await _imageClient.GetByteArrayAsync(imageUrl);
+                Debug.WriteLine($"[ItemDetailForm] Image loaded from GNJOY");
+            }
+
+            if (imageBytes != null && !IsDisposed)
+            {
+                using var ms = new MemoryStream(imageBytes);
+                var image = Image.FromStream(ms);
                 Invoke(() => _picItem.Image = image);
             }
         }

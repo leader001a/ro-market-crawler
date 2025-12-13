@@ -969,10 +969,12 @@ public partial class Form1
 
     private void TabControl_Selecting(object? sender, TabControlCancelEventArgs e)
     {
+        Debug.WriteLine($"[Form1] TabControl_Selecting: CurrentIndex={_tabControl.SelectedIndex}, TargetIndex={e.TabPageIndex}, TimerEnabled={_monitorTimer?.Enabled}");
+
         // Check if leaving Monitor tab (index 2) while auto-refresh is running
         if (_tabControl.SelectedIndex == 2 && e.TabPageIndex != 2)
         {
-            if (_monitorTimer.Enabled)
+            if (_monitorTimer != null && _monitorTimer.Enabled)
             {
                 var result = MessageBox.Show(
                     "다른 탭으로 이동하면 자동 갱신이 중지됩니다.\n이동하시겠습니까?",

@@ -94,6 +94,29 @@ public class DealItem
         RandomOptions.Count > 0 ? string.Join(", ", RandomOptions) : "-";
 
     /// <summary>
+    /// Combined display for cards, enchants, and random options
+    /// </summary>
+    public string SlotAndOptionsDisplay
+    {
+        get
+        {
+            var parts = new List<string>();
+
+            if (SlotInfo.Count > 0)
+                parts.AddRange(SlotInfo);
+
+            if (RandomOptions.Count > 0)
+            {
+                // Add random options with prefix to distinguish
+                foreach (var opt in RandomOptions)
+                    parts.Add($"[옵션] {opt}");
+            }
+
+            return parts.Count > 0 ? string.Join(Environment.NewLine, parts) : "-";
+        }
+    }
+
+    /// <summary>
     /// Price comparison with 7-day average (percentage change)
     /// </summary>
     public string PriceCompareDisplay
