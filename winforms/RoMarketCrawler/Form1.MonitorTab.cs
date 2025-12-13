@@ -34,6 +34,10 @@ public partial class Form1
                 StartMonitorTimer(_monitoringService.Config.RefreshIntervalSeconds);
             }
 
+            // Start alarm timer automatically (always running, controlled by mute button)
+            _alarmTimer.Interval = _alarmIntervalSeconds * 1000;
+            _alarmTimer.Start();
+            Debug.WriteLine($"[Form1] Alarm timer auto-started: {_alarmIntervalSeconds}s interval");
         }
         catch (Exception ex)
         {
@@ -43,7 +47,7 @@ public partial class Form1
 
     private void SetupMonitoringTab(TabPage tabPage)
     {
-        // Main layout: 2 rows - input bar on top, content below
+        // Main layout: ToolStrip on top, content below
         var mainLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -51,158 +55,127 @@ public partial class Form1
             RowCount = 2,
             Padding = new Padding(8)
         };
-        mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 38)); // Input bar
+        mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32)); // ToolStrip
         mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); // Content area
         ApplyTableLayoutPanelStyle(mainLayout);
 
-        // Row 0: Toolbar - Left: [아이템 검색] ... Right: [수동조회]|[자동조회: NUD 자동/중지]|[알람설정: 소리 테스트]|[음소거]
-        var inputPanel = new TableLayoutPanel
+        // Create ToolStrip toolbar
+        var toolStrip = new ToolStrip
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 19,
-            RowCount = 1,
-            Padding = new Padding(4, 2, 4, 2)
+            GripStyle = ToolStripGripStyle.Hidden,
+            BackColor = ThemePanel,
+            ForeColor = ThemeText,
+            Renderer = _currentTheme == ThemeType.Dark ? new DarkToolStripRenderer() : new ToolStripProfessionalRenderer(),
+            Padding = new Padding(4, 0, 4, 0)
         };
-        // Left group: 아이템 검색
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 250)); // 0: Item name
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 95));  // 1: Server combo
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 58));  // 2: Add (추가)
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 58));  // 3: Remove (삭제)
-        // Middle: flexible space
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); // 4: Fill space
-        // Group: 수동조회
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 75));  // 5: 수동조회 button
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 15));  // 6: Separator |
-        // Group: 자동조회
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 70));  // 7: 자동조회 label
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 55));  // 8: Interval NUD
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 90));  // 9: Auto button
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 15));  // 10: Separator |
-        // Group: 알람설정
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 70));  // 11: 알람설정 label
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 85));  // 12: Sound combo
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 65));  // 13: Test button
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 15));  // 14: Separator |
-        // Group: 음소거
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100)); // 15: Mute button
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 4));   // 16: Right margin
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 0));   // 17: Padding
-        inputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 0));   // 18: Padding
-        ApplyTableLayoutPanelStyle(inputPanel);
 
-        _txtMonitorItemName = new TextBox { Dock = DockStyle.Fill };
-        ApplyTextBoxStyle(_txtMonitorItemName);
-        _txtMonitorItemName.KeyDown += TxtMonitorItemName_KeyDown;
+        // Item name input
+        var txtItemName = new ToolStripTextBox
+        {
+            AutoSize = false,
+            Width = 300,
+            BackColor = ThemeGrid,
+            ForeColor = ThemeText,
+            ToolTipText = "모니터링할 아이템명 입력"
+        };
+        txtItemName.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; BtnMonitorAdd_Click(s, e); } };
+        _txtMonitorItemName = txtItemName.TextBox;
 
-        _cboMonitorServer = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
-        ApplyComboBoxStyle(_cboMonitorServer);
+        // Server selection
+        var cboServer = new ToolStripComboBox
+        {
+            Width = 80,
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            BackColor = ThemeGrid,
+            ForeColor = ThemeText
+        };
         foreach (var server in Server.GetAllServers())
-            _cboMonitorServer.Items.Add(server);
-        _cboMonitorServer.DisplayMember = "Name";
-        _cboMonitorServer.SelectedIndex = 0;
+            cboServer.Items.Add(server);
+        cboServer.ComboBox.DisplayMember = "Name";
+        cboServer.SelectedIndex = 0;
+        _cboMonitorServer = cboServer.ComboBox;
 
-        _btnMonitorAdd = new Button { Text = "추가", Dock = DockStyle.Fill };
-        ApplyButtonStyle(_btnMonitorAdd);
-        _btnMonitorAdd.Click += BtnMonitorAdd_Click;
+        // Add/Remove buttons
+        var btnAdd = new ToolStripButton("추가") { ToolTipText = "모니터링 목록에 추가" };
+        btnAdd.Click += BtnMonitorAdd_Click;
 
-        _btnMonitorRemove = new Button { Text = "삭제", Dock = DockStyle.Fill };
-        ApplyButtonStyle(_btnMonitorRemove);
-        _btnMonitorRemove.Click += BtnMonitorRemove_Click;
+        var btnRemoveSelected = new ToolStripButton("선택삭제") { ToolTipText = "선택한 항목 삭제" };
+        btnRemoveSelected.Click += BtnMonitorRemove_Click;
 
-        // Context menu for Remove button - right-click to clear all
-        var removeContextMenu = new ContextMenuStrip();
-        var clearAllItem = new ToolStripMenuItem("전체 삭제");
-        clearAllItem.Click += BtnMonitorClearAll_Click;
-        removeContextMenu.Items.Add(clearAllItem);
-        _btnMonitorRemove.ContextMenuStrip = removeContextMenu;
+        var btnClearAll = new ToolStripButton("전체삭제") { ToolTipText = "모든 항목 삭제" };
+        btnClearAll.Click += BtnMonitorClearAll_Click;
 
-        _btnMonitorRefresh = new Button { Text = "수동조회", Dock = DockStyle.Fill };
-        ApplyButtonStyle(_btnMonitorRefresh);
-        _btnMonitorRefresh.Click += BtnMonitorRefresh_Click;
-
-        // Group labels and separators
-        var lblSep1 = new Label { Text = "|", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, ForeColor = ThemeTextMuted };
-        var lblSep2 = new Label { Text = "|", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, ForeColor = ThemeTextMuted };
-        var lblSep3 = new Label { Text = "|", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, ForeColor = ThemeTextMuted };
-        var lblAutoRefresh = new Label { Text = "자동조회", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, ForeColor = ThemeText };
-        var lblAlarmSetting = new Label { Text = "알람설정", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, ForeColor = ThemeText };
-
-
-        _nudRefreshInterval = new NumericUpDown
+        // Manual refresh button (right-aligned)
+        var btnRefresh = new ToolStripButton("수동조회")
         {
-            Minimum = 5, Maximum = 600, Value = 30,
-            Dock = DockStyle.Fill,
-            BackColor = ThemeGrid, ForeColor = ThemeText,
-            BorderStyle = BorderStyle.FixedSingle
+            ToolTipText = "즉시 조회 실행",
+            Alignment = ToolStripItemAlignment.Right
         };
+        btnRefresh.Click += BtnMonitorRefresh_Click;
 
-        _btnApplyInterval = new Button { Text = "자동갱신", Dock = DockStyle.Fill };
-        ApplyButtonStyle(_btnApplyInterval);
-        _btnApplyInterval.Click += BtnApplyInterval_Click;
-
-        // Timer label merged into auto button text
-        _lblRefreshSetting = new Label { Text = "", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, Visible = false };
-
-        // Alarm sound selection combo box (NAudio-based distinct sounds)
-        _cboAlarmSound = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
-        ApplyComboBoxStyle(_cboAlarmSound);
-        _cboAlarmSound.Items.AddRange(new object[]
+        // Auto-refresh dropdown (right-aligned)
+        var btnAutoRefresh = new ToolStripDropDownButton("자동조회")
         {
-            new AlarmSoundItem(AlarmSoundType.SystemSound, "시스템"),  // Windows system sound
-            new AlarmSoundItem(AlarmSoundType.Chime, "차임벨"),        // Pleasant chime
-            new AlarmSoundItem(AlarmSoundType.DingDong, "딩동"),       // Two-tone doorbell
-            new AlarmSoundItem(AlarmSoundType.Rising, "상승음"),       // Rising frequency
-            new AlarmSoundItem(AlarmSoundType.Alert, "알림음")         // Three quick beeps
-        });
-        _cboAlarmSound.DisplayMember = "Name";
-        // Select the saved alarm sound
-        for (int i = 0; i < _cboAlarmSound.Items.Count; i++)
+            Alignment = ToolStripItemAlignment.Right,
+            AutoToolTip = false
+        };
+        var autoRefreshPanel = CreateAutoRefreshPanel();
+        var autoRefreshHost = new ToolStripControlHost(autoRefreshPanel) { AutoSize = false, Size = autoRefreshPanel.Size };
+        btnAutoRefresh.DropDownItems.Add(autoRefreshHost);
+        btnAutoRefresh.DropDown.BackColor = ThemePanel;
+
+        // Alarm settings dropdown (right-aligned)
+        var btnAlarmSettings = new ToolStripDropDownButton("알람설정")
         {
-            if (_cboAlarmSound.Items[i] is AlarmSoundItem item && item.SoundType == _selectedAlarmSound)
-            {
-                _cboAlarmSound.SelectedIndex = i;
-                break;
-            }
-        }
-        if (_cboAlarmSound.SelectedIndex < 0) _cboAlarmSound.SelectedIndex = 0;
-        _cboAlarmSound.SelectedIndexChanged += CboAlarmSound_SelectedIndexChanged;
+            Alignment = ToolStripItemAlignment.Right,
+            AutoToolTip = false
+        };
+        var alarmPanel = CreateAlarmSettingsPanel();
+        var alarmHost = new ToolStripControlHost(alarmPanel) { AutoSize = false, Size = alarmPanel.Size };
+        btnAlarmSettings.DropDownItems.Add(alarmHost);
+        btnAlarmSettings.DropDown.BackColor = ThemePanel;
 
-        // Sound test button
-        var btnSoundTest = new Button { Text = "테스트", Dock = DockStyle.Fill };
-        ApplyButtonStyle(btnSoundTest);
-        btnSoundTest.Click += (s, e) => PlayAlarmSound();
-
-        // Sound mute toggle button
-        _btnSoundMute = new Button { Dock = DockStyle.Fill };
-        ApplyButtonStyle(_btnSoundMute);
+        // Mute button (right-aligned) - ToolStripButton for consistent design
+        _btnSoundMute = new ToolStripButton
+        {
+            ToolTipText = "알람 음소거 토글",
+            Alignment = ToolStripItemAlignment.Right
+        };
         UpdateSoundMuteButton();
         _btnSoundMute.Click += BtnSoundMute_Click;
 
-        _lblMonitorStatus = new Label { Text = "", Visible = false }; // Hidden, kept for compatibility
+        // Separators for right-aligned items
+        var sepRight1 = new ToolStripSeparator { Alignment = ToolStripItemAlignment.Right };
+        var sepRight2 = new ToolStripSeparator { Alignment = ToolStripItemAlignment.Right };
+        var sepRight3 = new ToolStripSeparator { Alignment = ToolStripItemAlignment.Right };
 
-        // Left group: 아이템 검색
-        inputPanel.Controls.Add(_txtMonitorItemName, 0, 0);
-        inputPanel.Controls.Add(_cboMonitorServer, 1, 0);
-        inputPanel.Controls.Add(_btnMonitorAdd, 2, 0);
-        inputPanel.Controls.Add(_btnMonitorRemove, 3, 0);
-        // Column 4 is fill space
-        // Group: 수동조회
-        inputPanel.Controls.Add(_btnMonitorRefresh, 5, 0);
-        inputPanel.Controls.Add(lblSep1, 6, 0);
-        // Group: 자동조회
-        inputPanel.Controls.Add(lblAutoRefresh, 7, 0);
-        inputPanel.Controls.Add(_nudRefreshInterval, 8, 0);
-        inputPanel.Controls.Add(_btnApplyInterval, 9, 0);
-        inputPanel.Controls.Add(lblSep2, 10, 0);
-        // Group: 알람설정
-        inputPanel.Controls.Add(lblAlarmSetting, 11, 0);
-        inputPanel.Controls.Add(_cboAlarmSound, 12, 0);
-        inputPanel.Controls.Add(btnSoundTest, 13, 0);
-        inputPanel.Controls.Add(lblSep3, 14, 0);
-        // Group: 음소거
-        inputPanel.Controls.Add(_btnSoundMute, 15, 0);
+        // Hidden status label (for compatibility)
+        _lblMonitorStatus = new Label { Text = "", Visible = false };
+        _lblRefreshSetting = new Label { Text = "", Visible = false };
 
-        mainLayout.Controls.Add(inputPanel, 0, 0);
+        // Add items to toolbar
+        // Left side: server selection, item input and management
+        toolStrip.Items.Add(cboServer);
+        toolStrip.Items.Add(txtItemName);
+        toolStrip.Items.Add(new ToolStripSeparator());
+        toolStrip.Items.Add(btnAdd);
+        toolStrip.Items.Add(new ToolStripSeparator());
+        toolStrip.Items.Add(btnRemoveSelected);
+        toolStrip.Items.Add(new ToolStripSeparator());
+        toolStrip.Items.Add(btnClearAll);
+
+        // Right side: refresh and alarm controls (added in reverse display order)
+        // Display order: 수동조회 | 자동조회 | 알람설정 | 음소거
+        toolStrip.Items.Add(_btnSoundMute);    // Rightmost
+        toolStrip.Items.Add(sepRight1);        // |
+        toolStrip.Items.Add(btnAlarmSettings); // Second from right
+        toolStrip.Items.Add(sepRight2);        // |
+        toolStrip.Items.Add(btnAutoRefresh);   // Third from right
+        toolStrip.Items.Add(sepRight3);        // |
+        toolStrip.Items.Add(btnRefresh);       // Fourth from right (leftmost of right group)
+
+        mainLayout.Controls.Add(toolStrip, 0, 0);
 
         // Row 1: Left-Right layout (30% Items | 70% Results)
         var contentLayout = new TableLayoutPanel
@@ -296,6 +269,13 @@ public partial class Form1
             row.Tag = originalValues;
         };
 
+        // Context menu for items grid
+        var itemsContextMenu = new ContextMenuStrip();
+        var resetItemsColumnsItem = new ToolStripMenuItem("컬럼 크기 초기화");
+        resetItemsColumnsItem.Click += (s, e) => ResetMonitorItemsColumnSizes();
+        itemsContextMenu.Items.Add(resetItemsColumnsItem);
+        _dgvMonitorItems.ContextMenuStrip = itemsContextMenu;
+
         leftPanel.Controls.Add(_dgvMonitorItems);
         leftPanel.Controls.Add(lblItemList);
         contentLayout.Controls.Add(leftPanel, 0, 0);
@@ -318,6 +298,13 @@ public partial class Form1
         SetupMonitorResultsColumns();
         _dgvMonitorResults.DataSource = _monitorResultsBindingSource;
         _dgvMonitorResults.CellFormatting += DgvMonitorResults_CellFormatting;
+
+        // Context menu for results grid
+        var resultsContextMenu = new ContextMenuStrip();
+        var resetColumnsItem = new ToolStripMenuItem("컬럼 크기 초기화");
+        resetColumnsItem.Click += (s, e) => ResetMonitorResultsColumnSizes();
+        resultsContextMenu.Items.Add(resetColumnsItem);
+        _dgvMonitorResults.ContextMenuStrip = resultsContextMenu;
 
         // Force header center alignment by custom painting
         _dgvMonitorResults.CellPainting += (s, e) =>
@@ -354,24 +341,17 @@ public partial class Form1
         // Initialize UI update timer (updates status column every second)
         _uiUpdateTimer = new System.Windows.Forms.Timer { Interval = 1000 };
         _uiUpdateTimer.Tick += UiUpdateTimer_Tick;
+
+        // Initialize alarm timer (independent timer for checking 득템 items)
+        _alarmTimer = new System.Windows.Forms.Timer { Interval = _alarmIntervalSeconds * 1000 };
+        _alarmTimer.Tick += AlarmTimer_Tick;
     }
 
     private void SetupMonitorItemsColumns()
     {
         _dgvMonitorItems.Columns.Clear();
 
-        // Item name column (editable for renaming)
-        _dgvMonitorItems.Columns.Add(new DataGridViewTextBoxColumn
-        {
-            Name = "ItemName",
-            HeaderText = "아이템",
-            DataPropertyName = "ItemName",
-            AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
-            MinimumWidth = 100,
-            ReadOnly = false
-        });
-
-        // Server column (ComboBox for editing)
+        // Server column (ComboBox for editing) - first column
         _dgvMonitorItems.Columns.Add(new DataGridViewComboBoxColumn
         {
             Name = "ServerId",
@@ -385,6 +365,18 @@ public partial class Form1
             FlatStyle = FlatStyle.Flat,
             DisplayStyle = DataGridViewComboBoxDisplayStyle.ComboBox,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
+        });
+
+        // Item name column (editable for renaming)
+        _dgvMonitorItems.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "ItemName",
+            HeaderText = "아이템",
+            DataPropertyName = "ItemName",
+            Width = 150,
+            MinimumWidth = 80,
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
+            ReadOnly = false
         });
 
         // Watch price column (editable text box for price threshold)
@@ -535,7 +527,15 @@ public partial class Form1
     {
         _dgvMonitorResults.Columns.Clear();
 
-        // Column order: Grade, Refine, ItemName, Server, ...
+        // Column order: Server, Grade, Refine, ItemName, ...
+        _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "ServerName",
+            HeaderText = "서버",
+            Width = 75,
+            MinimumWidth = 60,
+            DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
+        });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
             Name = "Grade",
@@ -556,16 +556,9 @@ public partial class Form1
         {
             Name = "ItemName",
             HeaderText = "아이템",
-            AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
-            MinimumWidth = 150
-        });
-        _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
-        {
-            Name = "ServerName",
-            HeaderText = "서버",
-            Width = 75,
-            MinimumWidth = 60,
-            DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
+            Width = 200,
+            MinimumWidth = 100,
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.None
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
@@ -789,12 +782,8 @@ public partial class Form1
                 }
             }
 
-            // Play sound alert only if any item is below watch price (and not muted)
-            var hasBargain = groupedDeals.Any(g => g.WatchPrice.HasValue && g.LowestPrice <= g.WatchPrice.Value);
-            if (hasBargain && !_isSoundMuted)
-            {
-                PlayAlarmSound();
-            }
+            // Note: Sound alert is now handled by independent alarm timer (AlarmTimer_Tick)
+            // This decouples the alarm from the refresh cycle for more consistent behavior
 
             // Clear default first row selection
             _dgvMonitorResults.ClearSelection();
@@ -1450,6 +1439,50 @@ public partial class Form1
         }
     }
 
+    /// <summary>
+    /// Handle alarm interval change - update timer immediately
+    /// </summary>
+    private void NudAlarmInterval_ValueChanged(object? sender, EventArgs e)
+    {
+        _alarmIntervalSeconds = (int)_nudAlarmInterval.Value;
+        _alarmTimer.Interval = _alarmIntervalSeconds * 1000;
+        SaveSettings();
+        Debug.WriteLine($"[Form1] Alarm interval changed: {_alarmIntervalSeconds}s");
+    }
+
+    /// <summary>
+    /// Independent alarm timer tick - checks if any item is in 득템 state
+    /// </summary>
+    private void AlarmTimer_Tick(object? sender, EventArgs e)
+    {
+        if (_isSoundMuted) return;
+
+        // Check if any result has an item below watch price (득템 status)
+        var results = _monitoringService.Results.Values.ToList();
+        if (results.Count == 0) return;
+
+        // Check each result for deals below watch price
+        bool hasBargain = false;
+        foreach (var result in results)
+        {
+            var watchPrice = result.Item.WatchPrice;
+            if (!watchPrice.HasValue) continue;
+
+            // Check if any deal in this result is at or below watch price
+            if (result.Deals.Any(d => d.Price <= watchPrice.Value))
+            {
+                hasBargain = true;
+                break;
+            }
+        }
+
+        if (hasBargain)
+        {
+            Debug.WriteLine($"[Form1] Alarm timer: 득템 item detected, playing sound");
+            PlayAlarmSound();
+        }
+    }
+
     private void PlayAlarmSound()
     {
         if (_selectedAlarmSound == AlarmSoundType.SystemSound)
@@ -1462,6 +1495,263 @@ public partial class Form1
             // NAudio-based synthesized sounds
             AlarmSoundService.PlaySound(_selectedAlarmSound);
         }
+    }
+
+    /// <summary>
+    /// Creates the auto-refresh settings panel for dropdown
+    /// </summary>
+    private Panel CreateAutoRefreshPanel()
+    {
+        // Scale factor based on font size (base is 12pt)
+        var scale = _baseFontSize / 12f;
+        var font = new Font("Malgun Gothic", _baseFontSize - 3);
+        var smallFont = new Font("Malgun Gothic", _baseFontSize - 3.5f);
+
+        var panelWidth = (int)(230 * scale);
+        var rowHeight = (int)(28 * scale);
+
+        var panel = new Panel
+        {
+            Size = new Size(panelWidth, (int)(120 * scale)),
+            BackColor = ThemePanel,
+            Padding = new Padding(8)
+        };
+
+        var yPos = 8;
+
+        // Title/Description
+        var lblTitle = new Label
+        {
+            Text = "설정된 간격마다 모니터링 목록의\n아이템을 자동으로 조회합니다.",
+            Location = new Point(8, yPos),
+            AutoSize = false,
+            Size = new Size(panelWidth - 20, (int)(40 * scale)),
+            ForeColor = ThemeTextMuted,
+            Font = smallFont
+        };
+        yPos += (int)(45 * scale);
+
+        var lblInterval = new Label
+        {
+            Name = "lblInterval",
+            Text = "새로고침 간격 (초)",
+            Location = new Point(8, yPos + 2),
+            AutoSize = true,
+            ForeColor = ThemeText,
+            Font = font
+        };
+
+        _nudRefreshInterval = new NumericUpDown
+        {
+            Name = "nudRefreshInterval",
+            Minimum = 5, Maximum = 600, Value = 30,
+            Location = new Point((int)(140 * scale), yPos),
+            Size = new Size((int)(65 * scale), rowHeight),
+            BackColor = ThemeGrid,
+            ForeColor = ThemeText,
+            Font = font
+        };
+        yPos += rowHeight + 6;
+
+        _btnApplyInterval = new Button
+        {
+            Name = "btnApplyInterval",
+            Text = "자동갱신",
+            Location = new Point(8, yPos),
+            Size = new Size(panelWidth - 20, rowHeight),
+            FlatStyle = FlatStyle.Flat,
+            BackColor = ThemeAccent,
+            ForeColor = ThemeAccentText,
+            Font = font
+        };
+        _btnApplyInterval.FlatAppearance.BorderSize = 0;
+        _btnApplyInterval.Click += BtnApplyInterval_Click;
+
+        panel.Size = new Size(panelWidth, yPos + rowHeight + 10);
+        panel.Controls.AddRange(new Control[] { lblTitle, lblInterval, _nudRefreshInterval, _btnApplyInterval });
+        return panel;
+    }
+
+    /// <summary>
+    /// Creates the alarm settings panel for dropdown
+    /// </summary>
+    private Panel CreateAlarmSettingsPanel()
+    {
+        // Scale factor based on font size (base is 12pt)
+        var scale = _baseFontSize / 12f;
+        var font = new Font("Malgun Gothic", _baseFontSize - 3);
+        var smallFont = new Font("Malgun Gothic", _baseFontSize - 3.5f);
+
+        var panelWidth = (int)(280 * scale);
+        var rowHeight = (int)(28 * scale);
+
+        var panel = new Panel
+        {
+            Size = new Size(panelWidth, (int)(180 * scale)),
+            BackColor = ThemePanel,
+            Padding = new Padding(8)
+        };
+
+        var yPos = 8;
+
+        // Title/Description
+        var lblTitle = new Label
+        {
+            Text = "감시가 이하 아이템(득템) 발견 시\n설정된 간격마다 알람을 재생합니다.",
+            Location = new Point(8, yPos),
+            AutoSize = false,
+            Size = new Size(panelWidth - 20, (int)(40 * scale)),
+            ForeColor = ThemeTextMuted,
+            Font = smallFont
+        };
+        yPos += (int)(45 * scale);
+
+        // Alarm sound selection row
+        var lblSound = new Label
+        {
+            Name = "lblSound",
+            Text = "알람 소리",
+            Location = new Point(8, yPos + 2),
+            AutoSize = true,
+            ForeColor = ThemeText,
+            Font = font
+        };
+
+        _cboAlarmSound = new ComboBox
+        {
+            Name = "cboAlarmSound",
+            Location = new Point((int)(75 * scale), yPos),
+            Size = new Size((int)(90 * scale), rowHeight),
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            BackColor = ThemeGrid,
+            ForeColor = ThemeText,
+            Font = font
+        };
+        _cboAlarmSound.Items.AddRange(new object[]
+        {
+            new AlarmSoundItem(AlarmSoundType.SystemSound, "시스템"),
+            new AlarmSoundItem(AlarmSoundType.Chime, "차임벨"),
+            new AlarmSoundItem(AlarmSoundType.DingDong, "딩동"),
+            new AlarmSoundItem(AlarmSoundType.Rising, "상승음"),
+            new AlarmSoundItem(AlarmSoundType.Alert, "알림음")
+        });
+        _cboAlarmSound.DisplayMember = "Name";
+        for (int i = 0; i < _cboAlarmSound.Items.Count; i++)
+        {
+            if (_cboAlarmSound.Items[i] is AlarmSoundItem item && item.SoundType == _selectedAlarmSound)
+            {
+                _cboAlarmSound.SelectedIndex = i;
+                break;
+            }
+        }
+        if (_cboAlarmSound.SelectedIndex < 0) _cboAlarmSound.SelectedIndex = 0;
+        _cboAlarmSound.SelectedIndexChanged += CboAlarmSound_SelectedIndexChanged;
+
+        var btnTest = new Button
+        {
+            Name = "btnTest",
+            Text = "테스트",
+            Location = new Point((int)(170 * scale), yPos),
+            Size = new Size((int)(65 * scale), rowHeight),
+            FlatStyle = FlatStyle.Flat,
+            BackColor = ThemeGrid,
+            ForeColor = ThemeText,
+            Font = font
+        };
+        btnTest.FlatAppearance.BorderColor = ThemeBorder;
+        btnTest.Click += (s, e) => PlayAlarmSound();
+        yPos += rowHeight + 6;
+
+        // Alarm interval row
+        var lblInterval = new Label
+        {
+            Name = "lblInterval",
+            Text = "알람 간격",
+            Location = new Point(8, yPos + 2),
+            AutoSize = true,
+            ForeColor = ThemeText,
+            Font = font
+        };
+
+        _nudAlarmInterval = new NumericUpDown
+        {
+            Name = "nudAlarmInterval",
+            Minimum = 1, Maximum = 60, Value = _alarmIntervalSeconds,
+            Location = new Point((int)(75 * scale), yPos),
+            Size = new Size((int)(55 * scale), rowHeight),
+            BackColor = ThemeGrid,
+            ForeColor = ThemeText,
+            Font = font
+        };
+        _nudAlarmInterval.ValueChanged += NudAlarmInterval_ValueChanged;
+
+        var lblSec = new Label
+        {
+            Name = "lblSec",
+            Text = "초",
+            Location = new Point((int)(135 * scale), yPos + 2),
+            AutoSize = true,
+            ForeColor = ThemeText,
+            Font = font
+        };
+        yPos += rowHeight + 8;
+
+        // Note about mute
+        var lblNote = new Label
+        {
+            Text = "* 음소거 버튼으로 알람을 끌 수 있습니다.",
+            Location = new Point(8, yPos),
+            AutoSize = false,
+            Size = new Size(panelWidth - 20, (int)(35 * scale)),
+            ForeColor = ThemeTextMuted,
+            Font = smallFont
+        };
+
+        panel.Size = new Size(panelWidth, yPos + (int)(30 * scale));
+        panel.Controls.AddRange(new Control[] { lblTitle, lblSound, _cboAlarmSound, btnTest, lblInterval, _nudAlarmInterval, lblSec, lblNote });
+        return panel;
+    }
+
+    /// <summary>
+    /// Reset monitor items grid column sizes to default
+    /// </summary>
+    private void ResetMonitorItemsColumnSizes()
+    {
+        if (_dgvMonitorItems.Columns["ServerId"] != null)
+            _dgvMonitorItems.Columns["ServerId"].Width = 95;
+        if (_dgvMonitorItems.Columns["ItemName"] != null)
+            _dgvMonitorItems.Columns["ItemName"].Width = 150;
+        if (_dgvMonitorItems.Columns["WatchPrice"] != null)
+            _dgvMonitorItems.Columns["WatchPrice"].Width = 90;
+        if (_dgvMonitorItems.Columns["RefreshStatus"] != null)
+            _dgvMonitorItems.Columns["RefreshStatus"].Width = 80;
+    }
+
+    /// <summary>
+    /// Reset monitor results grid column sizes to default
+    /// </summary>
+    private void ResetMonitorResultsColumnSizes()
+    {
+        if (_dgvMonitorResults.Columns["ServerName"] != null)
+            _dgvMonitorResults.Columns["ServerName"].Width = 75;
+        if (_dgvMonitorResults.Columns["Grade"] != null)
+            _dgvMonitorResults.Columns["Grade"].Width = 65;
+        if (_dgvMonitorResults.Columns["Refine"] != null)
+            _dgvMonitorResults.Columns["Refine"].Width = 50;
+        if (_dgvMonitorResults.Columns["ItemName"] != null)
+            _dgvMonitorResults.Columns["ItemName"].Width = 200;
+        if (_dgvMonitorResults.Columns["DealCount"] != null)
+            _dgvMonitorResults.Columns["DealCount"].Width = 50;
+        if (_dgvMonitorResults.Columns["LowestPrice"] != null)
+            _dgvMonitorResults.Columns["LowestPrice"].Width = 95;
+        if (_dgvMonitorResults.Columns["YesterdayAvg"] != null)
+            _dgvMonitorResults.Columns["YesterdayAvg"].Width = 95;
+        if (_dgvMonitorResults.Columns["WeekAvg"] != null)
+            _dgvMonitorResults.Columns["WeekAvg"].Width = 95;
+        if (_dgvMonitorResults.Columns["PriceDiff"] != null)
+            _dgvMonitorResults.Columns["PriceDiff"].Width = 55;
+        if (_dgvMonitorResults.Columns["Status"] != null)
+            _dgvMonitorResults.Columns["Status"].Width = 55;
     }
 
     #endregion
@@ -1480,4 +1770,75 @@ internal class AlarmSoundItem
     }
 
     public override string ToString() => Name;
+}
+
+// Dark theme renderer for ToolStrip
+internal class DarkToolStripRenderer : ToolStripProfessionalRenderer
+{
+    public DarkToolStripRenderer() : base(new DarkToolStripColorTable()) { }
+
+    protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e)
+    {
+        // Don't render border for cleaner look
+    }
+
+    protected override void OnRenderButtonBackground(ToolStripItemRenderEventArgs e)
+    {
+        var btn = e.Item as ToolStripButton;
+        if (btn != null)
+        {
+            var rect = new Rectangle(Point.Empty, e.Item.Size);
+            var color = e.Item.Selected ? Color.FromArgb(60, 60, 65) : Color.Transparent;
+            if (e.Item.Pressed) color = Color.FromArgb(70, 70, 75);
+
+            using var brush = new SolidBrush(color);
+            e.Graphics.FillRectangle(brush, rect);
+        }
+        else
+        {
+            base.OnRenderButtonBackground(e);
+        }
+    }
+
+    protected override void OnRenderDropDownButtonBackground(ToolStripItemRenderEventArgs e)
+    {
+        var rect = new Rectangle(Point.Empty, e.Item.Size);
+        var color = e.Item.Selected ? Color.FromArgb(60, 60, 65) : Color.Transparent;
+        if (e.Item.Pressed) color = Color.FromArgb(70, 70, 75);
+
+        using var brush = new SolidBrush(color);
+        e.Graphics.FillRectangle(brush, rect);
+    }
+
+    protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+    {
+        e.TextColor = Color.FromArgb(220, 220, 220);
+        base.OnRenderItemText(e);
+    }
+
+    protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
+    {
+        var rect = new Rectangle(Point.Empty, e.Item.Size);
+        var center = rect.Width / 2;
+        using var pen = new Pen(Color.FromArgb(70, 70, 75));
+        e.Graphics.DrawLine(pen, center, 4, center, rect.Height - 4);
+    }
+}
+
+// Dark color table for ToolStrip
+internal class DarkToolStripColorTable : ProfessionalColorTable
+{
+    public override Color ToolStripDropDownBackground => Color.FromArgb(45, 45, 48);
+    public override Color MenuBorder => Color.FromArgb(70, 70, 75);
+    public override Color MenuItemBorder => Color.FromArgb(70, 70, 75);
+    public override Color MenuItemSelected => Color.FromArgb(60, 60, 65);
+    public override Color MenuItemSelectedGradientBegin => Color.FromArgb(60, 60, 65);
+    public override Color MenuItemSelectedGradientEnd => Color.FromArgb(60, 60, 65);
+    public override Color MenuItemPressedGradientBegin => Color.FromArgb(70, 70, 75);
+    public override Color MenuItemPressedGradientEnd => Color.FromArgb(70, 70, 75);
+    public override Color ImageMarginGradientBegin => Color.FromArgb(45, 45, 48);
+    public override Color ImageMarginGradientMiddle => Color.FromArgb(45, 45, 48);
+    public override Color ImageMarginGradientEnd => Color.FromArgb(45, 45, 48);
+    public override Color SeparatorDark => Color.FromArgb(70, 70, 75);
+    public override Color SeparatorLight => Color.FromArgb(70, 70, 75);
 }

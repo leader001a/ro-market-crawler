@@ -98,8 +98,13 @@ public partial class Form1 : Form
     // Sound Settings
     private bool _isSoundMuted = false;
     private AlarmSoundType _selectedAlarmSound = AlarmSoundType.SystemSound;
-    private Button _btnSoundMute = null!;
+    private ToolStripButton _btnSoundMute = null!;
     private ComboBox _cboAlarmSound = null!;
+
+    // Alarm Timer Settings (always running, controlled by mute button)
+    private System.Windows.Forms.Timer _alarmTimer = null!;
+    private NumericUpDown _nudAlarmInterval = null!;
+    private int _alarmIntervalSeconds = 5;
 
     public Form1()
     {
@@ -359,6 +364,12 @@ public partial class Form1 : Form
             {
                 nud.Font = new Font("Malgun Gothic", _baseFontSize - 3);
             }
+            else if (control is ToolStrip toolStrip)
+            {
+                // Apply font to ToolStrip and all its items
+                toolStrip.Font = new Font("Malgun Gothic", _baseFontSize - 3);
+                ApplyFontSizeToToolStripItems(toolStrip.Items);
+            }
 
             // Recurse into child controls
             if (control.HasChildren)
@@ -366,6 +377,185 @@ public partial class Form1 : Form
                 ApplyFontSizeToAllControls(control);
             }
         }
+    }
+
+    private void ApplyFontSizeToToolStripItems(ToolStripItemCollection items)
+    {
+        var font = new Font("Malgun Gothic", _baseFontSize - 3);
+        var scale = _baseFontSize / 12f;
+
+        foreach (ToolStripItem item in items)
+        {
+            item.Font = font;
+
+            // Handle dropdown items recursively
+            if (item is ToolStripDropDownButton dropDown)
+            {
+                ApplyFontSizeToToolStripItems(dropDown.DropDownItems);
+
+                // Apply font and resize controls inside ToolStripControlHost
+                foreach (ToolStripItem dropItem in dropDown.DropDownItems)
+                {
+                    if (dropItem is ToolStripControlHost host && host.Control is Panel panel)
+                    {
+                        // Apply font to panel controls
+                        ApplyFontSizeToAllControls(panel);
+
+                        // Recalculate panel size based on font scale
+                        RecalculatePanelLayout(panel, scale);
+
+                        // Update host size to match panel
+                        host.Size = panel.Size;
+                    }
+                }
+            }
+            else if (item is ToolStripMenuItem menuItem)
+            {
+                ApplyFontSizeToToolStripItems(menuItem.DropDownItems);
+            }
+        }
+    }
+
+    private void RecalculatePanelLayout(Panel panel, float scale)
+    {
+        var font = new Font("Malgun Gothic", _baseFontSize - 3);
+        var smallFont = new Font("Malgun Gothic", _baseFontSize - 3.5f);
+        var rowHeight = (int)(28 * scale);
+        var panelWidth = (int)(280 * scale);
+
+        // Update panel width
+        panel.Width = panelWidth;
+
+        // Update font for all controls
+        foreach (Control ctrl in panel.Controls)
+        {
+            if (ctrl is Label lbl)
+            {
+                lbl.Font = lbl.ForeColor == ThemeTextMuted ? smallFont : font;
+            }
+            else if (ctrl is Button btn)
+            {
+                btn.Font = font;
+            }
+            else if (ctrl is NumericUpDown nud)
+            {
+                nud.Font = font;
+            }
+            else if (ctrl is ComboBox cbo)
+            {
+                cbo.Font = font;
+            }
+        }
+
+        // Check if this is the alarm settings panel (has cboAlarmSound)
+        var isAlarmPanel = panel.Controls.Cast<Control>().Any(c => c.Name == "cboAlarmSound");
+
+        if (isAlarmPanel)
+        {
+            RecalculateAlarmPanelLayout(panel, scale, font, smallFont, rowHeight, panelWidth);
+        }
+        else
+        {
+            RecalculateAutoRefreshPanelLayout(panel, scale, font, smallFont, rowHeight, panelWidth);
+        }
+    }
+
+    private void RecalculateAlarmPanelLayout(Panel panel, float scale, Font font, Font smallFont, int rowHeight, int panelWidth)
+    {
+        var yPos = 8;
+
+        // Row 1: Description label (multi-line)
+        var lblTitle = panel.Controls.Cast<Control>().FirstOrDefault(c => c is Label lbl && lbl.Text.Contains("\n"));
+        if (lblTitle != null)
+        {
+            lblTitle.Location = new Point(8, yPos);
+            lblTitle.Size = new Size(panelWidth - 20, (int)(40 * scale));
+            yPos += (int)(45 * scale);
+        }
+
+        // Row 2: Alarm sound selection (label + combo + test button)
+        var lblSound = panel.Controls["lblSound"];
+        var cboAlarmSound = panel.Controls["cboAlarmSound"];
+        var btnTest = panel.Controls["btnTest"];
+
+        if (lblSound != null)
+            lblSound.Location = new Point(8, yPos + 2);
+        if (cboAlarmSound != null)
+        {
+            cboAlarmSound.Location = new Point((int)(75 * scale), yPos);
+            cboAlarmSound.Size = new Size((int)(90 * scale), rowHeight);
+        }
+        if (btnTest != null)
+        {
+            btnTest.Location = new Point((int)(170 * scale), yPos);
+            btnTest.Size = new Size((int)(65 * scale), rowHeight);
+        }
+        yPos += rowHeight + 6;
+
+        // Row 3: Alarm interval (label + numericupdown + "초")
+        var lblInterval = panel.Controls["lblInterval"];
+        var nudAlarmInterval = panel.Controls["nudAlarmInterval"];
+        var lblSec = panel.Controls["lblSec"];
+
+        if (lblInterval != null)
+            lblInterval.Location = new Point(8, yPos + 2);
+        if (nudAlarmInterval != null)
+        {
+            nudAlarmInterval.Location = new Point((int)(75 * scale), yPos);
+            nudAlarmInterval.Size = new Size((int)(55 * scale), rowHeight);
+        }
+        if (lblSec != null)
+            lblSec.Location = new Point((int)(135 * scale), yPos + 2);
+        yPos += rowHeight + 8;
+
+        // Row 4: Note label (single line)
+        var noteLabel = panel.Controls.Cast<Control>().FirstOrDefault(c => c is Label && c.Text.StartsWith("*"));
+        if (noteLabel != null)
+        {
+            noteLabel.Location = new Point(8, yPos);
+            noteLabel.Size = new Size(panelWidth - 16, (int)(22 * scale));
+            yPos = noteLabel.Bottom + 8;
+        }
+
+        panel.Size = new Size(panelWidth, yPos);
+    }
+
+    private void RecalculateAutoRefreshPanelLayout(Panel panel, float scale, Font font, Font smallFont, int rowHeight, int panelWidth)
+    {
+        var yPos = 8;
+
+        // Row 1: Description label (multi-line)
+        var lblTitle = panel.Controls.Cast<Control>().FirstOrDefault(c => c is Label lbl && lbl.Text.Contains("\n"));
+        if (lblTitle != null)
+        {
+            lblTitle.Location = new Point(8, yPos);
+            lblTitle.Size = new Size(panelWidth - 20, (int)(40 * scale));
+            yPos += (int)(45 * scale);
+        }
+
+        // Row 2: Refresh interval (label + numericupdown)
+        var lblInterval = panel.Controls["lblInterval"];
+        var nudInterval = panel.Controls["nudRefreshInterval"];
+
+        if (lblInterval != null)
+            lblInterval.Location = new Point(8, yPos + 2);
+        if (nudInterval != null)
+        {
+            nudInterval.Location = new Point((int)(140 * scale), yPos);
+            nudInterval.Size = new Size((int)(65 * scale), rowHeight);
+        }
+        yPos += rowHeight + 6;
+
+        // Row 3: Apply button
+        var btnApply = panel.Controls["btnApplyInterval"];
+        if (btnApply != null)
+        {
+            btnApply.Location = new Point(8, yPos);
+            btnApply.Size = new Size(panelWidth - 20, rowHeight);
+            yPos = btnApply.Bottom + 10;
+        }
+
+        panel.Size = new Size(panelWidth, yPos);
     }
 
     private void UpdateFontSizeMenuChecks()
@@ -399,6 +589,7 @@ public partial class Form1 : Form
                     _currentTheme = settings.Theme;
                     _isSoundMuted = settings.IsSoundMuted;
                     _selectedAlarmSound = settings.AlarmSound;
+                    _alarmIntervalSeconds = settings.AlarmIntervalSeconds;
                 }
             }
         }
@@ -417,7 +608,8 @@ public partial class Form1 : Form
                 FontSize = _baseFontSize,
                 Theme = _currentTheme,
                 IsSoundMuted = _isSoundMuted,
-                AlarmSound = _selectedAlarmSound
+                AlarmSound = _selectedAlarmSound,
+                AlarmIntervalSeconds = _alarmIntervalSeconds
             };
             var json = System.Text.Json.JsonSerializer.Serialize(settings);
             File.WriteAllText(_settingsFilePath, json);
@@ -435,6 +627,8 @@ public partial class Form1 : Form
         _monitorCts?.Cancel();
         _monitorTimer?.Stop();
         _monitorTimer?.Dispose();
+        _alarmTimer?.Stop();
+        _alarmTimer?.Dispose();
         _gnjoyClient.Dispose();
         _kafraClient.Dispose();
         _itemIndexService.Dispose();
@@ -467,6 +661,7 @@ internal class AppSettings
     public ThemeType Theme { get; set; } = ThemeType.Dark;
     public bool IsSoundMuted { get; set; } = false;
     public AlarmSoundType AlarmSound { get; set; } = AlarmSoundType.SystemSound;
+    public int AlarmIntervalSeconds { get; set; } = 5;
 }
 
 // Theme types
