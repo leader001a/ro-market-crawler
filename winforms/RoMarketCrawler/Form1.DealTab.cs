@@ -194,16 +194,60 @@ public partial class Form1
         var selectedServer = _cboDealServer.SelectedItem as Server;
         var serverId = selectedServer?.Id ?? -1;
 
+        // Cancel previous search/background tasks before starting new one
+        // Note: Don't Dispose() immediately - background tasks may still hold token reference
+        var oldCts = _cts;
         _cts = new CancellationTokenSource();
+
+        // Cancel old CTS to stop background tasks and free up connections
+        if (oldCts != null)
+        {
+            try
+            {
+                oldCts.Cancel();
+                Debug.WriteLine("[Form1] Previous CTS cancelled");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Form1] Failed to cancel old CTS: {ex.Message}");
+            }
+        }
+
+        // Clear results immediately to prevent race condition with old background task
+        _searchResults.Clear();
+        _dealBindingSource.DataSource = new List<DealItem>();
+        _dealBindingSource.ResetBindings(false);
+
+        // Increment search ID to invalidate any pending background UI updates
+        var searchId = ++_currentSearchId;
+        Debug.WriteLine($"[Form1] Starting search #{searchId}");
+
         SetDealSearchingState(true);
 
         try
         {
-            _lblDealStatus.Text = "검색 중...";
+            _lblDealStatus.Text = $"검색 #{searchId} 시작 중...";
             _lastSearchTerm = searchText;
-            Debug.WriteLine($"[Form1] Searching: '{searchText}', serverId={serverId}");
+            Debug.WriteLine($"[Form1] ====== SEARCH #{searchId} START ======");
+            Debug.WriteLine($"[Form1] searchText='{searchText}', serverId={serverId}");
+            Debug.WriteLine($"[Form1] _cts.IsCancellationRequested={_cts.IsCancellationRequested}");
+
+            // Ensure the token is not already cancelled before starting
+            if (_cts.IsCancellationRequested)
+            {
+                Debug.WriteLine("[Form1] ERROR: CancellationToken is already cancelled before search!");
+                _lblDealStatus.Text = "오류: 검색 토큰이 이미 취소됨";
+                return;
+            }
+
+            _lblDealStatus.Text = $"검색 #{searchId}: API 호출 중...";
+            Debug.WriteLine($"[Form1] Calling SearchAllItemDealsAsync...");
+
             var items = await _gnjoyClient.SearchAllItemDealsAsync(searchText, serverId, 10, _cts.Token);
-            Debug.WriteLine($"[Form1] Got {items.Count} items (all pages)");
+
+            Debug.WriteLine($"[Form1] SearchAllItemDealsAsync returned {items.Count} items");
+            Debug.WriteLine($"[Form1] _cts.IsCancellationRequested after search={_cts.IsCancellationRequested}");
+            _lblDealStatus.Text = $"검색 #{searchId}: {items.Count}개 결과 처리 중...";
 
             foreach (var item in items)
             {
@@ -213,12 +257,16 @@ public partial class Form1
             _searchResults.Clear();
             _searchResults.AddRange(items);
 
-            _dealBindingSource.ResetBindings(false);
+            // Apply deal type filter (판매/구매/전체) to results
+            ApplyDealTypeFilter();
 
-            _lblDealStatus.Text = $"검색 완료: {items.Count}개 결과 - 카드/인챈트 정보 로딩 중...";
+            // Get filtered count for status message
+            var filteredCount = (_dealBindingSource.DataSource as List<DealItem>)?.Count ?? items.Count;
+            var filterText = filteredCount != items.Count ? $" (전체 {items.Count}개 중 필터됨)" : "";
+            _lblDealStatus.Text = $"검색 완료: {filteredCount}개 결과{filterText} - 카드/인챈트 정보 로딩 중...";
 
             // Background load item details for card/enchant info (like kafra.kr)
-            _ = LoadItemDetailsAsync(items, _cts.Token);
+            _ = LoadItemDetailsAsync(items, searchId, _cts.Token);
         }
         catch (OperationCanceledException)
         {
@@ -240,29 +288,36 @@ public partial class Form1
     /// Load item details (card/enchant info) in background for all items with detail params
     /// This mimics kafra.kr's behavior of showing card/enchant info in the grid
     /// </summary>
-    private async Task LoadItemDetailsAsync(List<DealItem> items, CancellationToken cancellationToken)
+    private async Task LoadItemDetailsAsync(List<DealItem> items, int searchId, CancellationToken cancellationToken)
     {
+        // Helper to check if this background task should still update UI
+        bool IsCurrentSearch() => searchId == _currentSearchId && !cancellationToken.IsCancellationRequested;
+
         var itemsWithDetails = items.Where(i => i.HasDetailParams).ToList();
         if (itemsWithDetails.Count == 0)
         {
-            if (!IsDisposed)
+            // Check if still the current search before UI update
+            if (!IsDisposed && IsCurrentSearch())
             {
-                Invoke(() => _lblDealStatus.Text = $"검색 완료: {items.Count}개 결과 (더블클릭으로 상세정보 조회)");
+                Invoke(() =>
+                {
+                    if (IsCurrentSearch())  // Double-check inside Invoke
+                        _lblDealStatus.Text = $"검색 완료: {items.Count}개 결과 (더블클릭으로 상세정보 조회)";
+                });
             }
             return;
         }
 
-        Debug.WriteLine($"[Form1] Loading details for {itemsWithDetails.Count} items with detail params");
+        Debug.WriteLine($"[Form1] Loading details for search #{searchId}: {itemsWithDetails.Count} items with detail params");
         var loadedCount = 0;
 
-        // Load details in parallel with throttling (max 5 concurrent requests)
-        var semaphore = new SemaphoreSlim(5);
+        // Load details in parallel WITHOUT limits (kafra.kr style - async.forEachOf without concurrency limit)
+        // Google Proxy load balancing handles the distribution across multiple proxy servers
         var tasks = itemsWithDetails.Select(async item =>
         {
-            await semaphore.WaitAsync(cancellationToken);
             try
             {
-                if (cancellationToken.IsCancellationRequested) return;
+                if (!IsCurrentSearch()) return;
 
                 var detail = await _gnjoyClient.FetchItemDetailAsync(
                     item.ServerId,
@@ -270,18 +325,21 @@ public partial class Form1
                     item.Ssi!,
                     cancellationToken);
 
-                if (detail != null)
+                if (detail != null && IsCurrentSearch())
                 {
                     item.ApplyDetailInfo(detail);
                     Interlocked.Increment(ref loadedCount);
 
-                    // Update UI periodically
-                    if (loadedCount % 5 == 0 && !IsDisposed)
+                    // Update UI periodically - check if still current search
+                    if (loadedCount % 10 == 0 && !IsDisposed && IsCurrentSearch())
                     {
                         Invoke(() =>
                         {
-                            _dealBindingSource.ResetBindings(false);
-                            _lblDealStatus.Text = $"카드/인챈트 로딩: {loadedCount}/{itemsWithDetails.Count}...";
+                            if (IsCurrentSearch())  // Double-check inside Invoke
+                            {
+                                _dealBindingSource.ResetBindings(false);
+                                _lblDealStatus.Text = $"카드/인챈트 로딩: {loadedCount}/{itemsWithDetails.Count}...";
+                            }
                         });
                     }
                 }
@@ -289,10 +347,6 @@ public partial class Form1
             catch (Exception ex)
             {
                 Debug.WriteLine($"[Form1] Failed to load detail for {item.ItemName}: {ex.Message}");
-            }
-            finally
-            {
-                semaphore.Release();
             }
         });
 
@@ -305,14 +359,21 @@ public partial class Form1
             Debug.WriteLine("[Form1] Detail loading cancelled");
         }
 
-        // Final UI update
-        if (!IsDisposed)
+        // Final UI update - only if still the current search
+        if (!IsDisposed && IsCurrentSearch())
         {
             Invoke(() =>
             {
-                _dealBindingSource.ResetBindings(false);
-                _lblDealStatus.Text = $"검색 완료: {items.Count}개 결과 ({loadedCount}개 상세정보 로딩됨, 더블클릭으로 상세정보 조회)";
+                if (IsCurrentSearch())  // Double-check inside Invoke
+                {
+                    _dealBindingSource.ResetBindings(false);
+                    _lblDealStatus.Text = $"검색 완료: {items.Count}개 결과 ({loadedCount}개 상세정보 로딩됨, 더블클릭으로 상세정보 조회)";
+                }
             });
+        }
+        else
+        {
+            Debug.WriteLine($"[Form1] Skipping final UI update for search #{searchId} (current is #{_currentSearchId})");
         }
     }
 
@@ -337,13 +398,16 @@ public partial class Form1
 
     private void ApplyDealTypeFilter()
     {
-        if (_searchResults.Count == 0) return;
-
         var selectedDealType = _cboDealType.SelectedItem?.ToString();
 
         List<DealItem> filteredItems;
 
-        if (selectedDealType == "전체" || string.IsNullOrEmpty(selectedDealType))
+        // Handle 0 results case - must update DataGridView to show empty list
+        if (_searchResults.Count == 0)
+        {
+            filteredItems = new List<DealItem>();
+        }
+        else if (selectedDealType == "전체" || string.IsNullOrEmpty(selectedDealType))
         {
             filteredItems = _searchResults;
         }
@@ -366,7 +430,11 @@ public partial class Form1
         var totalCount = _searchResults.Count;
         var filteredCount = filteredItems.Count;
 
-        if (selectedDealType == "전체" || string.IsNullOrEmpty(selectedDealType))
+        if (totalCount == 0)
+        {
+            _lblDealStatus.Text = "검색 완료: 결과 없음";
+        }
+        else if (selectedDealType == "전체" || string.IsNullOrEmpty(selectedDealType))
         {
             _lblDealStatus.Text = "검색 완료: " + totalCount.ToString() + "개 결과";
         }

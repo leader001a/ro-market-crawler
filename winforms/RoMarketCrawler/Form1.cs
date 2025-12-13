@@ -33,6 +33,7 @@ public partial class Form1 : Form
     private CancellationTokenSource? _cts;
     private CancellationTokenSource? _indexCts;
     private string _lastSearchTerm = string.Empty;
+    private int _currentSearchId = 0;  // Increments with each search to prevent stale updates
 
     // Main TabControl
     private TabControl _tabControl = null!;
@@ -209,6 +210,9 @@ public partial class Form1 : Form
         _tabControl.TabPages.Add(tabDeal);
         _tabControl.TabPages.Add(tabItem);
         _tabControl.TabPages.Add(tabMonitor);
+
+        // Refresh Monitor tab UI when switching to it
+        _tabControl.SelectedIndexChanged += TabControl_SelectedIndexChanged;
 
         Controls.Add(_tabControl);
         Controls.Add(_menuStrip); // Add menu after tabControl so it appears on top

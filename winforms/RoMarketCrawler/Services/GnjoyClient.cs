@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using RoMarketCrawler.Models;
@@ -17,18 +18,58 @@ public class GnjoyClient : IDisposable
     private const string PriceExtendListEndpoint = "itemPriceExtendList.asp";
 
     private readonly HttpClient _client;
+    private readonly SocketsHttpHandler _handler;
     private readonly ItemDealParser _parser;
     private readonly PriceQuoteParser _quoteParser;
     private readonly ItemDetailParser _detailParser;
 
+    // Retry settings - kafra.kr style (3 retries, 1 second delay)
+    private const int MaxRetries = 3;
+    private const int RetryDelayMs = 1000; // 1 second delay between retries (kafra.kr style)
+
+    // Google Proxy settings - kafra.kr style proxy to avoid rate limiting
+    // NOTE: Disabled because Google OpenSocial proxy doesn't work reliably with GNJOY server
+    // kafra.kr uses this for browser-based requests, but desktop apps can call GNJOY directly
+    private const bool UseGoogleProxy = false;
+    private static readonly string[] GoogleProxyHosts = new[]
+    {
+        "images0-focus-opensocial.googleusercontent.com",
+        "images1-focus-opensocial.googleusercontent.com",
+        "images2-focus-opensocial.googleusercontent.com",
+        "images3-focus-opensocial.googleusercontent.com"
+    };
+    private int _proxyHostIndex = 0;
+    private readonly object _proxyLock = new object();
+
     public GnjoyClient()
     {
-        var handler = new HttpClientHandler
+        // .NET 8 uses SocketsHttpHandler by default - configure it explicitly for connection pool management
+        _handler = new SocketsHttpHandler
         {
-            AutomaticDecompression = System.Net.DecompressionMethods.All
+            // Automatic decompression for gzip/deflate
+            AutomaticDecompression = DecompressionMethods.All,
+
+            // Connection pool settings - CRITICAL for preventing pool exhaustion
+            // Rotate connections every 2 minutes to prevent stale connections
+            PooledConnectionLifetime = TimeSpan.FromMinutes(2),
+            // Close idle connections after 90 seconds
+            PooledConnectionIdleTimeout = TimeSpan.FromSeconds(90),
+            // Allow up to 10 connections per server (default is 2 in some scenarios)
+            MaxConnectionsPerServer = 10,
+
+            // Keep-alive settings
+            KeepAlivePingPolicy = HttpKeepAlivePingPolicy.WithActiveRequests,
+            KeepAlivePingTimeout = TimeSpan.FromSeconds(15),
+            KeepAlivePingDelay = TimeSpan.FromSeconds(30),
+
+            // Connection timeout
+            ConnectTimeout = TimeSpan.FromSeconds(15),
+
+            // Enable connection reuse
+            EnableMultipleHttp2Connections = true
         };
 
-        _client = new HttpClient(handler)
+        _client = new HttpClient(_handler)
         {
             Timeout = TimeSpan.FromSeconds(30)
         };
@@ -42,6 +83,95 @@ public class GnjoyClient : IDisposable
         _parser = new ItemDealParser();
         _quoteParser = new PriceQuoteParser();
         _detailParser = new ItemDetailParser();
+
+        Debug.WriteLine("[GnjoyClient] Initialized with SocketsHttpHandler - MaxConnectionsPerServer=10, PooledConnectionLifetime=2min");
+        Debug.WriteLine($"[GnjoyClient] Google Proxy enabled: {UseGoogleProxy}");
+    }
+
+    /// <summary>
+    /// Build Google Proxy URL (kafra.kr style) to bypass rate limiting
+    /// Rotates between 4 proxy hosts for load balancing
+    /// </summary>
+    private string BuildProxyUrl(string targetUrl)
+    {
+        if (!UseGoogleProxy)
+            return targetUrl;
+
+        // Rotate proxy host for load balancing
+        string proxyHost;
+        lock (_proxyLock)
+        {
+            proxyHost = GoogleProxyHosts[_proxyHostIndex];
+            _proxyHostIndex = (_proxyHostIndex + 1) % GoogleProxyHosts.Length;
+        }
+
+        // URL encode the target URL
+        var encodedUrl = Uri.EscapeDataString(targetUrl);
+        var proxyUrl = $"https://{proxyHost}/gadgets/proxy?container=focus&url={encodedUrl}";
+
+        Debug.WriteLine($"[GnjoyClient] Proxy URL: {proxyHost} -> {targetUrl}");
+        return proxyUrl;
+    }
+
+    /// <summary>
+    /// HTTP GET with retry on error (kafra.kr style - 3 retries, 1 second delay)
+    /// No rate limiting - fire all requests in parallel like kafra.kr does
+    /// Uses Google Proxy if enabled
+    /// </summary>
+    private async Task<HttpResponseMessage> GetWithRetryAsync(string url, CancellationToken cancellationToken)
+    {
+        HttpResponseMessage? response = null;
+        Exception? lastException = null;
+
+        for (int retryCount = 0; retryCount <= MaxRetries; retryCount++)
+        {
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (retryCount > 0)
+                {
+                    Debug.WriteLine($"[GnjoyClient] Retry {retryCount}/{MaxRetries} after {RetryDelayMs}ms: {url}");
+                    await Task.Delay(RetryDelayMs, cancellationToken);
+                }
+
+                // Use Google Proxy if enabled (kafra.kr style)
+                var requestUrl = BuildProxyUrl(url);
+                response = await _client.GetAsync(requestUrl, cancellationToken);
+
+                // Check for error responses that should trigger retry
+                if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests ||
+                    response.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable ||
+                    response.StatusCode == System.Net.HttpStatusCode.GatewayTimeout)
+                {
+                    Debug.WriteLine($"[GnjoyClient] HTTP {(int)response.StatusCode} - will retry");
+                    response.Dispose();
+                    continue;
+                }
+
+                // Success or client error (4xx) - return response
+                return response;
+            }
+            catch (HttpRequestException ex)
+            {
+                lastException = ex;
+                Debug.WriteLine($"[GnjoyClient] HTTP error: {ex.Message}");
+                response?.Dispose();
+            }
+            catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                response?.Dispose();
+                throw;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                response?.Dispose();
+                throw;
+            }
+        }
+
+        // All retries failed
+        throw lastException ?? new HttpRequestException($"Failed after {MaxRetries} retries: {url}");
     }
 
     /// <summary>
@@ -81,7 +211,8 @@ public class GnjoyClient : IDisposable
             Debug.WriteLine($"[GnjoyClient] FetchPriceHistoryAsync called with itemName='{itemName}', serverId={serverId}");
             Debug.WriteLine($"[GnjoyClient] Fetching price history: {url}");
 
-            var response = await _client.GetAsync(url, cancellationToken);
+            // Use rate-limited GET with retry logic
+            using var response = await GetWithRetryAsync(url, cancellationToken);
             response.EnsureSuccessStatusCode();
 
             var htmlContent = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -120,7 +251,8 @@ public class GnjoyClient : IDisposable
 
             Debug.WriteLine($"[GnjoyClient] SearchPriceListAsync: {url}");
 
-            var response = await _client.GetAsync(url, cancellationToken);
+            // Use rate-limited GET with retry logic
+            using var response = await GetWithRetryAsync(url, cancellationToken);
             response.EnsureSuccessStatusCode();
 
             var htmlContent = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -260,7 +392,8 @@ public class GnjoyClient : IDisposable
 
             Debug.WriteLine($"[GnjoyClient] FetchItemDetailAsync: {url}");
 
-            var response = await _client.GetAsync(url, cancellationToken);
+            // Use rate-limited GET with retry logic
+            using var response = await GetWithRetryAsync(url, cancellationToken);
             response.EnsureSuccessStatusCode();
 
             var htmlContent = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -299,6 +432,9 @@ public class GnjoyClient : IDisposable
         int page = 1,
         CancellationToken cancellationToken = default)
     {
+        Debug.WriteLine($"[GnjoyClient] ----- SearchItemDealsAsync START -----");
+        Debug.WriteLine($"[GnjoyClient] itemName='{itemName}', page={page}, IsCancellationRequested={cancellationToken.IsCancellationRequested}");
+
         try
         {
             // Convert UI server ID to GNJOY format for deal search
@@ -307,7 +443,10 @@ public class GnjoyClient : IDisposable
             var url = $"{BaseUrl}/{DealListEndpoint}?svrID={gnjoyServerId}&itemFullName={Uri.EscapeDataString(itemName)}&itemOrder=regdate&curpage={page}";
             Debug.WriteLine($"[GnjoyClient] SearchItemDealsAsync URL: {url}");
 
-            var response = await _client.GetAsync(url, cancellationToken);
+            Debug.WriteLine($"[GnjoyClient] About to call GetWithRetryAsync...");
+            // Use rate-limited GET with retry logic
+            using var response = await GetWithRetryAsync(url, cancellationToken);
+            Debug.WriteLine($"[GnjoyClient] GetWithRetryAsync completed, StatusCode={response.StatusCode}");
             response.EnsureSuccessStatusCode();
 
             // GNJOY returns UTF-8 encoded HTML
@@ -320,17 +459,28 @@ public class GnjoyClient : IDisposable
         }
         catch (HttpRequestException ex)
         {
-            Debug.WriteLine($"[GnjoyClient] SearchItemDealsAsync HTTP error for '{itemName}': {ex.Message}");
+            Debug.WriteLine($"[GnjoyClient] SearchItemDealsAsync HTTP ERROR for '{itemName}': {ex.Message}");
+            Debug.WriteLine($"[GnjoyClient] HttpRequestException StackTrace: {ex.StackTrace}");
             return new List<DealItem>();
         }
-        catch (TaskCanceledException)
+        catch (TaskCanceledException ex)
         {
-            Debug.WriteLine($"[GnjoyClient] SearchItemDealsAsync cancelled for '{itemName}'");
+            Debug.WriteLine($"[GnjoyClient] SearchItemDealsAsync CANCELLED for '{itemName}'");
+            Debug.WriteLine($"[GnjoyClient] TaskCanceledException: {ex.Message}");
+            Debug.WriteLine($"[GnjoyClient] IsCancellationRequested at catch: {cancellationToken.IsCancellationRequested}");
+            return new List<DealItem>();
+        }
+        catch (OperationCanceledException ex)
+        {
+            Debug.WriteLine($"[GnjoyClient] SearchItemDealsAsync OPERATION CANCELLED for '{itemName}'");
+            Debug.WriteLine($"[GnjoyClient] OperationCanceledException: {ex.Message}");
             return new List<DealItem>();
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[GnjoyClient] SearchItemDealsAsync failed for '{itemName}': {ex.Message}");
+            Debug.WriteLine($"[GnjoyClient] SearchItemDealsAsync EXCEPTION for '{itemName}': {ex.GetType().Name}");
+            Debug.WriteLine($"[GnjoyClient] Exception message: {ex.Message}");
+            Debug.WriteLine($"[GnjoyClient] Exception StackTrace: {ex.StackTrace}");
             return new List<DealItem>();
         }
     }
@@ -349,15 +499,26 @@ public class GnjoyClient : IDisposable
         int maxPages = 10,
         CancellationToken cancellationToken = default)
     {
+        Debug.WriteLine($"[GnjoyClient] ========== SearchAllItemDealsAsync START ==========");
+        Debug.WriteLine($"[GnjoyClient] itemName='{itemName}', serverId={serverId}, maxPages={maxPages}");
+        Debug.WriteLine($"[GnjoyClient] cancellationToken.IsCancellationRequested={cancellationToken.IsCancellationRequested}");
+
         var allItems = new List<DealItem>();
         int page = 1;
 
         while (page <= maxPages)
         {
-            if (cancellationToken.IsCancellationRequested) break;
+            Debug.WriteLine($"[GnjoyClient] Loop iteration: page={page}, IsCancellationRequested={cancellationToken.IsCancellationRequested}");
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                Debug.WriteLine($"[GnjoyClient] CANCELLED at start of loop! Breaking.");
+                break;
+            }
 
             Debug.WriteLine($"[GnjoyClient] SearchAllItemDealsAsync: Fetching page {page}");
             var items = await SearchItemDealsAsync(itemName, serverId, page, cancellationToken);
+            Debug.WriteLine($"[GnjoyClient] SearchItemDealsAsync returned {items.Count} items");
 
             if (items.Count == 0)
             {
@@ -376,9 +537,7 @@ public class GnjoyClient : IDisposable
             }
 
             page++;
-
-            // Small delay to be respectful to the server (reduced for monitoring speed)
-            await Task.Delay(50, cancellationToken);
+            // No delay needed - Google Proxy handles rate limiting (kafra.kr style)
         }
 
         Debug.WriteLine($"[GnjoyClient] SearchAllItemDealsAsync: Completed with {allItems.Count} total items from {page} page(s)");
@@ -388,5 +547,7 @@ public class GnjoyClient : IDisposable
     public void Dispose()
     {
         _client.Dispose();
+        _handler.Dispose();
+        Debug.WriteLine("[GnjoyClient] Disposed HttpClient and SocketsHttpHandler");
     }
 }

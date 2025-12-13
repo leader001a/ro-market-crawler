@@ -191,7 +191,7 @@ public partial class Form1
 
         // Left panel: Item list
         var leftPanel = new Panel { Dock = DockStyle.Fill, BackColor = ThemePanel, Padding = new Padding(3), Margin = new Padding(0, 0, 3, 0) };
-        var lblItemList = new Label { Text = "모니터링 목록", Dock = DockStyle.Top, Height = 22 };
+        var lblItemList = new Label { Text = $"모니터링 목록 (최대 {MonitoringService.MaxItemCount}개)", Dock = DockStyle.Top, Height = 22 };
         ApplyLabelStyle(lblItemList);
 
         _dgvMonitorItems = new DataGridView
@@ -938,6 +938,18 @@ public partial class Form1
 
     // Event Handlers
 
+    private void TabControl_SelectedIndexChanged(object? sender, EventArgs e)
+    {
+        // Refresh Monitor tab UI when switching to it (index 2)
+        if (_tabControl.SelectedIndex == 2)
+        {
+            UpdateMonitorItemList();
+            UpdateMonitorResults();
+            UpdateItemStatusColumn();
+            Debug.WriteLine("[Form1] Monitor tab selected - UI refreshed");
+        }
+    }
+
     private void TxtMonitorItemName_KeyDown(object? sender, KeyEventArgs e)
     {
         if (e.KeyCode == Keys.Enter)
@@ -959,16 +971,22 @@ public partial class Form1
         var server = _cboMonitorServer.SelectedItem as Server;
         var serverId = server?.Id ?? -1;
 
-        var added = await _monitoringService.AddItemAsync(itemName, serverId);
-        if (added)
+        var (success, errorReason) = await _monitoringService.AddItemAsync(itemName, serverId);
+        if (success)
         {
             _txtMonitorItemName.Clear();
             UpdateMonitorItemList();
-            _lblMonitorStatus.Text = $"'{itemName}' 추가됨";
+            _lblMonitorStatus.Text = $"'{itemName}' 추가됨 ({_monitoringService.ItemCount}/{MonitoringService.MaxItemCount})";
         }
         else
         {
-            MessageBox.Show("이미 등록된 아이템입니다.", "알림", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            var message = errorReason switch
+            {
+                "limit" => $"모니터링 목록은 최대 {MonitoringService.MaxItemCount}개까지만 등록할 수 있습니다.",
+                "duplicate" => "이미 등록된 아이템입니다.",
+                _ => "아이템을 추가할 수 없습니다."
+            };
+            MessageBox.Show(message, "알림", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
     }
 
@@ -1188,7 +1206,13 @@ public partial class Form1
     /// </summary>
     private async Task ProcessSingleItemAsync(MonitorItem item)
     {
-        var cancellationToken = _monitorCts?.Token ?? CancellationToken.None;
+        // Create a linked CancellationToken with individual timeout (15 seconds)
+        // This prevents items from getting stuck in IsRefreshing state due to slow/blocked API calls
+        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+            timeoutCts.Token,
+            _monitorCts?.Token ?? CancellationToken.None);
+        var cancellationToken = linkedCts.Token;
 
         try
         {
@@ -1235,17 +1259,28 @@ public partial class Form1
 
             Debug.WriteLine($"[Form1] Completed: {item.ItemName}");
         }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+        {
+            // Individual item timeout - schedule next refresh so it retries later
+            Debug.WriteLine($"[Form1] Timeout: {item.ItemName} (15s exceeded)");
+            item.IsRefreshing = false;
+            item.IsProcessing = false;
+            _monitoringService.ScheduleNextRefresh(new[] { item });
+        }
         catch (OperationCanceledException)
         {
+            // User-initiated cancellation
             Debug.WriteLine($"[Form1] Cancelled: {item.ItemName}");
             item.IsRefreshing = false;
             item.IsProcessing = false;
         }
         catch (Exception ex)
         {
+            // API error - schedule next refresh so it retries later
             Debug.WriteLine($"[Form1] Error: {item.ItemName}, {ex.Message}");
             item.IsRefreshing = false;
             item.IsProcessing = false;
+            _monitoringService.ScheduleNextRefresh(new[] { item });
         }
         finally
         {

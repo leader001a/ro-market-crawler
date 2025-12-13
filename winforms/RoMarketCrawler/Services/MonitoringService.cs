@@ -17,6 +17,11 @@ namespace RoMarketCrawler.Services
     /// </summary>
     public class MonitoringService : IDisposable
     {
+        /// <summary>
+        /// Maximum number of items that can be monitored (safety limit to prevent API abuse)
+        /// </summary>
+        public const int MaxItemCount = 20;
+
         private readonly GnjoyClient _gnjoyClient;
         private readonly bool _ownsGnjoyClient;
         private readonly string _configFilePath;
@@ -135,18 +140,31 @@ namespace RoMarketCrawler.Services
         /// <summary>
         /// Add an item to the monitoring list
         /// </summary>
-        public async Task<bool> AddItemAsync(string itemName, int serverId = -1)
+        /// <returns>
+        /// Tuple of (success, errorMessage):
+        /// - (true, null) on success
+        /// - (false, "duplicate") if item already exists
+        /// - (false, "limit") if max item count reached
+        /// </returns>
+        public async Task<(bool Success, string? ErrorReason)> AddItemAsync(string itemName, int serverId = -1)
         {
             if (string.IsNullOrWhiteSpace(itemName))
-                return false;
+                return (false, "empty");
 
             itemName = itemName.Trim();
+
+            // Check for max item limit
+            if (_config.Items.Count >= MaxItemCount)
+            {
+                Debug.WriteLine($"[MonitoringService] Cannot add '{itemName}' - max item limit ({MaxItemCount}) reached");
+                return (false, "limit");
+            }
 
             // Check for duplicates
             if (_config.Items.Any(i => i.ItemName.Equals(itemName, StringComparison.OrdinalIgnoreCase) && i.ServerId == serverId))
             {
                 Debug.WriteLine($"[MonitoringService] Item '{itemName}' already exists");
-                return false;
+                return (false, "duplicate");
             }
 
             var item = new MonitorItem
@@ -160,7 +178,7 @@ namespace RoMarketCrawler.Services
             await SaveConfigAsync();
 
             Debug.WriteLine($"[MonitoringService] Added item '{itemName}' (server={serverId})");
-            return true;
+            return (true, null);
         }
 
         /// <summary>

@@ -1,3 +1,5 @@
+using System.Net;
+
 namespace RoMarketCrawler;
 
 static class Program
@@ -15,6 +17,10 @@ static class Program
             TestParser.RunTest().GetAwaiter().GetResult();
             return;
         }
+
+        // Increase HTTP connection limit to allow concurrent API requests from Deal/Monitor tabs
+        // Default is 2 connections per host, which causes blocking when both tabs query simultaneously
+        ServicePointManager.DefaultConnectionLimit = 20;
 
         // To customize application configuration such as set high DPI settings or default font,
         // see https://aka.ms/applicationconfiguration.
