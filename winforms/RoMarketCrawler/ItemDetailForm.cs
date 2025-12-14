@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net.Http;
+using System.Runtime.InteropServices;
 using System.Text;
 using RoMarketCrawler.Models;
 using RoMarketCrawler.Services;
@@ -12,6 +13,15 @@ namespace RoMarketCrawler;
 /// </summary>
 public class ItemDetailForm : Form
 {
+    // Windows Dark Mode API
+    [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)]
+    private static extern int SetWindowTheme(IntPtr hWnd, string pszSubAppName, string? pszSubIdList);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
+    private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+
     private readonly DealItem _item;
     private readonly ItemIndexService? _itemIndexService;
     private readonly HttpClient _imageClient;
@@ -57,7 +67,48 @@ public class ItemDetailForm : Form
         InitializeUI();
 
         // Load data after form is shown (handle must be created for Invoke to work)
-        Load += async (s, e) => await LoadDataAsync();
+        Load += async (s, e) =>
+        {
+            // Apply dark mode to title bar and scrollbars
+            if (_theme == ThemeType.Dark)
+            {
+                ApplyDarkModeToForm();
+            }
+            await LoadDataAsync();
+        };
+    }
+
+    private void ApplyDarkModeToForm()
+    {
+        // Apply dark mode to title bar
+        if (IsHandleCreated)
+        {
+            int darkMode = 1;
+            DwmSetWindowAttribute(Handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref darkMode, sizeof(int));
+        }
+
+        // Apply dark scrollbar theme to all RichTextBox controls
+        ApplyDarkScrollBarTheme(_rtbItemDesc);
+        ApplyDarkScrollBarTheme(_rtbSlotInfo);
+        ApplyDarkScrollBarTheme(_rtbRandomOptions);
+    }
+
+    private void ApplyDarkScrollBarTheme(Control control)
+    {
+        if (control.IsHandleCreated)
+        {
+            SetWindowTheme(control.Handle, "DarkMode_Explorer", null);
+        }
+        else
+        {
+            control.HandleCreated += (s, e) =>
+            {
+                if (s is Control c)
+                {
+                    SetWindowTheme(c.Handle, "DarkMode_Explorer", null);
+                }
+            };
+        }
     }
 
     private void ApplyThemeColors()

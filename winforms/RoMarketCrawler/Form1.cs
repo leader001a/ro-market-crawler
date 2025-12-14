@@ -35,8 +35,8 @@ public partial class Form1 : Form
     private string _lastSearchTerm = string.Empty;
     private int _currentSearchId = 0;  // Increments with each search to prevent stale updates
 
-    // Main TabControl
-    private TabControl _tabControl = null!;
+    // Main TabControl (BorderlessTabControl hides border)
+    private BorderlessTabControl _tabControl = null!;
 
     // Tab 1: Deal Search (GNJOY)
     private TextBox _txtDealSearch = null!;
@@ -127,6 +127,9 @@ public partial class Form1 : Form
 
     public Form1()
     {
+        // Initialize dark mode support before creating any controls
+        InitializeDarkModeSupport();
+
         InitializeComponent();
         _gnjoyClient = new GnjoyClient();  // Deal tab only
         _kafraClient = new KafraClient();
@@ -201,7 +204,7 @@ public partial class Form1 : Form
         // Setup menu strip
         SetupMenuStrip();
 
-        _tabControl = new TabControl
+        _tabControl = new BorderlessTabControl
         {
             Dock = DockStyle.Fill
         };
@@ -260,6 +263,9 @@ public partial class Form1 : Form
         // Apply loaded settings to all controls
         ApplyFontSizeToAllControls(this);
         ApplyThemeToAllControls(this);
+
+        // Apply dark mode to title bar
+        ApplyDarkModeToTitleBar(_currentTheme == ThemeType.Dark);
 
         // Refresh search history panel after layout is complete
         UpdateSearchHistoryPanel();

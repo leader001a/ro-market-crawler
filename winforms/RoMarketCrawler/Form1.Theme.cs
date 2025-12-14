@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace RoMarketCrawler;
 
 /// <summary>
@@ -5,6 +7,115 @@ namespace RoMarketCrawler;
 /// </summary>
 public partial class Form1
 {
+    #region Dark Mode Scrollbar API
+
+    [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)]
+    private static extern int SetWindowTheme(IntPtr hWnd, string pszSubAppName, string? pszSubIdList);
+
+    [DllImport("uxtheme.dll", EntryPoint = "#135", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern int SetPreferredAppMode(int preferredAppMode);
+
+    [DllImport("uxtheme.dll", EntryPoint = "#136", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern void FlushMenuThemes();
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
+    private const int DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19;
+    private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+
+    private static bool _darkModeInitialized = false;
+    private readonly HashSet<Control> _scrollBarHandlerInitialized = new();
+
+    /// <summary>
+    /// Initialize dark mode support for the application (call once at startup)
+    /// </summary>
+    private static void InitializeDarkModeSupport()
+    {
+        if (_darkModeInitialized) return;
+
+        try
+        {
+            // SetPreferredAppMode: 0=Default, 1=AllowDark, 2=ForceDark, 3=ForceLight
+            SetPreferredAppMode(1); // AllowDark
+            _darkModeInitialized = true;
+        }
+        catch
+        {
+            // Ignore errors on older Windows versions
+        }
+    }
+
+    /// <summary>
+    /// Apply dark mode to the window title bar
+    /// </summary>
+    private void ApplyDarkModeToTitleBar(bool isDark)
+    {
+        try
+        {
+            int useImmersiveDarkMode = isDark ? 1 : 0;
+
+            // Try Windows 10 20H1+ attribute first
+            if (DwmSetWindowAttribute(Handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref useImmersiveDarkMode, sizeof(int)) != 0)
+            {
+                // Fall back to pre-20H1 attribute
+                DwmSetWindowAttribute(Handle, DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1, ref useImmersiveDarkMode, sizeof(int));
+            }
+        }
+        catch
+        {
+            // Ignore errors on older Windows versions
+        }
+    }
+
+    /// <summary>
+    /// Apply dark or light scrollbar theme to a control and all its children recursively
+    /// </summary>
+    private void ApplyScrollBarTheme(Control control, bool isDark)
+    {
+        string themeName = isDark ? "DarkMode_Explorer" : "Explorer";
+
+        // Apply to the control itself
+        ApplyThemeToControlHandle(control, themeName);
+
+        // Recursively apply to all existing child controls
+        foreach (Control child in control.Controls)
+        {
+            ApplyScrollBarTheme(child, isDark);
+        }
+
+        // Invalidate the control and all children to force redraw
+        if (control.IsHandleCreated)
+        {
+            control.Invalidate(true);
+        }
+    }
+
+    /// <summary>
+    /// Apply theme to a single control's handle
+    /// </summary>
+    private void ApplyThemeToControlHandle(Control control, string themeName)
+    {
+        if (control.IsHandleCreated)
+        {
+            SetWindowTheme(control.Handle, themeName, null);
+        }
+        else
+        {
+            // Capture themeName for the closure
+            string capturedTheme = themeName;
+            control.HandleCreated += (s, e) =>
+            {
+                if (s is Control c)
+                {
+                    SetWindowTheme(c.Handle, capturedTheme, null);
+                }
+            };
+        }
+    }
+
+    #endregion
+
     #region Theme Application
 
     private void ApplyThemeColors()
@@ -51,6 +162,7 @@ public partial class Form1
 
         _currentTheme = theme;
         ApplyThemeColors();
+        ApplyDarkModeToTitleBar(_currentTheme == ThemeType.Dark);
         ApplyThemeToAllControls(this);
         UpdateThemeMenuChecks();
         SaveSettings();
@@ -75,13 +187,34 @@ public partial class Form1
                     menu.BackColor = ThemePanel;
                     menu.ForeColor = ThemeText;
                     menu.Renderer = new DarkMenuRenderer();
+
+                    // Apply dark theme to all dropdown menus
+                    foreach (ToolStripItem item in menu.Items)
+                    {
+                        if (item is ToolStripMenuItem menuItem)
+                        {
+                            SetupDarkThemeDropDowns(menuItem);
+                        }
+                    }
                 }
                 else
                 {
                     // Classic theme - use system default rendering
+                    menu.Renderer = new ToolStripProfessionalRenderer();
                     menu.BackColor = SystemColors.MenuBar;
                     menu.ForeColor = SystemColors.MenuText;
-                    menu.RenderMode = ToolStripRenderMode.System;
+
+                    // Reset all dropdown menu renderers to system default
+                    foreach (ToolStripItem item in menu.Items)
+                    {
+                        if (item is ToolStripMenuItem menuItem)
+                        {
+                            ResetDropDownRenderers(menuItem);
+                        }
+                    }
+
+                    // Flush Windows menu theme cache to force refresh
+                    try { FlushMenuThemes(); } catch { }
                 }
                 // Update menu item colors
                 foreach (ToolStripItem item in menu.Items)
@@ -110,33 +243,70 @@ public partial class Form1
             }
             else if (control is TextBox txt)
             {
-                txt.BackColor = ThemeGrid;
-                txt.ForeColor = ThemeText;
-                txt.BorderStyle = _currentTheme == ThemeType.Dark ? BorderStyle.FixedSingle : BorderStyle.Fixed3D;
-            }
-            else if (control is ComboBox combo)
-            {
-                combo.BackColor = ThemeGrid;
-                combo.ForeColor = ThemeText;
-                combo.FlatStyle = _currentTheme == ThemeType.Dark ? FlatStyle.Flat : FlatStyle.Standard;
-            }
-            else if (control is Button btn)
-            {
-                btn.FlatStyle = _currentTheme == ThemeType.Dark ? FlatStyle.Flat : FlatStyle.Standard;
-                bool isPrimary = btn.Tag as string == "Primary";
-                if (isPrimary)
+                if (_currentTheme == ThemeType.Dark)
                 {
-                    btn.BackColor = ThemeAccent;
-                    btn.ForeColor = ThemeAccentText;
-                    btn.FlatAppearance.BorderColor = ThemeAccent;
-                    btn.FlatAppearance.MouseOverBackColor = ThemeAccentHover;
+                    txt.BackColor = ThemeGrid;
+                    txt.ForeColor = ThemeText;
+                    txt.BorderStyle = BorderStyle.FixedSingle;
                 }
                 else
                 {
-                    btn.BackColor = ThemePanel;
-                    btn.ForeColor = ThemeText;
-                    btn.FlatAppearance.BorderColor = ThemeBorder;
-                    btn.FlatAppearance.MouseOverBackColor = ThemeGridAlt;
+                    txt.BackColor = SystemColors.Window;
+                    txt.ForeColor = SystemColors.WindowText;
+                    // Use FixedSingle for better visibility on modern Windows
+                    txt.BorderStyle = BorderStyle.FixedSingle;
+                }
+                ApplyScrollBarTheme(txt, _currentTheme == ThemeType.Dark);
+            }
+            else if (control is ComboBox combo)
+            {
+                if (_currentTheme == ThemeType.Dark)
+                {
+                    combo.BackColor = ThemeGrid;
+                    combo.ForeColor = ThemeText;
+                    combo.FlatStyle = FlatStyle.Flat;
+                }
+                else
+                {
+                    combo.BackColor = SystemColors.Window;
+                    combo.ForeColor = SystemColors.WindowText;
+                    combo.FlatStyle = FlatStyle.Standard;
+                }
+            }
+            else if (control is Button btn)
+            {
+                if (_currentTheme == ThemeType.Dark)
+                {
+                    btn.FlatStyle = FlatStyle.Flat;
+                    bool isPrimary = btn.Tag as string == "Primary";
+                    if (isPrimary)
+                    {
+                        btn.BackColor = ThemeAccent;
+                        btn.ForeColor = ThemeAccentText;
+                        btn.FlatAppearance.BorderColor = ThemeAccent;
+                        btn.FlatAppearance.MouseOverBackColor = ThemeAccentHover;
+                    }
+                    else
+                    {
+                        btn.BackColor = ThemePanel;
+                        btn.ForeColor = ThemeText;
+                        btn.FlatAppearance.BorderColor = ThemeBorder;
+                        btn.FlatAppearance.MouseOverBackColor = ThemeGridAlt;
+                    }
+                }
+                else
+                {
+                    // Classic theme - use standard Windows button appearance
+                    // Reset FlatAppearance to defaults first (clears dark theme settings)
+                    btn.FlatAppearance.BorderColor = SystemColors.ControlDark;
+                    btn.FlatAppearance.BorderSize = 1;
+                    btn.FlatAppearance.MouseOverBackColor = Color.Empty;
+                    btn.FlatAppearance.MouseDownBackColor = Color.Empty;
+                    // Then set standard style
+                    btn.FlatStyle = FlatStyle.Standard;
+                    btn.BackColor = SystemColors.Control;
+                    btn.ForeColor = SystemColors.ControlText;
+                    btn.UseVisualStyleBackColor = true;
                 }
             }
             else if (control is Label lbl)
@@ -177,6 +347,34 @@ public partial class Form1
             {
                 pic.BackColor = ThemeGrid;
             }
+            else if (control is ListBox listBox)
+            {
+                listBox.BackColor = _currentTheme == ThemeType.Dark ? ThemeGrid : SystemColors.Window;
+                listBox.ForeColor = _currentTheme == ThemeType.Dark ? ThemeText : SystemColors.WindowText;
+                listBox.BorderStyle = _currentTheme == ThemeType.Dark ? BorderStyle.FixedSingle : BorderStyle.Fixed3D;
+                ApplyScrollBarTheme(listBox, _currentTheme == ThemeType.Dark);
+            }
+            else if (control is TreeView treeView)
+            {
+                treeView.BackColor = _currentTheme == ThemeType.Dark ? ThemeGrid : SystemColors.Window;
+                treeView.ForeColor = _currentTheme == ThemeType.Dark ? ThemeText : SystemColors.WindowText;
+                treeView.BorderStyle = _currentTheme == ThemeType.Dark ? BorderStyle.FixedSingle : BorderStyle.Fixed3D;
+                ApplyScrollBarTheme(treeView, _currentTheme == ThemeType.Dark);
+            }
+            else if (control is ListView listView)
+            {
+                listView.BackColor = _currentTheme == ThemeType.Dark ? ThemeGrid : SystemColors.Window;
+                listView.ForeColor = _currentTheme == ThemeType.Dark ? ThemeText : SystemColors.WindowText;
+                listView.BorderStyle = _currentTheme == ThemeType.Dark ? BorderStyle.FixedSingle : BorderStyle.Fixed3D;
+                ApplyScrollBarTheme(listView, _currentTheme == ThemeType.Dark);
+            }
+            else if (control is RichTextBox richTextBox)
+            {
+                richTextBox.BackColor = _currentTheme == ThemeType.Dark ? ThemeGrid : SystemColors.Window;
+                richTextBox.ForeColor = _currentTheme == ThemeType.Dark ? ThemeText : SystemColors.WindowText;
+                richTextBox.BorderStyle = _currentTheme == ThemeType.Dark ? BorderStyle.FixedSingle : BorderStyle.Fixed3D;
+                ApplyScrollBarTheme(richTextBox, _currentTheme == ThemeType.Dark);
+            }
             else if (control is StatusStrip statusStrip)
             {
                 statusStrip.BackColor = _currentTheme == ThemeType.Dark ? ThemePanel : SystemColors.Control;
@@ -189,6 +387,11 @@ public partial class Form1
             else if (control is ToolStrip toolStrip)
             {
                 ApplyToolStripStyle(toolStrip);
+            }
+            else if (control is HScrollBar || control is VScrollBar)
+            {
+                // Apply scrollbar theme to standalone scrollbars
+                ApplyScrollBarTheme(control, _currentTheme == ThemeType.Dark);
             }
 
             // Recurse
@@ -209,10 +412,10 @@ public partial class Form1
         }
         else
         {
-            // Classic theme - use system default rendering
+            // Classic theme - use professional renderer with default system colors
+            toolStrip.Renderer = new ToolStripProfessionalRenderer();
             toolStrip.BackColor = SystemColors.Control;
             toolStrip.ForeColor = SystemColors.ControlText;
-            toolStrip.RenderMode = ToolStripRenderMode.System;
         }
 
         // Apply theme to all items
@@ -259,7 +462,8 @@ public partial class Form1
                 textBox.ForeColor = SystemColors.WindowText;
                 textBox.TextBox.BackColor = SystemColors.Window;
                 textBox.TextBox.ForeColor = SystemColors.WindowText;
-                textBox.BorderStyle = BorderStyle.Fixed3D;
+                // Use FixedSingle for better visibility on modern Windows
+                textBox.BorderStyle = BorderStyle.FixedSingle;
             }
         }
         else if (item is ToolStripButton button)
@@ -337,6 +541,117 @@ public partial class Form1
             {
                 UpdateMenuItemColors(subMenuItem);
             }
+        }
+    }
+
+    private readonly HashSet<ToolStripMenuItem> _dropDownHandlerAttached = new();
+
+    /// <summary>
+    /// Recursively setup dropdown menu theme handlers and reset renderers for classic theme
+    /// </summary>
+    private void ResetDropDownRenderers(ToolStripMenuItem menuItem)
+    {
+        // Attach DropDownOpening event handler (only once per menu item)
+        if (!_dropDownHandlerAttached.Contains(menuItem))
+        {
+            _dropDownHandlerAttached.Add(menuItem);
+            menuItem.DropDownOpening += MenuItem_DropDownOpening;
+        }
+
+        // Reset the dropdown's renderer to system default
+        if (menuItem.HasDropDownItems)
+        {
+            ApplyClassicThemeToDropDown(menuItem.DropDown);
+
+            // Recursively reset sub-menu renderers
+            foreach (ToolStripItem subItem in menuItem.DropDownItems)
+            {
+                if (subItem is ToolStripMenuItem subMenuItem)
+                {
+                    ResetDropDownRenderers(subMenuItem);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Event handler for dropdown opening - enforces theme on each open
+    /// </summary>
+    private void MenuItem_DropDownOpening(object? sender, EventArgs e)
+    {
+        if (sender is ToolStripMenuItem menuItem)
+        {
+            if (_currentTheme == ThemeType.Dark)
+            {
+                ApplyDarkThemeToDropDown(menuItem.DropDown);
+            }
+            else
+            {
+                ApplyClassicThemeToDropDown(menuItem.DropDown);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Apply classic (system) theme to a dropdown menu
+    /// </summary>
+    private void ApplyClassicThemeToDropDown(ToolStripDropDown dropDown)
+    {
+        // Use ToolStripProfessionalRenderer with default colors for proper system look
+        dropDown.Renderer = new ToolStripProfessionalRenderer();
+        dropDown.BackColor = SystemColors.Menu;
+        dropDown.ForeColor = SystemColors.MenuText;
+
+        // Also update all items in the dropdown
+        foreach (ToolStripItem item in dropDown.Items)
+        {
+            item.BackColor = SystemColors.Menu;
+            item.ForeColor = SystemColors.MenuText;
+        }
+    }
+
+    /// <summary>
+    /// Recursively setup dark theme for dropdown menus
+    /// </summary>
+    private void SetupDarkThemeDropDowns(ToolStripMenuItem menuItem)
+    {
+        // Attach DropDownOpening event handler (only once per menu item)
+        if (!_dropDownHandlerAttached.Contains(menuItem))
+        {
+            _dropDownHandlerAttached.Add(menuItem);
+            menuItem.DropDownOpening += MenuItem_DropDownOpening;
+        }
+
+        // Apply dark theme to dropdown if it has items
+        if (menuItem.HasDropDownItems)
+        {
+            ApplyDarkThemeToDropDown(menuItem.DropDown);
+
+            // Recursively setup sub-menu dropdowns
+            foreach (ToolStripItem subItem in menuItem.DropDownItems)
+            {
+                if (subItem is ToolStripMenuItem subMenuItem)
+                {
+                    SetupDarkThemeDropDowns(subMenuItem);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Apply dark theme to a dropdown menu
+    /// </summary>
+    private void ApplyDarkThemeToDropDown(ToolStripDropDown dropDown)
+    {
+        dropDown.Renderer = new DarkMenuRenderer();
+        dropDown.BackColor = Color.FromArgb(40, 40, 48);
+        dropDown.ForeColor = ThemeText;
+
+        // Also update all items in the dropdown
+        foreach (ToolStripItem item in dropDown.Items)
+        {
+            item.BackColor = Color.FromArgb(40, 40, 48);
+            item.ForeColor = ThemeText;
         }
     }
 
@@ -433,12 +748,12 @@ public partial class Form1
             DrawClassicThemeTab(e.Graphics, tabControl, bounds, tab.Text, isSelected);
         }
 
-        // After drawing tab, fill gap to the RIGHT of this tab
+        // After drawing tab, fill gap to the RIGHT of this tab (more aggressively)
         if (e.Index < tabControl.TabCount - 1)
         {
             var nextBounds = tabControl.GetTabRect(e.Index + 1);
-            var gapStart = bounds.Right - 2;
-            var gapWidth = nextBounds.X - bounds.Right + 4;
+            var gapStart = bounds.Right - 5;
+            var gapWidth = nextBounds.X - bounds.Right + 10;
             if (gapWidth > 0)
             {
                 e.Graphics.FillRectangle(stripBgBrush, gapStart, 0, gapWidth, tabControl.ItemSize.Height + 15);
@@ -468,8 +783,8 @@ public partial class Form1
         // Step 1: Fill VERY LARGE extended area with background color (aggressive border removal)
         using var borderBrush = new SolidBrush(ThemeBackground);
 
-        // Cover much larger area to ensure all system borders are hidden
-        var extendedArea = new Rectangle(bounds.X - 5, bounds.Y - 5, bounds.Width + 10, bounds.Height + 12);
+        // Cover much larger area to ensure all system borders are hidden (especially left/right edges)
+        var extendedArea = new Rectangle(bounds.X - 8, bounds.Y - 5, bounds.Width + 16, bounds.Height + 15);
         g.FillRectangle(borderBrush, extendedArea);
 
         // Step 2: Fill the actual tab content area with tab color
@@ -519,20 +834,25 @@ public partial class Form1
         using var coverBrush = new SolidBrush(borderCoverColor);
 
         var tabStripHeight = tabControl.ItemSize.Height;
+        var totalHeight = tabControl.Height;
+        var totalWidth = tabControl.Width;
 
-        // Aggressively cover all edge areas
+        // Cover all edge areas - entire control height for full border removal
 
-        // Left edge (very wide coverage)
-        e.Graphics.FillRectangle(coverBrush, 0, 0, 8, tabStripHeight + 15);
+        // Left edge - full height (covers content area border too)
+        e.Graphics.FillRectangle(coverBrush, 0, 0, 4, totalHeight);
 
-        // Top edge (full width, multiple pixels)
-        e.Graphics.FillRectangle(coverBrush, 0, 0, tabControl.Width, 6);
+        // Top edge (full width)
+        e.Graphics.FillRectangle(coverBrush, 0, 0, totalWidth, 6);
 
-        // Right edge (very wide coverage)
-        e.Graphics.FillRectangle(coverBrush, tabControl.Width - 8, 0, 8, tabStripHeight + 15);
+        // Right edge - full height (covers content area border too)
+        e.Graphics.FillRectangle(coverBrush, totalWidth - 4, 0, 4, totalHeight);
 
-        // Bottom of tab strip (wide coverage for border between tabs and content)
-        e.Graphics.FillRectangle(coverBrush, 0, tabStripHeight - 2, tabControl.Width, 18);
+        // Bottom edge - full width (covers content area border)
+        e.Graphics.FillRectangle(coverBrush, 0, totalHeight - 4, totalWidth, 4);
+
+        // Bottom of tab strip (border between tabs and content)
+        e.Graphics.FillRectangle(coverBrush, 0, tabStripHeight - 2, totalWidth, 18);
 
         // Also fill the area before first tab if there's any gap
         if (tabControl.TabCount > 0)
@@ -700,6 +1020,22 @@ public partial class Form1
         dgv.DefaultCellStyle.Font = new Font("Malgun Gothic", _baseFontSize - 3);
         dgv.DefaultCellStyle.Padding = new Padding(5, 3, 5, 3);
         dgv.RowTemplate.Height = 28;
+
+        // Apply dark scrollbar theme (recursive - includes child controls)
+        ApplyScrollBarTheme(dgv, _currentTheme == ThemeType.Dark);
+
+        // Set up handler for lazily-created scrollbars (only once per DataGridView)
+        if (!_scrollBarHandlerInitialized.Contains(dgv))
+        {
+            _scrollBarHandlerInitialized.Add(dgv);
+            dgv.ControlAdded += (s, e) =>
+            {
+                if (e.Control is HScrollBar || e.Control is VScrollBar)
+                {
+                    ApplyScrollBarTheme(e.Control, _currentTheme == ThemeType.Dark);
+                }
+            };
+        }
     }
 
     private void ApplyTableLayoutPanelStyle(TableLayoutPanel panel)
@@ -727,6 +1063,9 @@ public partial class Form1
             textBox.BorderStyle = BorderStyle.Fixed3D;
         }
         textBox.Font = new Font("Consolas", _baseFontSize - 2);
+
+        // Apply dark scrollbar theme
+        ApplyScrollBarTheme(textBox, _currentTheme == ThemeType.Dark);
     }
 
     private void ApplyStatusLabelStyle(Label label)
@@ -746,4 +1085,76 @@ public partial class Form1
     }
 
     #endregion
+}
+
+/// <summary>
+/// Custom TabControl that hides the 3D border around the content area
+/// and the white separator lines between tabs
+/// </summary>
+public class BorderlessTabControl : TabControl
+{
+    private const int WM_PAINT = 0x000F;
+
+    protected override void OnPaintBackground(PaintEventArgs pevent)
+    {
+        // Paint the entire background with the parent's background color
+        // This helps cover any border artifacts
+        if (Parent != null)
+        {
+            using var brush = new SolidBrush(Parent.BackColor);
+            pevent.Graphics.FillRectangle(brush, ClientRectangle);
+        }
+        else
+        {
+            base.OnPaintBackground(pevent);
+        }
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        base.WndProc(ref m);
+
+        // After default processing, paint over borders AND tab separator lines
+        if (m.Msg == WM_PAINT && Parent != null)
+        {
+            using var g = CreateGraphics();
+            using var brush = new SolidBrush(Parent.BackColor);
+
+            // Cover left border of content area
+            g.FillRectangle(brush, 0, ItemSize.Height, 4, Height - ItemSize.Height);
+            // Cover right border of content area
+            g.FillRectangle(brush, Width - 4, ItemSize.Height, 4, Height - ItemSize.Height);
+            // Cover bottom border of content area
+            g.FillRectangle(brush, 0, Height - 4, Width, 4);
+
+            // === IMPORTANT: Cover tab separator lines in the tab strip area ===
+            // Cover the left edge before first tab
+            g.FillRectangle(brush, 0, 0, 5, ItemSize.Height + 5);
+
+            // Cover gaps BETWEEN each tab (the native Windows separator lines)
+            for (int i = 0; i < TabCount; i++)
+            {
+                var tabRect = GetTabRect(i);
+
+                // Cover area to the LEFT of this tab (catches separator line)
+                g.FillRectangle(brush, tabRect.X - 3, 0, 6, ItemSize.Height + 5);
+
+                // Cover area to the RIGHT of this tab (catches separator line)
+                g.FillRectangle(brush, tabRect.Right - 3, 0, 6, ItemSize.Height + 5);
+            }
+
+            // Cover the right edge after last tab
+            if (TabCount > 0)
+            {
+                var lastTabRect = GetTabRect(TabCount - 1);
+                g.FillRectangle(brush, lastTabRect.Right - 2, 0, Width - lastTabRect.Right + 5, ItemSize.Height + 5);
+            }
+
+            // Cover the top edge
+            g.FillRectangle(brush, 0, 0, Width, 3);
+
+            // Cover the bottom of the tab strip (border between tabs and content)
+            g.FillRectangle(brush, 0, ItemSize.Height - 2, Width, 10);
+        }
+    }
 }

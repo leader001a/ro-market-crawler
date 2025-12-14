@@ -25,14 +25,16 @@ public partial class Form1
         {
             await _monitoringService.LoadConfigAsync();
             UpdateMonitorItemList();
-            UpdateMonitorRefreshLabel();
 
-            // Start auto-refresh timer if configured
+            // Load saved interval value to NumericUpDown, but don't start auto-refresh
+            // Auto-refresh should always start in stopped state
             if (_monitoringService.Config.RefreshIntervalSeconds > 0)
             {
                 _nudRefreshInterval.Value = _monitoringService.Config.RefreshIntervalSeconds;
-                StartMonitorTimer(_monitoringService.Config.RefreshIntervalSeconds);
             }
+            // Reset RefreshIntervalSeconds to 0 so auto-refresh is stopped
+            _monitoringService.Config.RefreshIntervalSeconds = 0;
+            UpdateMonitorRefreshLabel();
 
             // Start alarm timer automatically (always running, controlled by mute button)
             _alarmTimer.Interval = _alarmIntervalSeconds * 1000;

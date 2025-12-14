@@ -127,13 +127,25 @@ public partial class Form1
         contentPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35)); // Right: Detail
         ApplyTableLayoutPanelStyle(contentPanel);
 
+        // Left wrapper: Grid + Pagination (vertical layout)
+        var leftWrapper = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2,
+            Margin = new Padding(0, 0, 5, 0)
+        };
+        leftWrapper.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); // Grid
+        leftWrapper.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));  // Pagination
+        ApplyTableLayoutPanelStyle(leftWrapper);
+
         // Left panel: Item list
         var leftPanel = new Panel
         {
             Dock = DockStyle.Fill,
             BackColor = ThemePanel,
             Padding = new Padding(3),
-            Margin = new Padding(0, 0, 5, 0)
+            Margin = new Padding(0)
         };
 
         _dgvItems = new DataGridView
@@ -261,26 +273,24 @@ public partial class Form1
         rightPanel.Controls.Add(imageContainer, 0, 1);
         rightPanel.Controls.Add(detailContainer, 0, 2);
 
-        contentPanel.Controls.Add(leftPanel, 0, 0);
-        contentPanel.Controls.Add(rightPanel, 1, 0);
-
-        // Status bar with pagination
-        var statusPanel = new FlowLayoutPanel
+        // Pagination panel (centered below left grid)
+        var paginationPanel = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill,
             FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false
+            WrapContents = false,
+            Anchor = AnchorStyles.None
         };
-        ApplyFlowLayoutPanelStyle(statusPanel);
+        ApplyFlowLayoutPanelStyle(paginationPanel);
 
-        _lblItemStatus = new Label
+        // Use a wrapper TableLayoutPanel for center alignment
+        var paginationWrapper = new TableLayoutPanel
         {
-            AutoSize = true,
-            TextAlign = ContentAlignment.MiddleLeft,
-            Text = "kafra.kr 아이템 데이터베이스에서 검색합니다.",
-            Margin = new Padding(0, 5, 20, 0)
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 1
         };
-        ApplyStatusLabelStyle(_lblItemStatus);
+        ApplyTableLayoutPanelStyle(paginationWrapper);
 
         _btnItemPrev = new Button
         {
@@ -297,9 +307,10 @@ public partial class Form1
             AutoSize = true,
             TextAlign = ContentAlignment.MiddleCenter,
             Text = "",
-            Margin = new Padding(5, 5, 5, 0)
+            Margin = new Padding(10, 5, 10, 0),
+            ForeColor = ThemeText,
+            Font = new Font("Malgun Gothic", _baseFontSize - 3, FontStyle.Regular)
         };
-        ApplyLabelStyle(_lblItemPage);
 
         _btnItemNext = new Button
         {
@@ -311,7 +322,37 @@ public partial class Form1
         _btnItemNext.Click += BtnItemNext_Click;
         ApplyButtonStyle(_btnItemNext, false);
 
-        statusPanel.Controls.AddRange(new Control[] { _lblItemStatus, _btnItemPrev, _lblItemPage, _btnItemNext });
+        paginationPanel.Controls.AddRange(new Control[] { _btnItemPrev, _lblItemPage, _btnItemNext });
+        paginationPanel.AutoSize = true;
+        paginationWrapper.Controls.Add(paginationPanel, 0, 0);
+        paginationPanel.Anchor = AnchorStyles.None; // Center in cell
+
+        // Add grid and pagination to left wrapper
+        leftWrapper.Controls.Add(leftPanel, 0, 0);
+        leftWrapper.Controls.Add(paginationWrapper, 0, 1);
+
+        contentPanel.Controls.Add(leftWrapper, 0, 0);
+        contentPanel.Controls.Add(rightPanel, 1, 0);
+
+        // Status bar (just status label)
+        var statusPanel = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false
+        };
+        ApplyFlowLayoutPanelStyle(statusPanel);
+
+        _lblItemStatus = new Label
+        {
+            AutoSize = true,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Text = "kafra.kr 아이템 데이터베이스에서 검색합니다.",
+            Margin = new Padding(0, 5, 0, 0)
+        };
+        ApplyStatusLabelStyle(_lblItemStatus);
+
+        statusPanel.Controls.Add(_lblItemStatus);
 
         mainPanel.Controls.Add(toolStrip, 0, 0);
         mainPanel.Controls.Add(contentPanel, 0, 1);
