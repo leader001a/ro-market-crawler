@@ -624,11 +624,11 @@ public partial class Form1
                 ForeColor = ThemeAccent,
                 Cursor = Cursors.Hand,
                 Margin = new Padding(0, 3, 10, 0),
-                Tag = term
+                Tag = ("SearchHistoryLink", term)  // Tuple tag to identify as search history link
             };
             btn.Click += (s, e) =>
             {
-                if (s is Label lbl && lbl.Tag is string searchTerm)
+                if (s is Label lbl && lbl.Tag is (string _, string searchTerm))
                 {
                     _txtDealSearch.Text = searchTerm;
                     BtnDealSearch_Click(s, e);

@@ -195,7 +195,7 @@ public partial class Form1 : Form
 
     private void InitializeCustomComponents()
     {
-        Text = "RO Market Crawler - kafra.kr Edition";
+        Text = "RO Market Crawler";
         Size = new Size(1400, 800);
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = ThemeBackground;

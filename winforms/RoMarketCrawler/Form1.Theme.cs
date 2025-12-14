@@ -311,8 +311,12 @@ public partial class Form1
             }
             else if (control is Label lbl)
             {
-                lbl.ForeColor = ThemeText;
-                if (control == _lblItemName)
+                // Check if this is a search history link (marked with tuple tag)
+                if (lbl.Tag is (string tagType, string _) && tagType == "SearchHistoryLink")
+                {
+                    lbl.ForeColor = ThemeAccent;  // Keep accent color for clickable links
+                }
+                else if (control == _lblItemName)
                 {
                     lbl.ForeColor = ThemeLinkColor;
                     lbl.BackColor = ThemeGrid;
@@ -320,7 +324,12 @@ public partial class Form1
                 // Update status labels (those with non-transparent background)
                 else if (lbl.BackColor != Color.Transparent && lbl.BackColor != lbl.Parent?.BackColor)
                 {
+                    lbl.ForeColor = ThemeText;
                     lbl.BackColor = ThemePanel;
+                }
+                else
+                {
+                    lbl.ForeColor = ThemeText;
                 }
             }
             else if (control is Panel panel)
