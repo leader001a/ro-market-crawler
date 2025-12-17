@@ -262,6 +262,19 @@ public class ItemIndexService : IDisposable
     }
 
     /// <summary>
+    /// Get all screen names for autocomplete
+    /// </summary>
+    public IReadOnlyList<string> GetAllScreenNames()
+    {
+        if (!_isLoaded) return Array.Empty<string>();
+
+        lock (_indexLock)
+        {
+            return _idByScreenName.Keys.ToList();
+        }
+    }
+
+    /// <summary>
     /// Search items by partial name match
     /// </summary>
     public List<KafraItemDto> SearchByName(string searchTerm, int maxResults = 50)

@@ -115,14 +115,6 @@ public partial class Form1
         _btnItemSearch = new Button(); // Dummy
         _btnItemSearchToolStrip = btnSearch;
 
-        // Close all popups button
-        var btnClosePopups = new ToolStripButton
-        {
-            Text = "팝업 닫기",
-            ToolTipText = "열린 아이템 정보 팝업 모두 닫기"
-        };
-        btnClosePopups.Click += BtnClosePopups_Click;
-
         // Index rebuild button (right-aligned)
         var btnIndexRebuild = new ToolStripButton
         {
@@ -156,8 +148,6 @@ public partial class Form1
         toolStrip.Items.Add(txtSearch);
         toolStrip.Items.Add(new ToolStripSeparator());
         toolStrip.Items.Add(btnSearch);
-        toolStrip.Items.Add(new ToolStripSeparator());
-        toolStrip.Items.Add(btnClosePopups);
         toolStrip.Items.Add(progressHost);
         toolStrip.Items.Add(btnIndexRebuild);
 
@@ -666,11 +656,6 @@ public partial class Form1
         infoForm.Show();
     }
 
-    private void BtnClosePopups_Click(object? sender, EventArgs e)
-    {
-        CloseAllItemInfoForms();
-    }
-
     private void CloseAllItemInfoForms()
     {
         // Close all open ItemInfoForm popups
@@ -812,6 +797,7 @@ public partial class Form1
             if (success)
             {
                 UpdateIndexStatus();
+                RefreshAutoCompleteSource(); // Update autocomplete with new item names
                 MessageBox.Show(
                     $"인덱스 생성 완료!\n\n총 {_itemIndexService.TotalCount:N0}개 아이템이 저장되었습니다.",
                     "완료",

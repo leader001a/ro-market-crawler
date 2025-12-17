@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net.Http;
+using RoMarketCrawler.Controls;
 using RoMarketCrawler.Models;
 using RoMarketCrawler.Services;
 
@@ -130,6 +131,10 @@ public partial class Form1 : Form
     private StatusStrip _statusStrip = null!;
     private ToolStripStatusLabel _lblCreator = null!;
 
+    // Custom AutoComplete dropdown for search textboxes (handles Korean IME correctly)
+    private AutoCompleteDropdown _autoCompleteDropdown = null!;
+    private List<string> _autoCompleteItems = new();
+
     public Form1()
     {
         // Initialize dark mode support before creating any controls
@@ -171,11 +176,69 @@ public partial class Form1 : Form
             if (loaded)
             {
                 UpdateIndexStatus();
+                RefreshAutoCompleteSource();
             }
         }
         catch (Exception ex)
         {
             Debug.WriteLine($"[Form1] Index load error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Initialize custom autocomplete dropdown
+    /// </summary>
+    private void InitializeAutoComplete()
+    {
+        _autoCompleteDropdown = new AutoCompleteDropdown();
+        _autoCompleteDropdown.UpdateTheme(ThemeGrid, ThemeText, ThemeAccent, ThemeBorder);
+
+        // Attach to all search textboxes
+        _autoCompleteDropdown.AttachTo(_txtDealSearch);
+        _autoCompleteDropdown.AttachTo(_txtItemSearch);
+        _autoCompleteDropdown.AttachTo(_txtMonitorItemName);
+
+        Debug.WriteLine("[Form1] AutoComplete dropdown initialized");
+    }
+
+    /// <summary>
+    /// Refresh autocomplete source with item names from index and search history
+    /// </summary>
+    private void RefreshAutoCompleteSource()
+    {
+        if (InvokeRequired)
+        {
+            Invoke(new Action(RefreshAutoCompleteSource));
+            return;
+        }
+
+        try
+        {
+            _autoCompleteItems.Clear();
+
+            // Add search history first (higher priority)
+            if (_dealSearchHistory?.Count > 0)
+            {
+                _autoCompleteItems.AddRange(_dealSearchHistory);
+            }
+
+            // Add item names from index
+            if (_itemIndexService.IsLoaded)
+            {
+                var itemNames = _itemIndexService.GetAllScreenNames();
+                if (itemNames.Count > 0)
+                {
+                    _autoCompleteItems.AddRange(itemNames);
+                    Debug.WriteLine($"[Form1] AutoComplete source refreshed: {itemNames.Count} items + {_dealSearchHistory?.Count ?? 0} history");
+                }
+            }
+
+            // Update dropdown data source
+            _autoCompleteDropdown?.SetDataSource(_autoCompleteItems);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Form1] AutoComplete refresh error: {ex.Message}");
         }
     }
 
@@ -259,9 +322,6 @@ public partial class Form1 : Form
         _statusStrip.Items.Add(_lblCreator);
 
         // Add controls in reverse dock order (last added = first docked)
-        // 1. TabControl (Fill) - added first, docked last - fills remaining space
-        // 2. StatusStrip (Bottom) - added second, docked second - takes bottom
-        // 3. MenuStrip (Top) - added third, docked first - takes top
         Controls.Add(_tabControl);
         Controls.Add(_statusStrip);
         Controls.Add(_menuStrip);
@@ -275,6 +335,9 @@ public partial class Form1 : Form
 
         // Refresh search history panel after layout is complete
         UpdateSearchHistoryPanel();
+
+        // Initialize custom autocomplete dropdown for Korean IME support
+        InitializeAutoComplete();
     }
 
     private void SetupMenuStrip()
@@ -351,6 +414,15 @@ public partial class Form1 : Form
         viewMenu.DropDownItems.Add(themeMenu);
 
         _menuStrip.Items.Add(viewMenu);
+
+        // Close all popups - direct menu item (not dropdown)
+        var closeAllPopups = new ToolStripMenuItem("전체 팝업 닫기")
+        {
+            ForeColor = ThemeText,
+            ShortcutKeys = Keys.Control | Keys.Shift | Keys.W
+        };
+        closeAllPopups.Click += (s, e) => CloseAllItemInfoForms();
+        _menuStrip.Items.Add(closeAllPopups);
     }
 
     private void ThemeMenuItem_Click(object? sender, EventArgs e)
@@ -712,6 +784,7 @@ public partial class Form1 : Form
         _monitoringService.Dispose();
         _imageHttpClient.Dispose();
         _picItemImage?.Image?.Dispose();
+        _autoCompleteDropdown?.Dispose();
         base.OnFormClosed(e);
     }
 }

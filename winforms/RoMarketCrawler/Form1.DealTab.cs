@@ -670,6 +670,13 @@ public partial class Form1
         // Update UI and save
         UpdateSearchHistoryPanel();
         SaveSettings();
+
+        // Add to autocomplete source if not already present
+        if (!_autoCompleteItems.Contains(searchTerm))
+        {
+            _autoCompleteItems.Insert(0, searchTerm);
+            _autoCompleteDropdown?.SetDataSource(_autoCompleteItems);
+        }
     }
 
     #endregion

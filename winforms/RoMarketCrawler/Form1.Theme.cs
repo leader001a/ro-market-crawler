@@ -165,6 +165,7 @@ public partial class Form1
         ApplyDarkModeToTitleBar(_currentTheme == ThemeType.Dark);
         ApplyThemeToAllControls(this);
         UpdateThemeMenuChecks();
+        _autoCompleteDropdown?.UpdateTheme(ThemeGrid, ThemeText, ThemeAccent, ThemeBorder);
         SaveSettings();
     }
 
