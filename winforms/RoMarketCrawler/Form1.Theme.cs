@@ -353,6 +353,10 @@ public partial class Form1
             {
                 flp.BackColor = ThemePanel;
             }
+            else if (control is CheckBox checkBox)
+            {
+                checkBox.ForeColor = _currentTheme == ThemeType.Dark ? ThemeText : SystemColors.ControlText;
+            }
             else if (control is PictureBox pic)
             {
                 pic.BackColor = ThemeGrid;

@@ -65,7 +65,16 @@ public partial class Form1
             ForeColor = ThemeText,
             ToolTipText = "검색할 아이템명 입력"
         };
-        txtSearch.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; BtnDealSearch_Click(s, e); } };
+        txtSearch.KeyDown += (s, e) =>
+        {
+            if (e.KeyCode == Keys.Enter && !_autoCompleteDropdown.HasSelection)
+            {
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                _autoCompleteDropdown.Hide();
+                BtnDealSearch_Click(s, e);
+            }
+        };
         _txtDealSearch = txtSearch.TextBox;
 
         // Search button
@@ -630,7 +639,9 @@ public partial class Form1
             {
                 if (s is Label lbl && lbl.Tag is (string _, string searchTerm))
                 {
+                    _autoCompleteDropdown?.Hide();  // Hide dropdown BEFORE setting text
                     _txtDealSearch.Text = searchTerm;
+                    _autoCompleteDropdown?.Hide();  // Hide again AFTER to stop any triggered timer
                     BtnDealSearch_Click(s, e);
                 }
             };

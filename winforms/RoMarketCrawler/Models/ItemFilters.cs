@@ -6,74 +6,77 @@ namespace RoMarketCrawler.Models;
 public static class ItemFilters
 {
     /// <summary>
-    /// Weapon types (무기 종류)
+    /// Weapon types (무기 종류) - matches "계열 : [type]" format in item_text
+    /// Note: One-handed swords may appear as "계열 : 검" or "계열 : 한손검"
     /// </summary>
     public static readonly FilterOption[] WeaponTypes = new[]
     {
         new FilterOption("전체", ""),
-        new FilterOption("한손검", "한손검"),
-        new FilterOption("양손검", "양손검"),
-        new FilterOption("단검", "단검"),
-        new FilterOption("한손도끼", "한손도끼"),
-        new FilterOption("양손도끼", "양손도끼"),
-        new FilterOption("카타르", "카타르"),
-        new FilterOption("한손지팡이", "한손지팡이|로드|완드"),
-        new FilterOption("양손지팡이", "양손지팡이|스태프"),
-        new FilterOption("둔기", "둔기|메이스"),
-        new FilterOption("활", "활|보우"),
-        new FilterOption("한손창", "한손창|스피어"),
-        new FilterOption("양손창", "양손창|랜스"),
-        new FilterOption("손톱", "손톱|클로우|너클"),
-        new FilterOption("책", "책|북"),
-        new FilterOption("채찍", "채찍|휩"),
-        new FilterOption("악기", "악기|기타|바이올린"),
-        new FilterOption("수리검", "수리검|표창"),
-        new FilterOption("그레네이드런처", "그레네이드|런처"),
-        new FilterOption("샷건", "샷건"),
-        new FilterOption("리볼버", "리볼버|권총"),
-        new FilterOption("게틀링건", "게틀링|기관총"),
-        new FilterOption("라이플", "라이플|소총")
+        new FilterOption("한손검", "계열 : 검(?!사)|계열 : 한손검"),
+        new FilterOption("양손검", "계열 : 양손검"),
+        new FilterOption("단검", "계열 : 단검"),
+        new FilterOption("한손도끼", "계열 : 한손도끼|계열 : 도끼(?!\\s*공)"),
+        new FilterOption("양손도끼", "계열 : 양손도끼"),
+        new FilterOption("카타르", "계열 : 카타르"),
+        new FilterOption("한손지팡이", "계열 : 한손지팡이|계열 : 로드|계열 : 완드"),
+        new FilterOption("양손지팡이", "계열 : 양손지팡이|계열 : 스태프"),
+        new FilterOption("둔기", "계열 : 둔기|계열 : 메이스"),
+        new FilterOption("활", "계열 : 활|계열 : 보우"),
+        new FilterOption("한손창", "계열 : 한손창|계열 : 스피어"),
+        new FilterOption("양손창", "계열 : 양손창|계열 : 창(?!\\s*공)|계열 : 랜스"),
+        new FilterOption("손톱", "계열 : 손톱|계열 : 클로우|계열 : 너클"),
+        new FilterOption("책", "계열 : 책|계열 : 북"),
+        new FilterOption("채찍", "계열 : 채찍|계열 : 휩"),
+        new FilterOption("악기", "계열 : 악기|계열 : 기타(?!\\s)|계열 : 바이올린"),
+        new FilterOption("수리검", "계열 : 수리검|계열 : 표창"),
+        new FilterOption("그레네이드런처", "계열 : 그레네이드|계열 : 런처"),
+        new FilterOption("샷건", "계열 : 샷건"),
+        new FilterOption("리볼버", "계열 : 리볼버|계열 : 권총"),
+        new FilterOption("게틀링건", "계열 : 게틀링|계열 : 기관총"),
+        new FilterOption("라이플", "계열 : 라이플|계열 : 소총")
     };
 
     /// <summary>
-    /// Armor positions (방어구 위치)
+    /// Armor positions (방어구 위치) - matches "계열 : [type]" and "위치 : [position]" format in item_text
+    /// Headgear uses both 계열 : 투구 and 위치 : 상단/중단/하단
     /// </summary>
     public static readonly FilterOption[] ArmorPositions = new[]
     {
         new FilterOption("전체", ""),
-        new FilterOption("투구상단", "투구\\[상단"),
-        new FilterOption("투구중단", "투구\\[중단"),
-        new FilterOption("투구하단", "투구\\[하단"),
-        new FilterOption("투구상중단", "투구\\[상단,중단"),
-        new FilterOption("투구상하단", "투구\\[상단,하단"),
-        new FilterOption("투구중하단", "투구\\[중단,하단"),
-        new FilterOption("투구상중하단", "투구\\[상단,중단,하단"),
-        new FilterOption("갑옷", "갑옷|아머"),
-        new FilterOption("방패", "방패|쉴드"),
-        new FilterOption("겉칠것", "겉칠것|가먼트|망토"),
-        new FilterOption("신발", "신발|슈즈|부츠"),
-        new FilterOption("악세사리", "악세사리(?!\\[)"),
-        new FilterOption("악세사리(L)", "악세사리\\[왼쪽"),
-        new FilterOption("악세사리(R)", "악세사리\\[오른쪽")
+        new FilterOption("투구상단", "계열 : 투구.*위치 : 상단(?![.,])"),
+        new FilterOption("투구중단", "계열 : 투구.*위치 : 중단(?![.,])"),
+        new FilterOption("투구하단", "계열 : 투구.*위치 : 하단(?![.,])"),
+        new FilterOption("투구상중단", "계열 : 투구.*위치 : 상[.,]중단"),
+        new FilterOption("투구상하단", "계열 : 투구.*위치 : 상[.,]하단"),
+        new FilterOption("투구중하단", "계열 : 투구.*위치 : 중[.,]하단"),
+        new FilterOption("투구상중하단", "계열 : 투구.*위치 : 상[.,]중[.,]하단"),
+        new FilterOption("갑옷", "계열 : 갑옷"),
+        new FilterOption("방패", "계열 : 방패"),
+        new FilterOption("겉칠것", "계열 : 겉칠것|계열 : 가먼트|계열 : 망토"),
+        new FilterOption("신발", "계열 : 신발"),
+        new FilterOption("악세사리", "계열 : 악세사리(?!\\[)"),
+        new FilterOption("악세사리(L)", "계열 : 악세사리\\[왼쪽"),
+        new FilterOption("악세사리(R)", "계열 : 악세사리\\[오른쪽")
     };
 
     /// <summary>
-    /// Card positions (카드 위치)
+    /// Card positions (카드 위치) - matches "장착 : [position]" format in item_text
     /// </summary>
     public static readonly FilterOption[] CardPositions = new[]
     {
         new FilterOption("전체", ""),
-        new FilterOption("무기", "무기에 장착"),
-        new FilterOption("투구", "투구에 장착"),
-        new FilterOption("겉칠것", "겉칠것에 장착|망토에 장착"),
-        new FilterOption("갑옷", "갑옷에 장착"),
-        new FilterOption("방패", "방패에 장착"),
-        new FilterOption("신발", "신발에 장착"),
-        new FilterOption("악세사리", "악세사리에 장착")
+        new FilterOption("무기", "장착 : 무기"),
+        new FilterOption("투구", "장착 : 투구"),
+        new FilterOption("겉칠것", "장착 : 걸칠것"),
+        new FilterOption("갑옷", "장착 : 갑옷"),
+        new FilterOption("방패", "장착 : 방패"),
+        new FilterOption("신발", "장착 : 신발"),
+        new FilterOption("악세사리", "장착 : 액세서리")
     };
 
     /// <summary>
-    /// Shadow positions (쉐도우 위치)
+    /// Shadow positions (쉐도우 위치) - matches against screen_name
+    /// Some items use "악세R/L 쉐도우" instead of "이어링/펜던트 쉐도우"
     /// </summary>
     public static readonly FilterOption[] ShadowPositions = new[]
     {
@@ -82,24 +85,25 @@ public static class ItemFilters
         new FilterOption("웨폰", "웨폰 쉐도우|웨폰쉐도우"),
         new FilterOption("쉴드", "쉴드 쉐도우|쉴드쉐도우"),
         new FilterOption("슈즈", "슈즈 쉐도우|슈즈쉐도우"),
-        new FilterOption("펜던트", "펜던트 쉐도우|펜던트쉐도우"),
-        new FilterOption("이어링", "이어링 쉐도우|이어링쉐도우")
+        new FilterOption("펜던트", "펜던트 쉐도우|펜던트쉐도우|악세L 쉐도우"),
+        new FilterOption("이어링", "이어링 쉐도우|이어링쉐도우|악세R 쉐도우")
     };
 
     /// <summary>
-    /// Costume positions (의상 위치)
+    /// Costume positions (의상 위치) - matches "위치 : [position]" format in item_text
+    /// Combined positions use period or comma: "위치 : 상.중단" or "위치 : 상단,중단"
     /// </summary>
     public static readonly FilterOption[] CostumePositions = new[]
     {
         new FilterOption("전체", ""),
-        new FilterOption("상단", "\\[상단\\]"),
-        new FilterOption("중단", "\\[중단\\]"),
-        new FilterOption("하단", "\\[하단\\]"),
-        new FilterOption("상중단", "\\[상단,중단\\]|\\[상중단\\]"),
-        new FilterOption("상하단", "\\[상단,하단\\]|\\[상하단\\]"),
-        new FilterOption("중하단", "\\[중단,하단\\]|\\[중하단\\]"),
-        new FilterOption("상중하단", "\\[상단,중단,하단\\]|\\[상중하단\\]"),
-        new FilterOption("겉칠것", "겉칠것|가먼트")
+        new FilterOption("상단", "위치 : 상단(?![.,])|위치 : 상단\\s"),
+        new FilterOption("중단", "위치 : 중단(?![.,])|위치 : 중단\\s"),
+        new FilterOption("하단", "위치 : 하단(?![.,])|위치 : 하단\\s"),
+        new FilterOption("상중단", "위치 : 상[.,]중단|위치 : 상단[.,]중단"),
+        new FilterOption("상하단", "위치 : 상[.,]하단|위치 : 상단[.,]하단"),
+        new FilterOption("중하단", "위치 : 중[.,]하단|위치 : 중단[.,]하단"),
+        new FilterOption("상중하단", "위치 : 상[.,]중[.,]하단|위치 : 상단[.,]중단[.,]하단"),
+        new FilterOption("겉칠것", "계열 : 겉칠것|계열 : 가먼트")
     };
 
     /// <summary>

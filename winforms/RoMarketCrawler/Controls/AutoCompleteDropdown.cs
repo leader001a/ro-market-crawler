@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 
 namespace RoMarketCrawler.Controls;
 
@@ -21,9 +22,16 @@ public class AutoCompleteDropdown : IDisposable
     private bool _isShowing;
     private bool _isSelectingItem;
     private string _lastSearchQuery = string.Empty;
+    private string _currentPrefix = string.Empty;
+
+    // Prefix pattern: optional refine level (+1~+20 or 1~20), optional card option (%UNIQUE%, %RARE%, etc.)
+    // Examples: "11", "+11", "%UNIQUE%", "11%UNIQUE%", "+20 "
+    private static readonly Regex PrefixPattern = new(
+        @"^((?:\+?\d{1,2})?(?:%[A-Z]+%)?)\s*",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     // Settings
-    private const int DebounceDelayMs = 250; // Wait for Korean IME composition
+    private const int DebounceDelayMs = 600; // Wait for Korean IME composition
     private const int MaxVisibleItems = 8;
     private const int MinQueryLength = 1;
 
@@ -69,6 +77,21 @@ public class AutoCompleteDropdown : IDisposable
         };
         _debounceTimer.Tick += DebounceTimer_Tick;
     }
+
+    /// <summary>
+    /// Whether the dropdown is currently visible
+    /// </summary>
+    public bool IsShowing => _isShowing;
+
+    /// <summary>
+    /// Whether an item is currently selected in the dropdown
+    /// </summary>
+    public bool HasSelection => _isShowing && _listBox.SelectedIndex >= 0;
+
+    /// <summary>
+    /// Hide the dropdown if showing
+    /// </summary>
+    public void Hide() => HideDropdown();
 
     /// <summary>
     /// Set the data source for autocomplete suggestions
@@ -165,6 +188,8 @@ public class AutoCompleteDropdown : IDisposable
 
     private void TextBox_KeyDown(object? sender, KeyEventArgs e)
     {
+        // Skip if already handled by another handler (e.g., Form's Enter key search)
+        if (e.Handled) return;
         if (!_isShowing) return;
 
         switch (e.KeyCode)
@@ -182,12 +207,14 @@ public class AutoCompleteDropdown : IDisposable
                 break;
 
             case Keys.Enter:
+                // Only handle if item is selected - otherwise let it pass through for search
                 if (_listBox.SelectedIndex >= 0)
                 {
                     e.Handled = true;
                     e.SuppressKeyPress = true;
                     SelectItem();
                 }
+                // If no selection, don't handle - let Form's KeyDown trigger search
                 break;
 
             case Keys.Escape:
@@ -292,14 +319,24 @@ public class AutoCompleteDropdown : IDisposable
     {
         if (_dataSource.Count == 0) return;
 
-        var queryLower = query.ToLowerInvariant();
+        // Extract prefix (refine level, card options) from query
+        // e.g., "11딤 글레이시아" -> prefix="11", searchTerm="딤 글레이시아"
+        var (prefix, searchTerm) = ExtractSearchParts(query);
+        _currentPrefix = prefix;
+
+        // If no search term after prefix extraction, hide dropdown
+        if (string.IsNullOrWhiteSpace(searchTerm))
+        {
+            HideDropdown();
+            return;
+        }
 
         // Filter items (case-insensitive, prefix match first, then contains)
         _filteredItems.Clear();
 
-        // First add prefix matches
+        // First add prefix matches (items starting with searchTerm)
         var prefixMatches = _dataSource
-            .Where(s => s.StartsWith(query, StringComparison.OrdinalIgnoreCase))
+            .Where(s => s.StartsWith(searchTerm, StringComparison.OrdinalIgnoreCase))
             .Take(MaxVisibleItems)
             .ToList();
         _filteredItems.AddRange(prefixMatches);
@@ -308,8 +345,8 @@ public class AutoCompleteDropdown : IDisposable
         if (_filteredItems.Count < MaxVisibleItems)
         {
             var containsMatches = _dataSource
-                .Where(s => s.Contains(query, StringComparison.OrdinalIgnoreCase)
-                           && !s.StartsWith(query, StringComparison.OrdinalIgnoreCase))
+                .Where(s => s.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)
+                           && !s.StartsWith(searchTerm, StringComparison.OrdinalIgnoreCase))
                 .Take(MaxVisibleItems - _filteredItems.Count);
             _filteredItems.AddRange(containsMatches);
         }
@@ -325,6 +362,30 @@ public class AutoCompleteDropdown : IDisposable
         }
     }
 
+    /// <summary>
+    /// Extract prefix (refine level, card options) from query string.
+    /// Examples: "11딤" -> ("11", "딤"), "%UNIQUE%딤" -> ("%UNIQUE%", "딤")
+    /// </summary>
+    private static (string prefix, string searchTerm) ExtractSearchParts(string query)
+    {
+        var match = PrefixPattern.Match(query);
+        if (match.Success && match.Groups[1].Length > 0)
+        {
+            // Include any trailing whitespace in the prefix
+            var prefixEnd = match.Length;
+            var prefix = query.Substring(0, prefixEnd);
+            var searchTerm = query.Substring(prefixEnd);
+
+            // Only use prefix if there's a search term remaining
+            if (!string.IsNullOrWhiteSpace(searchTerm))
+            {
+                return (prefix, searchTerm);
+            }
+        }
+
+        return (string.Empty, query);
+    }
+
     private void UpdateListBox()
     {
         _listBox.BeginUpdate();
@@ -335,11 +396,8 @@ public class AutoCompleteDropdown : IDisposable
         }
         _listBox.EndUpdate();
 
-        // Auto-select first item
-        if (_listBox.Items.Count > 0)
-        {
-            _listBox.SelectedIndex = 0;
-        }
+        // Do NOT auto-select first item - wait for user to select via arrow keys or click
+        _listBox.SelectedIndex = -1;
 
         // Calculate height based on items
         var itemHeight = _listBox.ItemHeight;
@@ -365,11 +423,15 @@ public class AutoCompleteDropdown : IDisposable
 
     private void HideDropdown()
     {
+        // Always stop debounce timer to prevent dropdown from appearing after Enter key
+        _debounceTimer.Stop();
+
         if (_isShowing)
         {
             _dropdownForm.Hide();
             _isShowing = false;
             _lastSearchQuery = string.Empty;
+            _currentPrefix = string.Empty;
         }
     }
 
@@ -413,15 +475,20 @@ public class AutoCompleteDropdown : IDisposable
 
         var selectedText = _filteredItems[_listBox.SelectedIndex];
 
+        // Combine prefix with selected item
+        // e.g., prefix="11" + selectedText="딤 글레이시아 [1]" -> "11딤 글레이시아 [1]"
+        var finalText = _currentPrefix + selectedText;
+
         _isSelectingItem = true;
         try
         {
-            _currentTextBox.Text = selectedText;
-            _currentTextBox.SelectionStart = selectedText.Length;
+            _currentTextBox.Text = finalText;
+            _currentTextBox.SelectionStart = finalText.Length;
         }
         finally
         {
             _isSelectingItem = false;
+            _currentPrefix = string.Empty; // Reset prefix after selection
         }
 
         HideDropdown();

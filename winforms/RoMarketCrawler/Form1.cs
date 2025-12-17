@@ -60,10 +60,7 @@ public partial class Form1 : Form
 
     // Tab 2: Item Database (Kafra)
     private TextBox _txtItemSearch = null!;
-    private ToolStripDropDownButton _ddItemTypes = null!;
     private readonly HashSet<int> _selectedItemTypes = new() { 999 }; // Default: all
-    private ToolStripComboBox _cboSubFilter1 = null!;
-    private ToolStripComboBox _cboSubFilter2 = null!;
     private Button _btnItemSearch = null!;
     private Button _btnIndexRebuild = null!;
     private ToolStripButton _btnItemSearchToolStrip = null!;
@@ -80,6 +77,15 @@ public partial class Form1 : Form
     private readonly HttpClient _imageHttpClient = new();
     private readonly string _imageCacheDir;
 
+    // Item Tab - Main Category Dropdown (single selection)
+    private ComboBox _cboItemType = null!;
+
+    // Item Tab - Sub-Category Checkboxes (dynamically generated)
+    private FlowLayoutPanel _pnlSubCategories = null!;
+    private FlowLayoutPanel _pnlJobFilters = null!;  // Job class filters (separate row)
+    private readonly Dictionary<string, CheckBox> _subCategoryCheckBoxes = new();
+    private readonly Dictionary<string, CheckBox> _jobFilterCheckBoxes = new();
+
     // Item Tab Pagination
     private Button _btnItemPrev = null!;
     private Button _btnItemNext = null!;
@@ -87,6 +93,9 @@ public partial class Form1 : Form
     private int _itemCurrentPage = 0;
     private int _itemTotalCount = 0;
     private const int ItemPageSize = 100;
+
+    // Item Tab Search Options
+    private CheckBox _chkSearchDescription = null!;  // Search in item description
 
     // Tab 3: Monitoring
     private readonly MonitoringService _monitoringService;
@@ -414,6 +423,20 @@ public partial class Form1 : Form
         viewMenu.DropDownItems.Add(themeMenu);
 
         _menuStrip.Items.Add(viewMenu);
+
+        // Tools menu
+        var toolsMenu = new ToolStripMenuItem("도구(&T)");
+        toolsMenu.ForeColor = ThemeText;
+
+        var indexRebuildItem = new ToolStripMenuItem("아이템정보 수집")
+        {
+            ForeColor = ThemeText,
+            ShortcutKeys = Keys.Control | Keys.R
+        };
+        indexRebuildItem.Click += BtnIndexRebuild_Click;
+        toolsMenu.DropDownItems.Add(indexRebuildItem);
+
+        _menuStrip.Items.Add(toolsMenu);
 
         // Close all popups - direct menu item (not dropdown)
         var closeAllPopups = new ToolStripMenuItem("전체 팝업 닫기")

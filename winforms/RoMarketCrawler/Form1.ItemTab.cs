@@ -17,139 +17,143 @@ public partial class Form1
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 3,
+            RowCount = 5,
             Padding = new Padding(10)
         };
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));  // Toolbar
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); // Content (left-right)
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));  // Status bar
+        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));  // Row 0: Dropdown + Search
+        mainPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));       // Row 1: Sub-filters (auto-wrap)
+        mainPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));       // Row 2: Job filters (auto-wrap)
+        mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));   // Row 3: Content (left-right)
+        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));   // Row 4: Status bar
         ApplyTableLayoutPanelStyle(mainPanel);
 
-        // ToolStrip-based toolbar
-        var toolStrip = new ToolStrip
+        // Row 0: Category dropdown + Search controls + Index button
+        var row0Panel = new FlowLayoutPanel
         {
-            GripStyle = ToolStripGripStyle.Hidden,
-            BackColor = ThemePanel,
-            Renderer = new DarkToolStripRenderer(),
-            TabStop = false,
-            CanOverflow = false
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            Margin = new Padding(0)
         };
+        ApplyFlowLayoutPanelStyle(row0Panel);
 
-        // Item type dropdown with checkboxes
-        _ddItemTypes = new ToolStripDropDownButton
+        // Category dropdown (single selection)
+        _cboItemType = new ComboBox
         {
-            Text = "타입: 전체",
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Width = 120,
             BackColor = ThemeGrid,
             ForeColor = ThemeText,
-            ToolTipText = "아이템 타입 (복수 선택 가능)"
+            Margin = new Padding(0, 2, 10, 0)
         };
 
-        var typeItems = new (int id, string name)[]
+        // Add category items
+        var categoryItems = new (int id, string name)[]
         {
             (999, "전체"),
             (4, "무기"),
             (5, "방어구"),
             (6, "카드"),
             (7, "펫"),
-            (10, "화살/탄약/투사체"),
+            (10, "화살/탄약"),
             (19, "쉐도우"),
             (20, "의상"),
             (998, "기타")
         };
 
-        foreach (var (id, name) in typeItems)
+        foreach (var (id, name) in categoryItems)
         {
-            var menuItem = new ToolStripMenuItem(name)
-            {
-                Tag = id,
-                CheckOnClick = true,
-                Checked = id == 999 // Default: all selected
-            };
-            menuItem.CheckedChanged += ItemTypeMenuItem_CheckedChanged;
-            _ddItemTypes.DropDownItems.Add(menuItem);
+            _cboItemType.Items.Add(new CategoryItem(id, name));
         }
+        _cboItemType.SelectedIndex = 0; // Default: 전체
+        _cboItemType.SelectedIndexChanged += CboItemType_SelectedIndexChanged;
 
-        // Sub-filter combo 1 (weapon type, armor position, card position, shadow position, costume position)
-        _cboSubFilter1 = new ToolStripComboBox
+        // Search textbox
+        _txtItemSearch = new TextBox
         {
-            DropDownStyle = ComboBoxStyle.DropDownList,
-            Width = 110,
+            Width = 200,
             BackColor = ThemeGrid,
             ForeColor = ThemeText,
-            Visible = false,
-            ToolTipText = "세부 필터 1"
+            Margin = new Padding(0, 2, 5, 0)
         };
-
-        // Sub-filter combo 2 (job class - for weapons and armor only)
-        _cboSubFilter2 = new ToolStripComboBox
+        _txtItemSearch.KeyDown += (s, e) =>
         {
-            DropDownStyle = ComboBoxStyle.DropDownList,
-            Width = 120,
-            BackColor = ThemeGrid,
-            ForeColor = ThemeText,
-            Visible = false,
-            ToolTipText = "직업군 필터"
+            // Enter key triggers search if:
+            // 1. Dropdown is not showing, OR
+            // 2. Dropdown is showing but no item is selected
+            if (e.KeyCode == Keys.Enter && !_autoCompleteDropdown.HasSelection)
+            {
+                e.Handled = true; // Prevent other handlers from processing
+                e.SuppressKeyPress = true;
+                _autoCompleteDropdown.Hide(); // Hide dropdown and stop debounce timer
+                BtnItemSearch_Click(s, e);
+            }
         };
-
-        // Search text
-        var txtSearch = new ToolStripTextBox
-        {
-            AutoSize = false,
-            Width = 250,
-            BackColor = ThemeGrid,
-            ForeColor = ThemeText,
-            ToolTipText = "검색할 아이템명 입력"
-        };
-        txtSearch.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; BtnItemSearch_Click(s, e); } };
-        _txtItemSearch = txtSearch.TextBox;
 
         // Search button
-        var btnSearch = new ToolStripButton
+        var btnSearch = new Button
         {
             Text = "검색",
-            BackColor = ThemeAccent,
-            ForeColor = ThemeAccentText,
-            ToolTipText = "검색 실행"
+            AutoSize = true,
+            Margin = new Padding(0, 0, 5, 0)
         };
+        ApplyButtonStyle(btnSearch, true);
         btnSearch.Click += BtnItemSearch_Click;
-        _btnItemSearch = new Button(); // Dummy
-        _btnItemSearchToolStrip = btnSearch;
+        _btnItemSearch = btnSearch;
+        _btnItemSearchToolStrip = new ToolStripButton(); // Dummy for compatibility
 
-        // Index rebuild button (right-aligned)
-        var btnIndexRebuild = new ToolStripButton
+        // Description search checkbox
+        _chkSearchDescription = new CheckBox
         {
-            Text = "아이템정보 수집",
-            Alignment = ToolStripItemAlignment.Right,
-            ToolTipText = "kafra.kr에서 아이템 정보 수집"
+            Text = "설명 포함 검색",
+            AutoSize = true,
+            ForeColor = ThemeText,
+            Margin = new Padding(5, 4, 15, 0)
         };
-        btnIndexRebuild.Click += BtnIndexRebuild_Click;
-        _btnIndexRebuild = new Button(); // Dummy
-        _btnIndexRebuildToolStrip = btnIndexRebuild;
 
-        // Progress bar (right-aligned)
+        // Progress bar (hidden by default, shown during index rebuild)
         _progressIndex = new ProgressBar
         {
-            Width = 150,
+            Width = 120,
+            Height = 20,
             Visible = false,
-            Style = ProgressBarStyle.Continuous
+            Style = ProgressBarStyle.Continuous,
+            Margin = new Padding(10, 3, 0, 0)
         };
-        var progressHost = new ToolStripControlHost(_progressIndex)
-        {
-            Alignment = ToolStripItemAlignment.Right,
-            Visible = false
-        };
-        _progressIndexHost = progressHost;
 
-        // Add items to toolbar
-        toolStrip.Items.Add(_ddItemTypes);
-        toolStrip.Items.Add(_cboSubFilter1);
-        toolStrip.Items.Add(_cboSubFilter2);
-        toolStrip.Items.Add(new ToolStripSeparator());
-        toolStrip.Items.Add(txtSearch);
-        toolStrip.Items.Add(new ToolStripSeparator());
-        toolStrip.Items.Add(btnSearch);
-        toolStrip.Items.Add(progressHost);
-        toolStrip.Items.Add(btnIndexRebuild);
+        // Dummy references for compatibility with existing code
+        _btnIndexRebuild = new Button { Visible = false };
+        _btnIndexRebuildToolStrip = new ToolStripButton();
+
+        row0Panel.Controls.Add(_cboItemType);
+        row0Panel.Controls.Add(_txtItemSearch);
+        row0Panel.Controls.Add(btnSearch);
+        row0Panel.Controls.Add(_chkSearchDescription);
+        row0Panel.Controls.Add(_progressIndex);
+
+        // Row 1: Sub-category checkboxes panel (2-column layout: label | checkboxes)
+        _pnlSubCategories = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true,
+            AutoSize = true,
+            MinimumSize = new Size(0, 0),
+            Margin = new Padding(0)
+        };
+        ApplyFlowLayoutPanelStyle(_pnlSubCategories);
+
+        // Row 2: Job class filters panel (2-column layout: label | checkboxes)
+        _pnlJobFilters = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true,
+            AutoSize = true,
+            MinimumSize = new Size(0, 0),
+            Margin = new Padding(0)
+        };
+        ApplyFlowLayoutPanelStyle(_pnlJobFilters);
 
         // Content area: Left-Right layout
         var contentPanel = new TableLayoutPanel
@@ -232,7 +236,7 @@ public partial class Form1
             Padding = new Padding(5),
             Margin = new Padding(5, 0, 0, 0)
         };
-        rightPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 120)); // Header (image + info)
+        rightPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 135)); // Header (image + info)
         rightPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));  // Description
 
         // Header card (Image on left, Info on right)
@@ -414,11 +418,183 @@ public partial class Form1
 
         statusPanel.Controls.Add(_lblItemStatus);
 
-        mainPanel.Controls.Add(toolStrip, 0, 0);
-        mainPanel.Controls.Add(contentPanel, 0, 1);
-        mainPanel.Controls.Add(statusPanel, 0, 2);
+        mainPanel.Controls.Add(row0Panel, 0, 0);
+        mainPanel.Controls.Add(_pnlSubCategories, 0, 1);
+        mainPanel.Controls.Add(_pnlJobFilters, 0, 2);
+        mainPanel.Controls.Add(contentPanel, 0, 3);
+        mainPanel.Controls.Add(statusPanel, 0, 4);
 
         tab.Controls.Add(mainPanel);
+    }
+
+    /// <summary>
+    /// Category item for ComboBox
+    /// </summary>
+    private class CategoryItem
+    {
+        public int Id { get; }
+        public string Name { get; }
+
+        public CategoryItem(int id, string name)
+        {
+            Id = id;
+            Name = name;
+        }
+
+        public override string ToString() => Name;
+    }
+
+    /// <summary>
+    /// Handles category dropdown selection change
+    /// </summary>
+    private void CboItemType_SelectedIndexChanged(object? sender, EventArgs e)
+    {
+        if (_cboItemType.SelectedItem is not CategoryItem selected)
+            return;
+
+        _selectedItemTypes.Clear();
+        _selectedItemTypes.Add(selected.Id);
+
+        // Update sub-category checkboxes
+        UpdateSubCategoryCheckboxes();
+    }
+
+    /// <summary>
+    /// Updates sub-category checkboxes based on selected main category
+    /// </summary>
+    private void UpdateSubCategoryCheckboxes()
+    {
+        _pnlSubCategories.SuspendLayout();
+        _pnlJobFilters.SuspendLayout();
+        _pnlSubCategories.Controls.Clear();
+        _pnlJobFilters.Controls.Clear();
+        _subCategoryCheckBoxes.Clear();
+        _jobFilterCheckBoxes.Clear();
+
+        // Collect all applicable filters from selected categories
+        var allFilters = new List<(FilterCategory category, int sourceType)>();
+
+        if (_selectedItemTypes.Contains(999))
+        {
+            // "전체" selected - no sub-filters
+            _pnlSubCategories.ResumeLayout();
+            _pnlJobFilters.ResumeLayout();
+            return;
+        }
+
+        foreach (var typeId in _selectedItemTypes)
+        {
+            var filters = ItemFilters.GetFiltersForType(typeId);
+            foreach (var filter in filters)
+            {
+                allFilters.Add((filter, typeId));
+            }
+        }
+
+        // Group filters by category name to avoid duplicates
+        var uniqueFilters = allFilters
+            .GroupBy(f => f.category.Name)
+            .Select(g => g.First())
+            .ToList();
+
+        // Separate job filters from other filters
+        var jobFilter = uniqueFilters.FirstOrDefault(f => f.category.Name == "직업군");
+        var otherFilters = uniqueFilters.Where(f => f.category.Name != "직업군").ToList();
+
+        // Create sub-category checkboxes for non-job filters (Row 1)
+        foreach (var (filterCategory, sourceType) in otherFilters)
+        {
+            // Add category label with separator
+            var lblCategory = new Label
+            {
+                Text = $"[{filterCategory.Name}]",
+                AutoSize = true,
+                ForeColor = ThemeTextMuted,
+                Margin = new Padding(5, 4, 3, 0),
+                Font = new Font("Malgun Gothic", 8.5f)
+            };
+            _pnlSubCategories.Controls.Add(lblCategory);
+
+            // Add separator
+            var separator = new Label
+            {
+                Text = "|",
+                AutoSize = true,
+                ForeColor = ThemeBorder,
+                Margin = new Padding(0, 4, 5, 0),
+                Font = new Font("Malgun Gothic", 8.5f)
+            };
+            _pnlSubCategories.Controls.Add(separator);
+
+            // Add checkboxes for each option (except "전체")
+            foreach (var option in filterCategory.Options)
+            {
+                if (string.IsNullOrEmpty(option.Pattern)) continue; // Skip "전체" option
+
+                var key = $"{filterCategory.Name}:{option.DisplayName}";
+                var chk = new CheckBox
+                {
+                    Text = option.DisplayName,
+                    Tag = option,
+                    AutoSize = true,
+                    Checked = false,
+                    ForeColor = ThemeText,
+                    Margin = new Padding(0, 2, 5, 0),
+                    Font = new Font("Malgun Gothic", 8.5f)
+                };
+                _pnlSubCategories.Controls.Add(chk);
+                _subCategoryCheckBoxes[key] = chk;
+            }
+        }
+
+        // Create job filter checkboxes (Row 2)
+        if (jobFilter.category != null)
+        {
+            // Add category label with separator
+            var lblJobCategory = new Label
+            {
+                Text = "[직업군]",
+                AutoSize = true,
+                ForeColor = ThemeTextMuted,
+                Margin = new Padding(5, 4, 3, 0),
+                Font = new Font("Malgun Gothic", 8.5f)
+            };
+            _pnlJobFilters.Controls.Add(lblJobCategory);
+
+            // Add separator
+            var jobSeparator = new Label
+            {
+                Text = "|",
+                AutoSize = true,
+                ForeColor = ThemeBorder,
+                Margin = new Padding(0, 4, 5, 0),
+                Font = new Font("Malgun Gothic", 8.5f)
+            };
+            _pnlJobFilters.Controls.Add(jobSeparator);
+
+            // Add checkboxes for each job option (except "전체")
+            foreach (var option in jobFilter.category.Options)
+            {
+                if (string.IsNullOrEmpty(option.Pattern)) continue; // Skip "전체" option
+
+                var key = $"직업군:{option.DisplayName}";
+                var chk = new CheckBox
+                {
+                    Text = option.DisplayName,
+                    Tag = option,
+                    AutoSize = true,
+                    Checked = false,
+                    ForeColor = ThemeText,
+                    Margin = new Padding(0, 2, 5, 0),
+                    Font = new Font("Malgun Gothic", 8.5f)
+                };
+                _pnlJobFilters.Controls.Add(chk);
+                _jobFilterCheckBoxes[key] = chk;
+            }
+        }
+
+        _pnlSubCategories.ResumeLayout();
+        _pnlJobFilters.ResumeLayout();
     }
 
     private void SetupItemGridColumns()
@@ -427,21 +603,11 @@ public partial class Form1
         {
             new DataGridViewTextBoxColumn { Name = "ItemConst", HeaderText = "ID", DataPropertyName = "ItemConst", Width = 60 },
             new DataGridViewTextBoxColumn { Name = "ScreenName", HeaderText = "아이템명", DataPropertyName = "ScreenName", FillWeight = 200 },
-            new DataGridViewTextBoxColumn { Name = "TypeDisplay", HeaderText = "타입", DataPropertyName = "TypeDisplay", Width = 80 },
             new DataGridViewTextBoxColumn { Name = "Slots", HeaderText = "슬롯", DataPropertyName = "Slots", Width = 50 },
             new DataGridViewTextBoxColumn { Name = "WeightDisplay", HeaderText = "무게", DataPropertyName = "WeightDisplay", Width = 60 },
             new DataGridViewTextBoxColumn { Name = "NpcBuyPrice", HeaderText = "NPC구매가", DataPropertyName = "NpcBuyPrice", Width = 80 },
             new DataGridViewTextBoxColumn { Name = "EquipJobsText", HeaderText = "장착 가능", DataPropertyName = "EquipJobsText", FillWeight = 150 }
         });
-    }
-
-    private void TxtItemSearch_KeyDown(object? sender, KeyEventArgs e)
-    {
-        if (e.KeyCode == Keys.Enter)
-        {
-            e.SuppressKeyPress = true;
-            BtnItemSearch_Click(sender, e);
-        }
     }
 
     private async void BtnItemSearch_Click(object? sender, EventArgs e)
@@ -454,6 +620,7 @@ public partial class Form1
     private async Task LoadItemPageAsync()
     {
         var searchText = _txtItemSearch.Text.Trim();
+        var searchDescription = _chkSearchDescription.Checked;
 
         _btnItemSearch.Enabled = false;
         _btnItemPrev.Enabled = false;
@@ -465,8 +632,8 @@ public partial class Form1
             List<KafraItem> items;
             var skip = _itemCurrentPage * ItemPageSize;
 
-            // Check if any sub-filter is active (only for single type)
-            var hasSubFilter = _selectedItemTypes.Count == 1 && !_selectedItemTypes.Contains(999) && HasActiveSubFilter();
+            // Check if any sub-filter checkbox is checked
+            var hasSubFilter = !_selectedItemTypes.Contains(999) && HasActiveSubFilter();
             var singleType = _selectedItemTypes.Count == 1 ? _selectedItemTypes.First() : 999;
 
             // Use index if loaded, otherwise fallback to API
@@ -474,26 +641,27 @@ public partial class Form1
             {
                 if (hasSubFilter)
                 {
-                    // Get all items matching type, then apply sub-filters client-side
-                    var allItems = _itemIndexService.SearchItems(searchText, _selectedItemTypes, 0, int.MaxValue);
-                    var filteredItems = ApplySubFilters(allItems, singleType);
+                    // Get all items matching types, then apply sub-filters client-side
+                    var allItems = _itemIndexService.SearchItems(searchText, _selectedItemTypes, 0, int.MaxValue, searchDescription);
+                    var filteredItems = ApplySubFilters(allItems);
                     _itemTotalCount = filteredItems.Count;
                     items = filteredItems.Skip(skip).Take(ItemPageSize).ToList();
                 }
                 else
                 {
                     // No sub-filter, use server-side pagination
-                    _itemTotalCount = _itemIndexService.CountItems(searchText, _selectedItemTypes);
-                    items = _itemIndexService.SearchItems(searchText, _selectedItemTypes, skip, ItemPageSize);
+                    _itemTotalCount = _itemIndexService.CountItems(searchText, _selectedItemTypes, searchDescription);
+                    items = _itemIndexService.SearchItems(searchText, _selectedItemTypes, skip, ItemPageSize, searchDescription);
                 }
             }
             else
             {
                 // API doesn't support multi-type or pagination, use single type
+                // Note: API search doesn't support description search
                 items = await _kafraClient.SearchItemsAsync(searchText, singleType, ItemPageSize);
                 if (hasSubFilter)
                 {
-                    items = ApplySubFilters(items, singleType);
+                    items = ApplySubFilters(items);
                 }
                 _itemTotalCount = items.Count;
             }
@@ -528,15 +696,12 @@ public partial class Form1
     }
 
     /// <summary>
-    /// Checks if any sub-filter is active (not set to "전체")
+    /// Checks if any sub-filter checkbox is checked
     /// </summary>
     private bool HasActiveSubFilter()
     {
-        if (_cboSubFilter1.Visible && _cboSubFilter1.SelectedItem is FilterOption f1 && !string.IsNullOrEmpty(f1.Pattern))
-            return true;
-        if (_cboSubFilter2.Visible && _cboSubFilter2.SelectedItem is FilterOption f2 && !string.IsNullOrEmpty(f2.Pattern))
-            return true;
-        return false;
+        return _subCategoryCheckBoxes.Values.Any(chk => chk.Checked) ||
+               _jobFilterCheckBoxes.Values.Any(chk => chk.Checked);
     }
 
     private void UpdateItemPagination()
@@ -851,153 +1016,56 @@ public partial class Form1
     }
 
     /// <summary>
-    /// Handles item type checkbox selection changes
+    /// Applies client-side filtering based on selected sub-filter checkboxes
     /// </summary>
-    private void ItemTypeMenuItem_CheckedChanged(object? sender, EventArgs e)
+    private List<KafraItem> ApplySubFilters(List<KafraItem> items)
     {
-        if (sender is not ToolStripMenuItem menuItem || menuItem.Tag is not int typeId)
-            return;
+        // Get checked filters grouped by category (both sub-category and job filters)
+        var allCheckBoxes = _subCategoryCheckBoxes
+            .Concat(_jobFilterCheckBoxes)
+            .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
 
-        var allItem = _ddItemTypes.DropDownItems[0] as ToolStripMenuItem;
+        var checkedFilters = allCheckBoxes
+            .Where(kvp => kvp.Value.Checked && kvp.Value.Tag is FilterOption)
+            .Select(kvp => (Key: kvp.Key, Option: (FilterOption)kvp.Value.Tag!))
+            .GroupBy(x => x.Key.Split(':')[0]) // Group by category name
+            .ToList();
 
-        if (typeId == 999) // "All" clicked
-        {
-            if (menuItem.Checked)
-            {
-                // Uncheck all other items
-                foreach (ToolStripMenuItem item in _ddItemTypes.DropDownItems)
-                {
-                    if (item.Tag is int id && id != 999)
-                        item.Checked = false;
-                }
-                _selectedItemTypes.Clear();
-                _selectedItemTypes.Add(999);
-            }
-            else
-            {
-                // Can't uncheck "All" if nothing else is selected
-                if (_selectedItemTypes.Count == 1 && _selectedItemTypes.Contains(999))
-                    menuItem.Checked = true;
-            }
-        }
-        else
-        {
-            if (menuItem.Checked)
-            {
-                // Uncheck "All" and add this type
-                if (allItem != null) allItem.Checked = false;
-                _selectedItemTypes.Remove(999);
-                _selectedItemTypes.Add(typeId);
-            }
-            else
-            {
-                _selectedItemTypes.Remove(typeId);
-                // If nothing selected, re-check "All"
-                if (_selectedItemTypes.Count == 0)
-                {
-                    if (allItem != null) allItem.Checked = true;
-                    _selectedItemTypes.Add(999);
-                }
-            }
-        }
-
-        // Update dropdown button text
-        UpdateItemTypeButtonText();
-
-        // Update sub-filters (only show for single type selection)
-        UpdateSubFilters();
-    }
-
-    private void UpdateItemTypeButtonText()
-    {
-        if (_selectedItemTypes.Contains(999))
-        {
-            _ddItemTypes.Text = "타입: 전체";
-        }
-        else if (_selectedItemTypes.Count == 1)
-        {
-            var typeId = _selectedItemTypes.First();
-            var menuItem = _ddItemTypes.DropDownItems.Cast<ToolStripMenuItem>()
-                .FirstOrDefault(m => m.Tag is int id && id == typeId);
-            _ddItemTypes.Text = $"타입: {menuItem?.Text ?? typeId.ToString()}";
-        }
-        else
-        {
-            _ddItemTypes.Text = $"타입: {_selectedItemTypes.Count}개 선택";
-        }
-    }
-
-    private void UpdateSubFilters()
-    {
-        // Reset sub-filter combos
-        _cboSubFilter1.Items.Clear();
-        _cboSubFilter2.Items.Clear();
-        _cboSubFilter1.Visible = false;
-        _cboSubFilter2.Visible = false;
-
-        // Only show sub-filters for single type selection (not "All")
-        if (_selectedItemTypes.Count != 1 || _selectedItemTypes.Contains(999))
-            return;
-
-        var itemType = _selectedItemTypes.First();
-        var filters = ItemFilters.GetFiltersForType(itemType);
-
-        if (filters.Length > 0)
-        {
-            var filter1 = filters[0];
-            _cboSubFilter1.ToolTipText = filter1.Name;
-            foreach (var option in filter1.Options)
-            {
-                _cboSubFilter1.Items.Add(option);
-            }
-            _cboSubFilter1.SelectedIndex = 0;
-            _cboSubFilter1.Visible = true;
-
-            if (filters.Length > 1)
-            {
-                var filter2 = filters[1];
-                _cboSubFilter2.ToolTipText = filter2.Name;
-                foreach (var option in filter2.Options)
-                {
-                    _cboSubFilter2.Items.Add(option);
-                }
-                _cboSubFilter2.SelectedIndex = 0;
-                _cboSubFilter2.Visible = true;
-            }
-        }
-    }
-
-    /// <summary>
-    /// Applies client-side filtering based on selected sub-filters
-    /// </summary>
-    private List<KafraItem> ApplySubFilters(List<KafraItem> items, int itemType)
-    {
-        var filters = ItemFilters.GetFiltersForType(itemType);
-        if (filters.Length == 0)
+        if (!checkedFilters.Any())
             return items;
 
         var result = items;
 
-        // Apply first filter
-        if (_cboSubFilter1.Visible && _cboSubFilter1.SelectedItem is FilterOption filter1)
+        // Build filter categories from all selected types
+        var filterCategories = new Dictionary<string, FilterTarget>();
+        foreach (var typeId in _selectedItemTypes)
         {
-            if (!string.IsNullOrEmpty(filter1.Pattern))
+            foreach (var filter in ItemFilters.GetFiltersForType(typeId))
             {
-                var target = filters[0].Target;
-                var regex = new System.Text.RegularExpressions.Regex(filter1.Pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                result = result.Where(item => MatchesFilter(item, target, regex)).ToList();
+                if (!filterCategories.ContainsKey(filter.Name))
+                    filterCategories[filter.Name] = filter.Target;
             }
         }
 
-        // Apply second filter
-        if (_cboSubFilter2.Visible && _cboSubFilter2.SelectedItem is FilterOption filter2)
+        // Apply filters - items must match at least one option within each category (OR within category)
+        // But must match all categories (AND between categories)
+        foreach (var categoryGroup in checkedFilters)
         {
-            if (!string.IsNullOrEmpty(filter2.Pattern) && filters.Length > 1)
-            {
-                var target = filters[1].Target;
-                var regex = new System.Text.RegularExpressions.Regex(filter2.Pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                result = result.Where(item => MatchesFilter(item, target, regex)).ToList();
-            }
+            var categoryName = categoryGroup.Key;
+            if (!filterCategories.TryGetValue(categoryName, out var target))
+                continue;
+
+            // Build combined regex pattern for this category (OR logic)
+            var patterns = categoryGroup.Select(x => x.Option.Pattern).Where(p => !string.IsNullOrEmpty(p));
+            var combinedPattern = string.Join("|", patterns);
+            if (string.IsNullOrEmpty(combinedPattern))
+                continue;
+
+            var regex = new System.Text.RegularExpressions.Regex(
+                combinedPattern,
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            result = result.Where(item => MatchesFilter(item, target, regex)).ToList();
         }
 
         return result;

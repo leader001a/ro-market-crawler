@@ -81,7 +81,16 @@ public partial class Form1
             ForeColor = ThemeText,
             ToolTipText = "모니터링할 아이템명 입력"
         };
-        txtItemName.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; BtnMonitorAdd_Click(s, e); } };
+        txtItemName.KeyDown += (s, e) =>
+        {
+            if (e.KeyCode == Keys.Enter && !_autoCompleteDropdown.HasSelection)
+            {
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                _autoCompleteDropdown.Hide();
+                BtnMonitorAdd_Click(s, e);
+            }
+        };
         _txtMonitorItemName = txtItemName.TextBox;
 
         // Server selection
@@ -657,6 +666,9 @@ public partial class Form1
 
         var results = _monitoringService.Results.Values.ToList();
 
+        // Save scroll position before update
+        int savedScrollPosition = _dgvMonitorResults.FirstDisplayedScrollingRowIndex;
+
         // Suspend layout for batch update performance
         _dgvMonitorResults.SuspendLayout();
 
@@ -808,6 +820,12 @@ public partial class Form1
 
             // Clear default first row selection
             _dgvMonitorResults.ClearSelection();
+
+            // Restore scroll position after update
+            if (savedScrollPosition >= 0 && savedScrollPosition < _dgvMonitorResults.RowCount)
+            {
+                _dgvMonitorResults.FirstDisplayedScrollingRowIndex = savedScrollPosition;
+            }
         }
         finally
         {

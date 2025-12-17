@@ -315,13 +315,13 @@ public class ItemIndexService : IDisposable
     /// <summary>
     /// Count items matching the search criteria (for pagination).
     /// </summary>
-    public int CountItems(string searchTerm, int itemType = 999)
-        => CountItems(searchTerm, new HashSet<int> { itemType });
+    public int CountItems(string searchTerm, int itemType = 999, bool searchDescription = false)
+        => CountItems(searchTerm, new HashSet<int> { itemType }, searchDescription);
 
     /// <summary>
     /// Count items matching the search criteria with multiple types (for pagination).
     /// </summary>
-    public int CountItems(string searchTerm, HashSet<int> itemTypes)
+    public int CountItems(string searchTerm, HashSet<int> itemTypes, bool searchDescription = false)
     {
         var hasSearchTerm = !string.IsNullOrWhiteSpace(searchTerm);
         var allTypes = itemTypes.Contains(999);
@@ -338,8 +338,14 @@ public class ItemIndexService : IDisposable
                 // Name filter (if search term provided)
                 if (hasSearchTerm)
                 {
-                    if (item.ScreenName?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) != true &&
-                        item.Name?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) != true)
+                    var nameMatch = item.ScreenName?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) == true ||
+                                   item.Name?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) == true;
+
+                    // Also search in ItemText if enabled
+                    var descMatch = searchDescription &&
+                                   item.ItemText?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) == true;
+
+                    if (!nameMatch && !descMatch)
                     {
                         continue;
                     }
@@ -355,14 +361,14 @@ public class ItemIndexService : IDisposable
     /// <summary>
     /// Search items with type filtering, name matching, and pagination.
     /// </summary>
-    public List<KafraItem> SearchItems(string searchTerm, int itemType = 999, int skip = 0, int take = 100)
-        => SearchItems(searchTerm, new HashSet<int> { itemType }, skip, take);
+    public List<KafraItem> SearchItems(string searchTerm, int itemType = 999, int skip = 0, int take = 100, bool searchDescription = false)
+        => SearchItems(searchTerm, new HashSet<int> { itemType }, skip, take, searchDescription);
 
     /// <summary>
     /// Search items with multiple type filtering, name matching, and pagination.
     /// Returns KafraItem list for UI binding compatibility.
     /// </summary>
-    public List<KafraItem> SearchItems(string searchTerm, HashSet<int> itemTypes, int skip = 0, int take = 100)
+    public List<KafraItem> SearchItems(string searchTerm, HashSet<int> itemTypes, int skip = 0, int take = 100, bool searchDescription = false)
     {
         var results = new List<KafraItem>();
         var hasSearchTerm = !string.IsNullOrWhiteSpace(searchTerm);
@@ -382,8 +388,14 @@ public class ItemIndexService : IDisposable
                 // Name filter (if search term provided)
                 if (hasSearchTerm)
                 {
-                    if (item.ScreenName?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) != true &&
-                        item.Name?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) != true)
+                    var nameMatch = item.ScreenName?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) == true ||
+                                   item.Name?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) == true;
+
+                    // Also search in ItemText if enabled
+                    var descMatch = searchDescription &&
+                                   item.ItemText?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) == true;
+
+                    if (!nameMatch && !descMatch)
                     {
                         continue;
                     }
