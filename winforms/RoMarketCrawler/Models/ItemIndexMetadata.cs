@@ -105,6 +105,13 @@ public class KafraItemDto
     public string? EquipJobsText { get; set; }
 
     /// <summary>
+    /// Parsed structured details from item_text
+    /// </summary>
+    [JsonPropertyName("details")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ParsedItemDetails? Details { get; set; }
+
+    /// <summary>
     /// Get item type display name in Korean
     /// </summary>
     public string GetTypeDisplayName()

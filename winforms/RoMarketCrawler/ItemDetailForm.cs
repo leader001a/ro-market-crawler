@@ -63,6 +63,9 @@ public class ItemDetailForm : Form
         _imageCacheDir = Path.Combine(dataDir, "ItemImages");
         Directory.CreateDirectory(_imageCacheDir);
 
+        // TEST: Write startup log
+        try { File.WriteAllText(Path.Combine(_imageCacheDir, "startup_test.log"), $"ItemDetailForm created at {DateTime.Now}"); } catch { }
+
         ApplyThemeColors();
         InitializeUI();
 
@@ -517,58 +520,71 @@ public class ItemDetailForm : Form
         {
             byte[]? imageBytes = null;
             var effectiveItemId = _item.GetEffectiveItemId();
+            string? itemInternalName = null;
+
+            // Get item name from cache for kafra.kr image URL
+            if (_itemIndexService?.IsLoaded == true && effectiveItemId.HasValue)
+            {
+                var cachedItem = _itemIndexService.GetItemById(effectiveItemId.Value);
+                itemInternalName = cachedItem?.Name;
+            }
 
             // Check local cache first
             if (effectiveItemId.HasValue)
             {
-                var cacheFilePath = Path.Combine(_imageCacheDir, $"{effectiveItemId.Value}.png");
+                var cacheFilePath = Path.Combine(_imageCacheDir, $"{effectiveItemId.Value}_col.png");
                 if (File.Exists(cacheFilePath))
                 {
                     imageBytes = await File.ReadAllBytesAsync(cacheFilePath);
-                    Debug.WriteLine($"[ItemDetailForm] Image loaded from cache: {effectiveItemId.Value}.png");
                 }
             }
 
-            // Try divine-pride.net if not cached
-            if (imageBytes == null && effectiveItemId.HasValue)
+            // Try kafra.kr collection image (75x100 high quality)
+            if (imageBytes == null && !string.IsNullOrEmpty(itemInternalName))
             {
                 try
                 {
-                    var divineUrl = $"https://static.divine-pride.net/images/items/item/{effectiveItemId.Value}.png";
-                    imageBytes = await _imageClient.GetByteArrayAsync(divineUrl);
-                    Debug.WriteLine($"[ItemDetailForm] Image loaded from divine-pride: {effectiveItemId.Value}");
+                    var encodedName = Uri.EscapeDataString(itemInternalName);
+                    var kafraUrl = $"http://static.kafra.kr/kro/data/texture/%EC%9C%A0%EC%A0%80%EC%9D%B8%ED%84%B0%ED%8E%98%EC%9D%B4%EC%8A%A4/collection/png/{encodedName}.png";
+                    imageBytes = await _imageClient.GetByteArrayAsync(kafraUrl);
 
                     // Save to cache
-                    var cacheFilePath = Path.Combine(_imageCacheDir, $"{effectiveItemId.Value}.png");
-                    _ = Task.Run(async () =>
+                    if (effectiveItemId.HasValue)
                     {
-                        try
+                        var cacheFilePath = Path.Combine(_imageCacheDir, $"{effectiveItemId.Value}_col.png");
+                        _ = Task.Run(async () =>
                         {
-                            await File.WriteAllBytesAsync(cacheFilePath, imageBytes);
-                            Debug.WriteLine($"[ItemDetailForm] Image cached: {effectiveItemId.Value}.png");
-                        }
-                        catch (Exception ex)
-                        {
-                            Debug.WriteLine($"[ItemDetailForm] Failed to cache image: {ex.Message}");
-                        }
-                    });
+                            try { await File.WriteAllBytesAsync(cacheFilePath, imageBytes); }
+                            catch { }
+                        });
+                    }
                 }
-                catch
+                catch { }
+            }
+
+            // Fallback: Check old cache format
+            if (imageBytes == null && effectiveItemId.HasValue)
+            {
+                var oldCacheFilePath = Path.Combine(_imageCacheDir, $"{effectiveItemId.Value}.png");
+                if (File.Exists(oldCacheFilePath))
                 {
-                    Debug.WriteLine($"[ItemDetailForm] divine-pride image not found: {effectiveItemId.Value}");
+                    imageBytes = await File.ReadAllBytesAsync(oldCacheFilePath);
                 }
             }
 
-            // Fall back to GNJOY URL (no caching for GNJOY images)
+            // Fallback: GNJOY URL
             if (imageBytes == null && !string.IsNullOrEmpty(_item.ItemImageUrl))
             {
-                var imageUrl = _item.ItemImageUrl;
-                if (!imageUrl.StartsWith("http"))
+                try
                 {
-                    imageUrl = "https://ro.gnjoy.com" + imageUrl;
+                    var imageUrl = _item.ItemImageUrl;
+                    if (!imageUrl.StartsWith("http"))
+                    {
+                        imageUrl = "https://ro.gnjoy.com" + imageUrl;
+                    }
+                    imageBytes = await _imageClient.GetByteArrayAsync(imageUrl);
                 }
-                imageBytes = await _imageClient.GetByteArrayAsync(imageUrl);
-                Debug.WriteLine($"[ItemDetailForm] Image loaded from GNJOY");
+                catch { }
             }
 
             if (imageBytes != null && !IsDisposed)
@@ -578,10 +594,7 @@ public class ItemDetailForm : Form
                 Invoke(() => _picItem.Image = image);
             }
         }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"[ItemDetailForm] Image load error: {ex.Message}");
-        }
+        catch { }
     }
 
     private void LoadDetailInfo()

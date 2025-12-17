@@ -595,35 +595,55 @@ public partial class Form1
             _picItemImage.Image?.Dispose();
             _picItemImage.Image = null;
 
-            var cacheFilePath = Path.Combine(_imageCacheDir, $"{itemId}.png");
-            byte[] imageBytes;
+            byte[]? imageBytes = null;
+            var cacheFilePath = Path.Combine(_imageCacheDir, $"{itemId}_col.png");
 
             // Check local cache first
             if (File.Exists(cacheFilePath))
             {
                 imageBytes = await File.ReadAllBytesAsync(cacheFilePath);
-                Debug.WriteLine($"[Form1] Image loaded from cache: {itemId}.png");
             }
-            else
-            {
-                // Download from Divine Pride
-                var imageUrl = $"https://static.divine-pride.net/images/items/item/{itemId}.png";
-                imageBytes = await _imageHttpClient.GetByteArrayAsync(imageUrl);
 
-                // Save to cache (fire and forget, don't block UI)
-                _ = Task.Run(async () =>
+            // Try kafra.kr collection image
+            if (imageBytes == null)
+            {
+                string? itemName = null;
+                if (_itemIndexService.IsLoaded)
+                {
+                    var cachedItem = _itemIndexService.GetItemById(itemId);
+                    itemName = cachedItem?.Name;
+                }
+
+                if (!string.IsNullOrEmpty(itemName))
                 {
                     try
                     {
-                        await File.WriteAllBytesAsync(cacheFilePath, imageBytes);
-                        Debug.WriteLine($"[Form1] Image cached: {itemId}.png");
+                        var encodedName = Uri.EscapeDataString(itemName);
+                        var kafraUrl = $"http://static.kafra.kr/kro/data/texture/%EC%9C%A0%EC%A0%80%EC%9D%B8%ED%84%B0%ED%8E%98%EC%9D%B4%EC%8A%A4/collection/png/{encodedName}.png";
+                        imageBytes = await _imageHttpClient.GetByteArrayAsync(kafraUrl);
+
+                        // Save to cache
+                        _ = Task.Run(async () =>
+                        {
+                            try { await File.WriteAllBytesAsync(cacheFilePath, imageBytes); }
+                            catch { }
+                        });
                     }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"[Form1] Failed to cache image {itemId}: {ex.Message}");
-                    }
-                });
+                    catch { }
+                }
             }
+
+            // Fallback: Check old cache format
+            if (imageBytes == null)
+            {
+                var oldCacheFilePath = Path.Combine(_imageCacheDir, $"{itemId}.png");
+                if (File.Exists(oldCacheFilePath))
+                {
+                    imageBytes = await File.ReadAllBytesAsync(oldCacheFilePath);
+                }
+            }
+
+            if (imageBytes == null) return;
 
             using var ms = new MemoryStream(imageBytes);
             var image = Image.FromStream(ms);

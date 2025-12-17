@@ -452,18 +452,24 @@ public class ItemIndexService : IDisposable
             if (items == null) return null;
 
             // Convert to DTO (handle nullable fields from API)
-            return items.Select(item => new KafraItemDto
+            return items.Select(item =>
             {
-                Id = item.ItemConst,
-                Name = item.Name,
-                ScreenName = item.ScreenName,
-                Type = item.Type ?? 0,  // Default to 0 if null
-                Slots = item.Slots ?? 0,
-                Weight = item.Weight ?? 0,
-                PriceBuy = item.PriceBuy,
-                PriceSell = item.PriceSell,
-                ItemText = NormalizeLineBreaks(item.ItemText),
-                EquipJobsText = item.EquipJobsText
+                var itemType = item.Type ?? 0;
+                var itemText = NormalizeLineBreaks(item.ItemText);
+                return new KafraItemDto
+                {
+                    Id = item.ItemConst,
+                    Name = item.Name,
+                    ScreenName = item.ScreenName,
+                    Type = itemType,
+                    Slots = item.Slots ?? 0,
+                    Weight = item.Weight ?? 0,
+                    PriceBuy = item.PriceBuy,
+                    PriceSell = item.PriceSell,
+                    ItemText = itemText,
+                    EquipJobsText = item.EquipJobsText,
+                    Details = ItemTextParser.Parse(itemText, itemType)
+                };
             }).ToList();
         }
         catch (HttpRequestException ex)
@@ -684,18 +690,21 @@ public class ItemIndexService : IDisposable
             if (items != null && items.Count > 0)
             {
                 var item = items[0];
+                var itemType = item.Type ?? 0;
+                var itemText = NormalizeLineBreaks(item.ItemText);
                 return new KafraItemDto
                 {
                     Id = item.ItemConst,
                     Name = item.Name,
                     ScreenName = item.ScreenName,
-                    Type = item.Type ?? 0,  // Handle null
+                    Type = itemType,
                     Slots = item.Slots ?? 0,
                     Weight = item.Weight ?? 0,
                     PriceBuy = item.PriceBuy,
                     PriceSell = item.PriceSell,
-                    ItemText = NormalizeLineBreaks(item.ItemText),
-                    EquipJobsText = item.EquipJobsText
+                    ItemText = itemText,
+                    EquipJobsText = item.EquipJobsText,
+                    Details = ItemTextParser.Parse(itemText, itemType)
                 };
             }
         }
