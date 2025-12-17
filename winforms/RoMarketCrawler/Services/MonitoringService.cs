@@ -33,6 +33,11 @@ namespace RoMarketCrawler.Services
         // Parallel processing with atomic update pattern to prevent race conditions
         private readonly SemaphoreSlim _refreshSemaphore = new(3); // Max 3 concurrent refreshes
 
+        // Session-level cache for price statistics (yesterday/weekly averages)
+        // Key: "{priceListMatch}|{priceServerId}", Value: PriceStatistics
+        // Avoids duplicate API calls when same item name is monitored across different servers
+        private readonly ConcurrentDictionary<string, PriceStatistics?> _priceStatsCache = new(StringComparer.OrdinalIgnoreCase);
+
         /// <summary>
         /// Creates MonitoringService with its own dedicated GnjoyClient.
         /// This ensures complete isolation from other components using GnjoyClient.
@@ -676,12 +681,25 @@ namespace RoMarketCrawler.Services
                         if (priceListMatch != null)
                         {
                             Debug.WriteLine($"[MonitoringService] Match found: '{priceListMatch}'");
-                            // Fetch price statistics directly from API
-                            stats = await _gnjoyClient.FetchPriceHistoryAsync(
-                                priceListMatch,
-                                priceServerId,
-                                cancellationToken);
-                            Debug.WriteLine($"[MonitoringService] Stats: Yesterday={stats?.YesterdayAvgPrice:N0}, Week={stats?.Week7AvgPrice:N0}");
+
+                            // Check session-level cache first (same item averages are shared across servers)
+                            var statsCacheKey = $"{priceListMatch}|{priceServerId}";
+                            if (_priceStatsCache.TryGetValue(statsCacheKey, out var cachedPriceStats))
+                            {
+                                stats = cachedPriceStats;
+                                Debug.WriteLine($"[MonitoringService] Using cached stats for '{priceListMatch}': Yesterday={stats?.YesterdayAvgPrice:N0}, Week={stats?.Week7AvgPrice:N0}");
+                            }
+                            else
+                            {
+                                // Fetch price statistics from API
+                                stats = await _gnjoyClient.FetchPriceHistoryAsync(
+                                    priceListMatch,
+                                    priceServerId,
+                                    cancellationToken);
+                                // Cache the result for future use
+                                _priceStatsCache[statsCacheKey] = stats;
+                                Debug.WriteLine($"[MonitoringService] Fetched and cached stats for '{priceListMatch}': Yesterday={stats?.YesterdayAvgPrice:N0}, Week={stats?.Week7AvgPrice:N0}");
+                            }
                         }
                         else
                         {

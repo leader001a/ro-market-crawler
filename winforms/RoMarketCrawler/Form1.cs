@@ -60,6 +60,8 @@ public partial class Form1 : Form
     // Tab 2: Item Database (Kafra)
     private TextBox _txtItemSearch = null!;
     private ComboBox _cboItemType = null!;
+    private ToolStripComboBox _cboSubFilter1 = null!;
+    private ToolStripComboBox _cboSubFilter2 = null!;
     private Button _btnItemSearch = null!;
     private Button _btnIndexRebuild = null!;
     private ToolStripButton _btnItemSearchToolStrip = null!;
@@ -195,7 +197,8 @@ public partial class Form1 : Form
 
     private void InitializeCustomComponents()
     {
-        Text = "RO Market Crawler";
+        var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+        Text = $"RO Market Crawler - v{version?.Major}.{version?.Minor}.{version?.Build}";
         Size = new Size(1400, 800);
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = ThemeBackground;
@@ -230,8 +233,8 @@ public partial class Form1 : Form
 
         // Refresh Monitor tab UI when switching to it
         _tabControl.SelectedIndexChanged += TabControl_SelectedIndexChanged;
-        // Confirm before leaving Monitor tab (if auto-refresh is running)
-        _tabControl.Deselecting += TabControl_Deselecting;
+        // Confirm before switching to Deal Search tab (if auto-refresh is running)
+        _tabControl.Selecting += TabControl_Selecting;
 
         // Status bar at bottom with creator info
         _statusStrip = new StatusStrip

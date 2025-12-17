@@ -1004,16 +1004,14 @@ public partial class Form1
 
     // Event Handlers
 
-    private void TabControl_Deselecting(object? sender, TabControlCancelEventArgs e)
+    private void TabControl_Selecting(object? sender, TabControlCancelEventArgs e)
     {
-        Debug.WriteLine($"[Form1] TabControl_Deselecting: TabPageIndex={e.TabPageIndex}, RefreshInterval={_monitoringService.Config.RefreshIntervalSeconds}");
-
-        // Check if leaving Monitor tab (index 2) while auto-refresh is running
-        // In Deselecting event, e.TabPageIndex is the tab being deselected (left)
-        if (e.TabPageIndex == 2 && _monitoringService.Config.RefreshIntervalSeconds > 0)
+        // Confirm before switching to Deal Search tab (index 0) if auto-refresh is running
+        // e.TabPageIndex = destination tab being selected
+        if (e.TabPageIndex == 0 && _monitoringService.Config.RefreshIntervalSeconds > 0)
         {
             var result = MessageBox.Show(
-                "다른 탭으로 이동하면 자동 갱신이 중지됩니다.\n이동하시겠습니까?",
+                "노점조회 탭으로 이동하면 자동 갱신이 중지됩니다.\n이동하시겠습니까?",
                 "노점 모니터링",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question);
@@ -1024,18 +1022,23 @@ public partial class Form1
                 return;
             }
 
-            // User confirmed - stop auto-refresh
-            StopMonitorTimer();
-            _monitoringService.Config.RefreshIntervalSeconds = 0;
-            UpdateMonitorRefreshLabel();
-            Debug.WriteLine("[Form1] Auto-refresh stopped due to tab change");
+            Debug.WriteLine("[Form1] User confirmed - will stop auto-refresh on tab change");
         }
     }
 
     private void TabControl_SelectedIndexChanged(object? sender, EventArgs e)
     {
+        // Stop auto-refresh when switched to Deal Search tab (index 0)
+        // Confirmation was already done in TabControl_Selecting
+        if (_tabControl.SelectedIndex == 0 && _monitoringService.Config.RefreshIntervalSeconds > 0)
+        {
+            StopMonitorTimer();
+            _monitoringService.Config.RefreshIntervalSeconds = 0;
+            UpdateMonitorRefreshLabel();
+            Debug.WriteLine("[Form1] Auto-refresh stopped due to Deal Search tab selected");
+        }
         // Refresh Monitor tab UI when switching to it (index 2)
-        if (_tabControl.SelectedIndex == 2)
+        else if (_tabControl.SelectedIndex == 2)
         {
             UpdateMonitorItemList();
             UpdateMonitorResults();
@@ -1071,6 +1074,18 @@ public partial class Form1
             _txtMonitorItemName.Clear();
             UpdateMonitorItemList();
             _lblMonitorStatus.Text = $"'{itemName}' 추가됨 ({_monitoringService.ItemCount}/{MonitoringService.MaxItemCount})";
+
+            // If auto-refresh is running, schedule the new item for immediate refresh
+            if (_monitoringService.Config.RefreshIntervalSeconds > 0)
+            {
+                var newItem = _monitoringService.Config.Items
+                    .FirstOrDefault(i => i.ItemName == itemName && i.ServerId == serverId);
+                if (newItem != null)
+                {
+                    newItem.NextRefreshTime = DateTime.Now;
+                    Debug.WriteLine($"[Form1] New item '{itemName}' scheduled for auto-refresh");
+                }
+            }
         }
         else
         {
@@ -1267,7 +1282,7 @@ public partial class Form1
         {
             // Start auto-refresh
             var seconds = (int)_nudRefreshInterval.Value;
-            if (seconds < 10) seconds = 10; // Minimum 10 seconds
+            if (seconds < 15) seconds = 15; // Minimum 15 seconds
             await _monitoringService.SetRefreshIntervalAsync(seconds);
             StartMonitorTimer(seconds);
             _lblMonitorStatus.Text = $"자동 갱신 시작: {seconds}초";
@@ -1325,6 +1340,16 @@ public partial class Form1
             Debug.WriteLine($"[Form1] Querying: {item.ItemName}");
             await _monitoringService.RefreshSingleItemAsync(item, cancellationToken);
             Interlocked.Increment(ref _refreshedItemCount);
+
+            // Check if item was deleted during query - if so, skip UI update
+            var itemStillExists = _monitoringService.Config.Items
+                .Any(i => i.ItemName == item.ItemName && i.ServerId == item.ServerId);
+            if (!itemStillExists)
+            {
+                Debug.WriteLine($"[Form1] Item '{item.ItemName}' was deleted during query, skipping UI update");
+                _monitoringService.ClearItemCache(item.ItemName, item.ServerId);
+                return;
+            }
 
             // 2. Transition to processing state (처리 중...)
             item.IsRefreshing = false;
@@ -1684,7 +1709,7 @@ public partial class Form1
         _nudRefreshInterval = new NumericUpDown
         {
             Name = "nudRefreshInterval",
-            Minimum = 10, Maximum = 600, Value = 30,
+            Minimum = 15, Maximum = 600, Value = 30, Increment = 5,
             Location = new Point((int)(140 * scale), yPos),
             Size = new Size((int)(65 * scale), rowHeight),
             BackColor = ThemeGrid,

@@ -44,18 +44,40 @@ public partial class Form1
         };
         cboType.Items.AddRange(new object[] {
             new ItemTypeItem(999, "전체"),
-            new ItemTypeItem(0, "힐링 아이템"),
-            new ItemTypeItem(2, "사용 아이템"),
-            new ItemTypeItem(3, "기타 아이템"),
             new ItemTypeItem(4, "무기"),
             new ItemTypeItem(5, "방어구"),
             new ItemTypeItem(6, "카드"),
-            new ItemTypeItem(7, "펫 알"),
-            new ItemTypeItem(10, "화살/탄환"),
-            new ItemTypeItem(12, "쉐도우 장비")
+            new ItemTypeItem(7, "펫"),
+            new ItemTypeItem(10, "화살/탄약/투사체"),
+            new ItemTypeItem(19, "쉐도우"),
+            new ItemTypeItem(20, "의상"),
+            new ItemTypeItem(998, "기타")
         });
         cboType.SelectedIndex = 0;
         _cboItemType = cboType.ComboBox;
+        cboType.SelectedIndexChanged += CboItemType_SelectedIndexChanged;
+
+        // Sub-filter combo 1 (weapon type, armor position, card position, shadow position, costume position)
+        _cboSubFilter1 = new ToolStripComboBox
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Width = 110,
+            BackColor = ThemeGrid,
+            ForeColor = ThemeText,
+            Visible = false,
+            ToolTipText = "세부 필터 1"
+        };
+
+        // Sub-filter combo 2 (job class - for weapons and armor only)
+        _cboSubFilter2 = new ToolStripComboBox
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Width = 120,
+            BackColor = ThemeGrid,
+            ForeColor = ThemeText,
+            Visible = false,
+            ToolTipText = "직업군 필터"
+        };
 
         // Search text
         var txtSearch = new ToolStripTextBox
@@ -108,6 +130,8 @@ public partial class Form1
 
         // Add items to toolbar
         toolStrip.Items.Add(cboType);
+        toolStrip.Items.Add(_cboSubFilter1);
+        toolStrip.Items.Add(_cboSubFilter2);
         toolStrip.Items.Add(new ToolStripSeparator());
         toolStrip.Items.Add(txtSearch);
         toolStrip.Items.Add(new ToolStripSeparator());
@@ -407,17 +431,37 @@ public partial class Form1
             List<KafraItem> items;
             var skip = _itemCurrentPage * ItemPageSize;
 
+            // Check if any sub-filter is active
+            var hasSubFilter = HasActiveSubFilter();
+
             // Use index if loaded, otherwise fallback to API
             if (_itemIndexService.IsLoaded)
             {
-                _itemTotalCount = _itemIndexService.CountItems(searchText, itemType);
-                items = _itemIndexService.SearchItems(searchText, itemType, skip, ItemPageSize);
-                Debug.WriteLine($"[Form1] Index search: '{searchText}' type={itemType} page={_itemCurrentPage} -> {items.Count}/{_itemTotalCount} results");
+                if (hasSubFilter)
+                {
+                    // Get all items matching type, then apply sub-filters client-side
+                    var allItems = _itemIndexService.SearchItems(searchText, itemType, 0, int.MaxValue);
+                    var filteredItems = ApplySubFilters(allItems, itemType);
+                    _itemTotalCount = filteredItems.Count;
+                    items = filteredItems.Skip(skip).Take(ItemPageSize).ToList();
+                    Debug.WriteLine($"[Form1] Index search with sub-filter: '{searchText}' type={itemType} page={_itemCurrentPage} -> {items.Count}/{_itemTotalCount} results (filtered from {allItems.Count})");
+                }
+                else
+                {
+                    // No sub-filter, use server-side pagination
+                    _itemTotalCount = _itemIndexService.CountItems(searchText, itemType);
+                    items = _itemIndexService.SearchItems(searchText, itemType, skip, ItemPageSize);
+                    Debug.WriteLine($"[Form1] Index search: '{searchText}' type={itemType} page={_itemCurrentPage} -> {items.Count}/{_itemTotalCount} results");
+                }
             }
             else
             {
                 // API doesn't support pagination, just get first page
                 items = await _kafraClient.SearchItemsAsync(searchText, itemType, ItemPageSize);
+                if (hasSubFilter)
+                {
+                    items = ApplySubFilters(items, itemType);
+                }
                 _itemTotalCount = items.Count;
                 Debug.WriteLine($"[Form1] API search: '{searchText}' type={itemType} -> {items.Count} results");
             }
@@ -430,8 +474,9 @@ public partial class Form1
             UpdateItemPagination();
 
             var source = _itemIndexService.IsLoaded ? "(인덱스)" : "(API)";
+            var filterInfo = hasSubFilter ? " (필터 적용)" : "";
             var pageInfo = _itemTotalCount > ItemPageSize ? $" (페이지 {_itemCurrentPage + 1})" : "";
-            _lblItemStatus.Text = $"검색 완료 {source}: {_itemTotalCount}개 중 {items.Count}개 표시{pageInfo}";
+            _lblItemStatus.Text = $"검색 완료 {source}: {_itemTotalCount}개 중 {items.Count}개 표시{pageInfo}{filterInfo}";
 
             if (items.Count == 0 && string.IsNullOrEmpty(searchText))
             {
@@ -448,6 +493,18 @@ public partial class Form1
             _btnItemSearch.Enabled = true;
             UpdateItemPaginationButtons();
         }
+    }
+
+    /// <summary>
+    /// Checks if any sub-filter is active (not set to "전체")
+    /// </summary>
+    private bool HasActiveSubFilter()
+    {
+        if (_cboSubFilter1.Visible && _cboSubFilter1.SelectedItem is FilterOption f1 && !string.IsNullOrEmpty(f1.Pattern))
+            return true;
+        if (_cboSubFilter2.Visible && _cboSubFilter2.SelectedItem is FilterOption f2 && !string.IsNullOrEmpty(f2.Pattern))
+            return true;
+        return false;
     }
 
     private void UpdateItemPagination()
@@ -681,6 +738,101 @@ public partial class Form1
             _progressIndex.Value = (int)Math.Min(p.ProgressPercent, 100);
             _lblItemStatus.Text = $"{p.Phase} ({p.CategoryIndex}/{p.TotalCategories}) - {p.ItemsCollected:N0}개 수집됨";
         }
+    }
+
+    /// <summary>
+    /// Updates sub-filter combo boxes based on selected item type
+    /// </summary>
+    private void CboItemType_SelectedIndexChanged(object? sender, EventArgs e)
+    {
+        var selectedType = _cboItemType.SelectedItem as ItemTypeItem;
+        var itemType = selectedType?.Id ?? 999;
+
+        // Get filters for this item type
+        var filters = ItemFilters.GetFiltersForType(itemType);
+
+        // Reset sub-filter combos
+        _cboSubFilter1.Items.Clear();
+        _cboSubFilter2.Items.Clear();
+        _cboSubFilter1.Visible = false;
+        _cboSubFilter2.Visible = false;
+
+        if (filters.Length > 0)
+        {
+            // First filter (position/type)
+            var filter1 = filters[0];
+            _cboSubFilter1.ToolTipText = filter1.Name;
+            foreach (var option in filter1.Options)
+            {
+                _cboSubFilter1.Items.Add(option);
+            }
+            _cboSubFilter1.SelectedIndex = 0;
+            _cboSubFilter1.Visible = true;
+
+            // Second filter (job class) if available
+            if (filters.Length > 1)
+            {
+                var filter2 = filters[1];
+                _cboSubFilter2.ToolTipText = filter2.Name;
+                foreach (var option in filter2.Options)
+                {
+                    _cboSubFilter2.Items.Add(option);
+                }
+                _cboSubFilter2.SelectedIndex = 0;
+                _cboSubFilter2.Visible = true;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Applies client-side filtering based on selected sub-filters
+    /// </summary>
+    private List<KafraItem> ApplySubFilters(List<KafraItem> items, int itemType)
+    {
+        var filters = ItemFilters.GetFiltersForType(itemType);
+        if (filters.Length == 0)
+            return items;
+
+        var result = items;
+
+        // Apply first filter
+        if (_cboSubFilter1.Visible && _cboSubFilter1.SelectedItem is FilterOption filter1)
+        {
+            if (!string.IsNullOrEmpty(filter1.Pattern))
+            {
+                var target = filters[0].Target;
+                var regex = new System.Text.RegularExpressions.Regex(filter1.Pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                result = result.Where(item => MatchesFilter(item, target, regex)).ToList();
+            }
+        }
+
+        // Apply second filter
+        if (_cboSubFilter2.Visible && _cboSubFilter2.SelectedItem is FilterOption filter2)
+        {
+            if (!string.IsNullOrEmpty(filter2.Pattern) && filters.Length > 1)
+            {
+                var target = filters[1].Target;
+                var regex = new System.Text.RegularExpressions.Regex(filter2.Pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                result = result.Where(item => MatchesFilter(item, target, regex)).ToList();
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Checks if an item matches a filter pattern against the specified target field
+    /// </summary>
+    private static bool MatchesFilter(KafraItem item, FilterTarget target, System.Text.RegularExpressions.Regex regex)
+    {
+        var text = target switch
+        {
+            FilterTarget.ScreenName => item.ScreenName ?? "",
+            FilterTarget.ItemText => item.ItemText ?? "",
+            FilterTarget.EquipJobsText => item.EquipJobsText ?? "",
+            _ => ""
+        };
+        return regex.IsMatch(text);
     }
 
     #endregion
