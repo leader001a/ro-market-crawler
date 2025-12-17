@@ -30,32 +30,44 @@ public partial class Form1
         {
             GripStyle = ToolStripGripStyle.Hidden,
             BackColor = ThemePanel,
-            Renderer = new DarkToolStripRenderer()
+            Renderer = new DarkToolStripRenderer(),
+            TabStop = false,
+            CanOverflow = false
         };
 
-        // Item type combo
-        var cboType = new ToolStripComboBox
+        // Item type dropdown with checkboxes
+        _ddItemTypes = new ToolStripDropDownButton
         {
-            DropDownStyle = ComboBoxStyle.DropDownList,
-            Width = 120,
+            Text = "타입: 전체",
             BackColor = ThemeGrid,
             ForeColor = ThemeText,
-            ToolTipText = "아이템 타입"
+            ToolTipText = "아이템 타입 (복수 선택 가능)"
         };
-        cboType.Items.AddRange(new object[] {
-            new ItemTypeItem(999, "전체"),
-            new ItemTypeItem(4, "무기"),
-            new ItemTypeItem(5, "방어구"),
-            new ItemTypeItem(6, "카드"),
-            new ItemTypeItem(7, "펫"),
-            new ItemTypeItem(10, "화살/탄약/투사체"),
-            new ItemTypeItem(19, "쉐도우"),
-            new ItemTypeItem(20, "의상"),
-            new ItemTypeItem(998, "기타")
-        });
-        cboType.SelectedIndex = 0;
-        _cboItemType = cboType.ComboBox;
-        cboType.SelectedIndexChanged += CboItemType_SelectedIndexChanged;
+
+        var typeItems = new (int id, string name)[]
+        {
+            (999, "전체"),
+            (4, "무기"),
+            (5, "방어구"),
+            (6, "카드"),
+            (7, "펫"),
+            (10, "화살/탄약/투사체"),
+            (19, "쉐도우"),
+            (20, "의상"),
+            (998, "기타")
+        };
+
+        foreach (var (id, name) in typeItems)
+        {
+            var menuItem = new ToolStripMenuItem(name)
+            {
+                Tag = id,
+                CheckOnClick = true,
+                Checked = id == 999 // Default: all selected
+            };
+            menuItem.CheckedChanged += ItemTypeMenuItem_CheckedChanged;
+            _ddItemTypes.DropDownItems.Add(menuItem);
+        }
 
         // Sub-filter combo 1 (weapon type, armor position, card position, shadow position, costume position)
         _cboSubFilter1 = new ToolStripComboBox
@@ -103,6 +115,14 @@ public partial class Form1
         _btnItemSearch = new Button(); // Dummy
         _btnItemSearchToolStrip = btnSearch;
 
+        // Close all popups button
+        var btnClosePopups = new ToolStripButton
+        {
+            Text = "팝업 닫기",
+            ToolTipText = "열린 아이템 정보 팝업 모두 닫기"
+        };
+        btnClosePopups.Click += BtnClosePopups_Click;
+
         // Index rebuild button (right-aligned)
         var btnIndexRebuild = new ToolStripButton
         {
@@ -129,13 +149,15 @@ public partial class Form1
         _progressIndexHost = progressHost;
 
         // Add items to toolbar
-        toolStrip.Items.Add(cboType);
+        toolStrip.Items.Add(_ddItemTypes);
         toolStrip.Items.Add(_cboSubFilter1);
         toolStrip.Items.Add(_cboSubFilter2);
         toolStrip.Items.Add(new ToolStripSeparator());
         toolStrip.Items.Add(txtSearch);
         toolStrip.Items.Add(new ToolStripSeparator());
         toolStrip.Items.Add(btnSearch);
+        toolStrip.Items.Add(new ToolStripSeparator());
+        toolStrip.Items.Add(btnClosePopups);
         toolStrip.Items.Add(progressHost);
         toolStrip.Items.Add(btnIndexRebuild);
 
@@ -206,96 +228,120 @@ public partial class Form1
         SetupItemGridColumns();
         _dgvItems.DataSource = _itemBindingSource;
         _dgvItems.SelectionChanged += DgvItems_SelectionChanged;
+        _dgvItems.CellDoubleClick += DgvItems_CellDoubleClick;
 
         leftPanel.Controls.Add(_dgvItems);
 
-        // Right panel: Name -> Image -> Detail text (vertical layout)
+        // Right panel: Header (Image + Name/BasicInfo) -> Description (matching ItemInfoForm layout)
         var rightPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 3,
+            RowCount = 2,
             BackColor = ThemePanel,
-            Padding = new Padding(0),
+            Padding = new Padding(5),
             Margin = new Padding(5, 0, 0, 0)
         };
-        rightPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 35));  // Name area
-        rightPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 115)); // Image area
-        rightPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));  // Detail text area
+        rightPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 120)); // Header (image + info)
+        rightPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));  // Description
 
-        // Item name container with border
-        var nameContainer = new Panel
+        // Header card (Image on left, Info on right)
+        var headerCard = new Panel
         {
             Dock = DockStyle.Fill,
-            BackColor = ThemeBorder,
-            Padding = new Padding(1),
-            Margin = new Padding(0, 0, 0, 3)
-        };
-        var nameInner = new Panel
-        {
-            Dock = DockStyle.Fill,
-            BackColor = ThemeGrid
-        };
-        _lblItemName = new Label
-        {
-            Dock = DockStyle.Fill,
-            Text = "",
-            Font = new Font("Segoe UI", _baseFontSize - 1, FontStyle.Bold),
-            ForeColor = ThemeLinkColor,
             BackColor = ThemeGrid,
-            TextAlign = ContentAlignment.MiddleLeft,
-            AutoEllipsis = true,
-            Padding = new Padding(5, 0, 0, 0)
+            Padding = new Padding(8),
+            Margin = new Padding(0, 0, 0, 5)
         };
-        nameInner.Controls.Add(_lblItemName);
-        nameContainer.Controls.Add(nameInner);
 
-        // Item image container with border
-        var imageContainer = new Panel
+        var headerLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            BackColor = ThemeBorder,
-            Padding = new Padding(1),
-            Margin = new Padding(0, 0, 0, 3)
+            ColumnCount = 2,
+            RowCount = 1,
+            BackColor = Color.Transparent
         };
-        var imageInner = new Panel
-        {
-            Dock = DockStyle.Fill,
-            BackColor = ThemeGrid
-        };
+        headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 90));
+        headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        ApplyTableLayoutPanelStyle(headerLayout);
+
         _picItemImage = new PictureBox
         {
-            Width = 100,
-            Height = 100,
+            Size = new Size(75, 100),
             SizeMode = PictureBoxSizeMode.Zoom,
             BackColor = ThemeGrid,
-            Location = new Point(5, 5)
+            Margin = new Padding(0, 0, 5, 0)
         };
-        imageInner.Controls.Add(_picItemImage);
-        imageContainer.Controls.Add(imageInner);
+        headerLayout.Controls.Add(_picItemImage, 0, 0);
 
-        // Detail text container with border
-        var detailContainer = new Panel
+        var infoPanel = new Panel
         {
             Dock = DockStyle.Fill,
-            BackColor = ThemeBorder,
-            Padding = new Padding(1),
+            BackColor = Color.Transparent,
+            Padding = new Padding(0)
+        };
+
+        _lblItemName = new Label
+        {
+            Text = "",
+            Font = new Font("Malgun Gothic", 11, FontStyle.Bold),
+            ForeColor = ThemeLinkColor,
+            AutoSize = false,
+            Dock = DockStyle.Top,
+            Height = 26,
+            TextAlign = ContentAlignment.MiddleLeft
+        };
+        infoPanel.Controls.Add(_lblItemName);
+
+        _lblItemBasicInfo = new Label
+        {
+            Text = "",
+            Font = new Font("Malgun Gothic", 9),
+            ForeColor = ThemeTextMuted,
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.TopLeft
+        };
+        infoPanel.Controls.Add(_lblItemBasicInfo);
+        _lblItemBasicInfo.BringToFront();
+
+        headerLayout.Controls.Add(infoPanel, 1, 0);
+        headerCard.Controls.Add(headerLayout);
+        rightPanel.Controls.Add(headerCard, 0, 0);
+
+        // Description card
+        var descCard = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = ThemeGrid,
+            Padding = new Padding(8),
             Margin = new Padding(0)
         };
-        _txtItemDetail = new TextBox
-        {
-            Dock = DockStyle.Fill,
-            Multiline = true,
-            ReadOnly = true,
-            ScrollBars = ScrollBars.Vertical,
-            BorderStyle = BorderStyle.None
-        };
-        ApplyDetailTextBoxStyle(_txtItemDetail);
-        detailContainer.Controls.Add(_txtItemDetail);
 
-        rightPanel.Controls.Add(nameContainer, 0, 0);
-        rightPanel.Controls.Add(imageContainer, 0, 1);
-        rightPanel.Controls.Add(detailContainer, 0, 2);
+        var descTitle = new Label
+        {
+            Text = "아이템 설명",
+            Font = new Font("Malgun Gothic", 10, FontStyle.Bold),
+            ForeColor = ThemeText,
+            Dock = DockStyle.Top,
+            Height = 22
+        };
+        descCard.Controls.Add(descTitle);
+
+        _rtbItemDetail = new RichTextBox
+        {
+            BackColor = ThemeGrid,
+            ForeColor = ThemeText,
+            Font = new Font("Malgun Gothic", 9.5f),
+            BorderStyle = BorderStyle.None,
+            ReadOnly = true,
+            Dock = DockStyle.Fill,
+            ScrollBars = RichTextBoxScrollBars.Vertical
+        };
+        descCard.Controls.Add(_rtbItemDetail);
+        _rtbItemDetail.BringToFront();
+
+        rightPanel.Controls.Add(descCard, 0, 1);
 
         // Pagination panel (centered below left grid)
         var paginationPanel = new FlowLayoutPanel
@@ -418,8 +464,6 @@ public partial class Form1
     private async Task LoadItemPageAsync()
     {
         var searchText = _txtItemSearch.Text.Trim();
-        var selectedType = _cboItemType.SelectedItem as ItemTypeItem;
-        var itemType = selectedType?.Id ?? 999;
 
         _btnItemSearch.Enabled = false;
         _btnItemPrev.Enabled = false;
@@ -431,8 +475,9 @@ public partial class Form1
             List<KafraItem> items;
             var skip = _itemCurrentPage * ItemPageSize;
 
-            // Check if any sub-filter is active
-            var hasSubFilter = HasActiveSubFilter();
+            // Check if any sub-filter is active (only for single type)
+            var hasSubFilter = _selectedItemTypes.Count == 1 && !_selectedItemTypes.Contains(999) && HasActiveSubFilter();
+            var singleType = _selectedItemTypes.Count == 1 ? _selectedItemTypes.First() : 999;
 
             // Use index if loaded, otherwise fallback to API
             if (_itemIndexService.IsLoaded)
@@ -440,30 +485,27 @@ public partial class Form1
                 if (hasSubFilter)
                 {
                     // Get all items matching type, then apply sub-filters client-side
-                    var allItems = _itemIndexService.SearchItems(searchText, itemType, 0, int.MaxValue);
-                    var filteredItems = ApplySubFilters(allItems, itemType);
+                    var allItems = _itemIndexService.SearchItems(searchText, _selectedItemTypes, 0, int.MaxValue);
+                    var filteredItems = ApplySubFilters(allItems, singleType);
                     _itemTotalCount = filteredItems.Count;
                     items = filteredItems.Skip(skip).Take(ItemPageSize).ToList();
-                    Debug.WriteLine($"[Form1] Index search with sub-filter: '{searchText}' type={itemType} page={_itemCurrentPage} -> {items.Count}/{_itemTotalCount} results (filtered from {allItems.Count})");
                 }
                 else
                 {
                     // No sub-filter, use server-side pagination
-                    _itemTotalCount = _itemIndexService.CountItems(searchText, itemType);
-                    items = _itemIndexService.SearchItems(searchText, itemType, skip, ItemPageSize);
-                    Debug.WriteLine($"[Form1] Index search: '{searchText}' type={itemType} page={_itemCurrentPage} -> {items.Count}/{_itemTotalCount} results");
+                    _itemTotalCount = _itemIndexService.CountItems(searchText, _selectedItemTypes);
+                    items = _itemIndexService.SearchItems(searchText, _selectedItemTypes, skip, ItemPageSize);
                 }
             }
             else
             {
-                // API doesn't support pagination, just get first page
-                items = await _kafraClient.SearchItemsAsync(searchText, itemType, ItemPageSize);
+                // API doesn't support multi-type or pagination, use single type
+                items = await _kafraClient.SearchItemsAsync(searchText, singleType, ItemPageSize);
                 if (hasSubFilter)
                 {
-                    items = ApplySubFilters(items, itemType);
+                    items = ApplySubFilters(items, singleType);
                 }
                 _itemTotalCount = items.Count;
-                Debug.WriteLine($"[Form1] API search: '{searchText}' type={itemType} -> {items.Count} results");
             }
 
             _itemResults.Clear();
@@ -555,36 +597,98 @@ public partial class Form1
 
         var item = _itemResults[selectedIndex];
 
-        // Set item name label
-        _lblItemName.Text = $"{item.ScreenName} (ID: {item.ItemConst})";
+        // Set item name label (matching ItemInfoForm)
+        _lblItemName.Text = item.ScreenName ?? item.Name ?? $"Item {item.ItemConst}";
 
-        // Build detail text (without name, since it's shown in label)
-        var details = new System.Text.StringBuilder();
-        details.AppendLine($"타입: {item.GetTypeDisplayName()}");
-        details.AppendLine($"무게: {item.GetFormattedWeight()}");
-        details.AppendLine($"슬롯: {item.Slots}");
-        details.AppendLine($"NPC 구매가: {item.GetFormattedNpcBuyPrice()}");
-        details.AppendLine($"NPC 판매가: {item.GetFormattedNpcSellPrice()}");
-        details.AppendLine();
-        details.AppendLine("[효과]");
-        var itemText = item.ItemText ?? "-";
-        // Remove color codes and normalize line breaks for Windows TextBox
+        // Set basic info label (matching ItemInfoForm format)
+        var basicInfo = new List<string>
+        {
+            $"ID: {item.ItemConst}  |  타입: {item.GetTypeDisplayName()}",
+            $"무게: {item.GetFormattedWeight()}  |  슬롯: {item.Slots}",
+            $"NPC 구매가: {item.GetFormattedNpcBuyPrice()}",
+            $"NPC 판매가: {item.GetFormattedNpcSellPrice()}"
+        };
+        _lblItemBasicInfo.Text = string.Join(Environment.NewLine, basicInfo);
+
+        // Load item description into RichTextBox (matching ItemInfoForm)
+        _rtbItemDetail.Clear();
+        var itemText = item.ItemText ?? "(설명 없음)";
+        // Remove color codes
         itemText = System.Text.RegularExpressions.Regex.Replace(itemText, @"\^[0-9a-fA-F]{6}_?", "");
         itemText = itemText.Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", Environment.NewLine);
-        details.AppendLine(itemText);
+        _rtbItemDetail.Text = itemText;
+
+        // Add equip jobs section if available
         if (!string.IsNullOrEmpty(item.EquipJobsText))
         {
-            details.AppendLine();
-            details.AppendLine($"[장착 가능 직업]");
-            var equipJobs = item.EquipJobsText;
-            equipJobs = equipJobs.Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", Environment.NewLine);
-            details.AppendLine(equipJobs);
-        }
+            _rtbItemDetail.AppendText(Environment.NewLine + Environment.NewLine);
+            _rtbItemDetail.SelectionColor = ThemeLinkColor;
+            _rtbItemDetail.SelectionFont = new Font(_rtbItemDetail.Font, FontStyle.Bold);
+            _rtbItemDetail.AppendText("[장착 가능 직업]" + Environment.NewLine);
+            _rtbItemDetail.SelectionColor = ThemeText;
+            _rtbItemDetail.SelectionFont = _rtbItemDetail.Font;
 
-        _txtItemDetail.Text = details.ToString();
+            var equipJobs = item.EquipJobsText.Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", Environment.NewLine);
+            _rtbItemDetail.AppendText(equipJobs);
+        }
 
         // Load item image asynchronously
         _ = LoadItemImageAsync(item.ItemConst);
+    }
+
+    private void DgvItems_CellDoubleClick(object? sender, DataGridViewCellEventArgs e)
+    {
+        if (e.RowIndex < 0 || e.RowIndex >= _itemResults.Count) return;
+
+        var item = _itemResults[e.RowIndex];
+
+        // Check if popup for this item already exists
+        var existingForm = _openItemInfoForms
+            .OfType<ItemInfoForm>()
+            .FirstOrDefault(f => !f.IsDisposed && f.ItemConst == item.ItemConst);
+
+        if (existingForm != null)
+        {
+            // Bring existing popup to front
+            existingForm.BringToFront();
+            existingForm.Focus();
+            if (existingForm.WindowState == FormWindowState.Minimized)
+            {
+                existingForm.WindowState = FormWindowState.Normal;
+            }
+            return;
+        }
+
+        // Open new ItemInfoForm (non-modal, allows multiple popups)
+        var infoForm = new ItemInfoForm(item, _itemIndexService, _currentTheme);
+        infoForm.FormClosed += (s, args) => _openItemInfoForms.Remove(infoForm);
+        _openItemInfoForms.Add(infoForm);
+        infoForm.Show();
+    }
+
+    private void BtnClosePopups_Click(object? sender, EventArgs e)
+    {
+        CloseAllItemInfoForms();
+    }
+
+    private void CloseAllItemInfoForms()
+    {
+        // Close all open ItemInfoForm popups
+        var formsToClose = _openItemInfoForms.ToList();
+        _openItemInfoForms.Clear();
+
+        foreach (var form in formsToClose)
+        {
+            try
+            {
+                if (!form.IsDisposed)
+                {
+                    form.Close();
+                    form.Dispose();
+                }
+            }
+            catch { }
+        }
     }
 
     private async Task LoadItemImageAsync(int itemId)
@@ -761,25 +865,99 @@ public partial class Form1
     }
 
     /// <summary>
-    /// Updates sub-filter combo boxes based on selected item type
+    /// Handles item type checkbox selection changes
     /// </summary>
-    private void CboItemType_SelectedIndexChanged(object? sender, EventArgs e)
+    private void ItemTypeMenuItem_CheckedChanged(object? sender, EventArgs e)
     {
-        var selectedType = _cboItemType.SelectedItem as ItemTypeItem;
-        var itemType = selectedType?.Id ?? 999;
+        if (sender is not ToolStripMenuItem menuItem || menuItem.Tag is not int typeId)
+            return;
 
-        // Get filters for this item type
-        var filters = ItemFilters.GetFiltersForType(itemType);
+        var allItem = _ddItemTypes.DropDownItems[0] as ToolStripMenuItem;
 
+        if (typeId == 999) // "All" clicked
+        {
+            if (menuItem.Checked)
+            {
+                // Uncheck all other items
+                foreach (ToolStripMenuItem item in _ddItemTypes.DropDownItems)
+                {
+                    if (item.Tag is int id && id != 999)
+                        item.Checked = false;
+                }
+                _selectedItemTypes.Clear();
+                _selectedItemTypes.Add(999);
+            }
+            else
+            {
+                // Can't uncheck "All" if nothing else is selected
+                if (_selectedItemTypes.Count == 1 && _selectedItemTypes.Contains(999))
+                    menuItem.Checked = true;
+            }
+        }
+        else
+        {
+            if (menuItem.Checked)
+            {
+                // Uncheck "All" and add this type
+                if (allItem != null) allItem.Checked = false;
+                _selectedItemTypes.Remove(999);
+                _selectedItemTypes.Add(typeId);
+            }
+            else
+            {
+                _selectedItemTypes.Remove(typeId);
+                // If nothing selected, re-check "All"
+                if (_selectedItemTypes.Count == 0)
+                {
+                    if (allItem != null) allItem.Checked = true;
+                    _selectedItemTypes.Add(999);
+                }
+            }
+        }
+
+        // Update dropdown button text
+        UpdateItemTypeButtonText();
+
+        // Update sub-filters (only show for single type selection)
+        UpdateSubFilters();
+    }
+
+    private void UpdateItemTypeButtonText()
+    {
+        if (_selectedItemTypes.Contains(999))
+        {
+            _ddItemTypes.Text = "타입: 전체";
+        }
+        else if (_selectedItemTypes.Count == 1)
+        {
+            var typeId = _selectedItemTypes.First();
+            var menuItem = _ddItemTypes.DropDownItems.Cast<ToolStripMenuItem>()
+                .FirstOrDefault(m => m.Tag is int id && id == typeId);
+            _ddItemTypes.Text = $"타입: {menuItem?.Text ?? typeId.ToString()}";
+        }
+        else
+        {
+            _ddItemTypes.Text = $"타입: {_selectedItemTypes.Count}개 선택";
+        }
+    }
+
+    private void UpdateSubFilters()
+    {
         // Reset sub-filter combos
         _cboSubFilter1.Items.Clear();
         _cboSubFilter2.Items.Clear();
         _cboSubFilter1.Visible = false;
         _cboSubFilter2.Visible = false;
 
+        // Only show sub-filters for single type selection (not "All")
+        if (_selectedItemTypes.Count != 1 || _selectedItemTypes.Contains(999))
+            return;
+
+        var itemType = _selectedItemTypes.First();
+        var filters = ItemFilters.GetFiltersForType(itemType);
+
         if (filters.Length > 0)
         {
-            // First filter (position/type)
             var filter1 = filters[0];
             _cboSubFilter1.ToolTipText = filter1.Name;
             foreach (var option in filter1.Options)
@@ -789,7 +967,6 @@ public partial class Form1
             _cboSubFilter1.SelectedIndex = 0;
             _cboSubFilter1.Visible = true;
 
-            // Second filter (job class) if available
             if (filters.Length > 1)
             {
                 var filter2 = filters[1];

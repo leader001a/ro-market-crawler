@@ -59,7 +59,8 @@ public partial class Form1 : Form
 
     // Tab 2: Item Database (Kafra)
     private TextBox _txtItemSearch = null!;
-    private ComboBox _cboItemType = null!;
+    private ToolStripDropDownButton _ddItemTypes = null!;
+    private readonly HashSet<int> _selectedItemTypes = new() { 999 }; // Default: all
     private ToolStripComboBox _cboSubFilter1 = null!;
     private ToolStripComboBox _cboSubFilter2 = null!;
     private Button _btnItemSearch = null!;
@@ -68,10 +69,12 @@ public partial class Form1 : Form
     private ToolStripButton _btnIndexRebuildToolStrip = null!;
     private ToolStripControlHost _progressIndexHost = null!;
     private DataGridView _dgvItems = null!;
-    private TextBox _txtItemDetail = null!;
+    private RichTextBox _rtbItemDetail = null!;
     private PictureBox _picItemImage = null!;
     private Label _lblItemName = null!;
+    private Label _lblItemBasicInfo = null!;
     private Label _lblItemStatus = null!;
+    private readonly List<Form> _openItemInfoForms = new();
     private ProgressBar _progressIndex = null!;
     private readonly HttpClient _imageHttpClient = new();
     private readonly string _imageCacheDir;
@@ -398,8 +401,17 @@ public partial class Form1 : Form
             }
             else if (control == _lblItemName)
             {
-                // Item name label is larger and bold
-                control.Font = new Font("Segoe UI", _baseFontSize - 1, FontStyle.Bold);
+                // Item name label is larger and bold (matching ItemInfoForm)
+                control.Font = new Font("Malgun Gothic", _baseFontSize, FontStyle.Bold);
+            }
+            else if (control == _lblItemBasicInfo)
+            {
+                // Basic info label smaller and muted
+                control.Font = new Font("Malgun Gothic", _baseFontSize - 2);
+            }
+            else if (control is RichTextBox rtb)
+            {
+                rtb.Font = new Font("Malgun Gothic", _baseFontSize - 1.5f);
             }
             else if (control is Button btn)
             {

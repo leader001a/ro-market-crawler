@@ -303,8 +303,15 @@ public class ItemIndexService : IDisposable
     /// Count items matching the search criteria (for pagination).
     /// </summary>
     public int CountItems(string searchTerm, int itemType = 999)
+        => CountItems(searchTerm, new HashSet<int> { itemType });
+
+    /// <summary>
+    /// Count items matching the search criteria with multiple types (for pagination).
+    /// </summary>
+    public int CountItems(string searchTerm, HashSet<int> itemTypes)
     {
         var hasSearchTerm = !string.IsNullOrWhiteSpace(searchTerm);
+        var allTypes = itemTypes.Contains(999);
         var count = 0;
 
         lock (_indexLock)
@@ -312,7 +319,7 @@ public class ItemIndexService : IDisposable
             foreach (var item in _itemsById.Values)
             {
                 // Type filter (999 = all types)
-                if (itemType != 999 && item.Type != itemType)
+                if (!allTypes && !itemTypes.Contains(item.Type))
                     continue;
 
                 // Name filter (if search term provided)
@@ -334,16 +341,19 @@ public class ItemIndexService : IDisposable
 
     /// <summary>
     /// Search items with type filtering, name matching, and pagination.
+    /// </summary>
+    public List<KafraItem> SearchItems(string searchTerm, int itemType = 999, int skip = 0, int take = 100)
+        => SearchItems(searchTerm, new HashSet<int> { itemType }, skip, take);
+
+    /// <summary>
+    /// Search items with multiple type filtering, name matching, and pagination.
     /// Returns KafraItem list for UI binding compatibility.
     /// </summary>
-    /// <param name="searchTerm">Name to search (empty = all items of type)</param>
-    /// <param name="itemType">Item type filter (999 = all types)</param>
-    /// <param name="skip">Number of items to skip (for pagination)</param>
-    /// <param name="take">Maximum results to return</param>
-    public List<KafraItem> SearchItems(string searchTerm, int itemType = 999, int skip = 0, int take = 100)
+    public List<KafraItem> SearchItems(string searchTerm, HashSet<int> itemTypes, int skip = 0, int take = 100)
     {
         var results = new List<KafraItem>();
         var hasSearchTerm = !string.IsNullOrWhiteSpace(searchTerm);
+        var allTypes = itemTypes.Contains(999);
         var skipped = 0;
 
         lock (_indexLock)
@@ -353,7 +363,7 @@ public class ItemIndexService : IDisposable
                 if (results.Count >= take) break;
 
                 // Type filter (999 = all types)
-                if (itemType != 999 && item.Type != itemType)
+                if (!allTypes && !itemTypes.Contains(item.Type))
                     continue;
 
                 // Name filter (if search term provided)
