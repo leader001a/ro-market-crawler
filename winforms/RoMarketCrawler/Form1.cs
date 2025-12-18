@@ -46,11 +46,13 @@ public partial class Form1 : Form
     private Button _btnDealCancel = null!;
     private ToolStripButton _btnDealSearchToolStrip = null!;
     private ToolStripButton _btnDealCancelToolStrip = null!;
+    private ToolStripProgressBar _progressDealSearch = null!;
     private DataGridView _dgvDeals = null!;
     private Label _lblDealStatus = null!;
     private FlowLayoutPanel _pnlSearchHistory = null!;
     private List<string> _dealSearchHistory = new();
     private const int MaxSearchHistoryCount = 10;
+    private const int DealSearchDelayMs = 1000;  // 1 second delay between searches
 
     // Deal Tab Pagination (server-side: API returns 10 items per page)
     private Button _btnDealPrev = null!;
@@ -438,14 +440,216 @@ public partial class Form1 : Form
 
         _menuStrip.Items.Add(toolsMenu);
 
-        // Close all popups - direct menu item (not dropdown)
+        // Help menu
+        var helpMenu = new ToolStripMenuItem("도움말(&H)");
+        helpMenu.ForeColor = ThemeText;
+
+        var userGuideItem = new ToolStripMenuItem("사용 가이드")
+        {
+            ForeColor = ThemeText,
+            ShortcutKeys = Keys.F1
+        };
+        userGuideItem.Click += (s, e) => ShowHelpGuide();
+        helpMenu.DropDownItems.Add(userGuideItem);
+
+        helpMenu.DropDownItems.Add(new ToolStripSeparator());
+
+        var aboutItem = new ToolStripMenuItem("정보")
+        {
+            ForeColor = ThemeText
+        };
+        aboutItem.Click += (s, e) => ShowAboutDialog();
+        helpMenu.DropDownItems.Add(aboutItem);
+
+        _menuStrip.Items.Add(helpMenu);
+
+        // Close all popups - right-aligned button with margin
         var closeAllPopups = new ToolStripMenuItem("전체 팝업 닫기")
         {
             ForeColor = ThemeText,
-            ShortcutKeys = Keys.Control | Keys.Shift | Keys.W
+            ShortcutKeys = Keys.Control | Keys.Shift | Keys.W,
+            Alignment = ToolStripItemAlignment.Right,
+            Margin = new Padding(0, 0, 15, 0)  // Right margin
         };
         closeAllPopups.Click += (s, e) => CloseAllItemInfoForms();
         _menuStrip.Items.Add(closeAllPopups);
+    }
+
+    private void ShowHelpGuide(HelpGuideForm.HelpSection section = HelpGuideForm.HelpSection.Overview)
+    {
+        using var helpForm = new HelpGuideForm(_currentTheme, section);
+        helpForm.ShowDialog(this);
+    }
+
+    private void ShowAboutDialog()
+    {
+        const int formWidth = 500;
+        const int formHeight = 540;
+        const int leftMargin = 25;
+        const int contentWidth = 440;
+
+        // Classic theme colors for consistent readability (always light theme)
+        var clrBackground = Color.FromArgb(250, 250, 250);
+        var clrText = Color.FromArgb(51, 51, 51);
+        var clrTextMuted = Color.FromArgb(102, 102, 102);
+        var clrLink = Color.FromArgb(70, 130, 180);
+        var clrLegalText = Color.FromArgb(60, 60, 60);
+        var clrLegalBg = Color.FromArgb(245, 245, 245);
+        var clrButtonBg = Color.FromArgb(70, 130, 180);
+        var clrButtonText = Color.White;
+
+        using var aboutForm = new Form
+        {
+            Text = "프로그램 정보",
+            Size = new Size(formWidth, formHeight),
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            StartPosition = FormStartPosition.CenterParent,
+            MaximizeBox = false,
+            MinimizeBox = false,
+            BackColor = clrBackground,
+            ShowIcon = false
+        };
+
+        // Title
+        var lblTitle = new Label
+        {
+            Text = "RO Market Crawler v1.0.0",
+            Font = new Font("Malgun Gothic", 14, FontStyle.Bold),
+            ForeColor = clrLink,
+            AutoSize = true,
+            Location = new Point(leftMargin, 18)
+        };
+
+        // Description
+        var lblDesc = new Label
+        {
+            Text = "라그나로크 온라인 거래 정보 검색 및 모니터링 프로그램",
+            Font = new Font("Malgun Gothic", 9),
+            ForeColor = clrTextMuted,
+            AutoSize = true,
+            Location = new Point(leftMargin, 45)
+        };
+
+        // Data source section
+        var lblSource = new Label
+        {
+            Text = "[데이터 출처]\n" +
+                   "  - 아이템 정보: kafra.kr\n" +
+                   "  - 노점 거래: ro.gnjoy.com",
+            Font = new Font("Malgun Gothic", 9),
+            ForeColor = clrText,
+            AutoSize = true,
+            Location = new Point(leftMargin, 72)
+        };
+
+        // Creator
+        var lblCreator = new Label
+        {
+            Text = "Created by: 티포니",
+            Font = new Font("Malgun Gothic", 9),
+            ForeColor = clrText,
+            AutoSize = true,
+            Location = new Point(leftMargin, 130)
+        };
+
+        // Contact: separate Label + LinkLabel for proper styling
+        var lblContact = new Label
+        {
+            Text = "문의:",
+            Font = new Font("Malgun Gothic", 9),
+            ForeColor = clrText,
+            AutoSize = true,
+            Location = new Point(leftMargin, 150)
+        };
+
+        var linkKakao = new LinkLabel
+        {
+            Text = "카카오톡 오픈프로필",
+            Font = new Font("Malgun Gothic", 9),
+            LinkColor = clrLink,
+            ActiveLinkColor = clrLink,
+            AutoSize = true,
+            Location = new Point(leftMargin + 38, 150)
+        };
+        linkKakao.LinkClicked += (s, e) =>
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "https://open.kakao.com/o/sOfQ176h",
+                    UseShellExecute = true
+                });
+            }
+            catch { }
+        };
+
+        // Legal notice (scrollable)
+        var legalNoticeText =
+            "[프로그램 이용 및 배포 제한 안내]\r\n\r\n" +
+            "1. 복제 및 재배포 금지\r\n" +
+            "본 프로그램은 저작권법의 보호를 받으며, 저작권자의 명시적인 서면 동의 없이 " +
+            "프로그램의 전부 또는 일부를 복제, 수정, 개작하거나 타인에게 재배포하는 행위를 " +
+            "엄격히 금지합니다.\r\n\r\n" +
+            "2. 서비스 중단\r\n" +
+            "본 프로그램은 외부 웹사이트의 데이터를 수집하여 제공합니다. 데이터 제공처, " +
+            "게임 운영사 또는 관련 권리자의 요청이 있을 경우, 본 프로그램의 배포 및 " +
+            "서비스는 별도의 사전 공지 없이 즉시 중단될 수 있습니다.\r\n\r\n" +
+            "3. 데이터 정확성\r\n" +
+            "본 프로그램에서 제공하는 아이템 정보 및 거래 시세는 참고 목적으로만 제공되며, " +
+            "실시간성, 정확성, 완전성을 보장하지 않습니다. 실제 게임 내 가격 및 거래 조건과 " +
+            "차이가 있을 수 있으므로 반드시 게임 내에서 직접 확인하시기 바랍니다.\r\n\r\n" +
+            "4. 거래 결정에 대한 책임\r\n" +
+            "본 프로그램의 정보를 참고하여 이루어진 게임 내 거래 결정 및 그로 인한 손실에 대해 " +
+            "저작권자는 어떠한 책임도 지지 않습니다. 모든 거래 결정은 사용자 본인의 " +
+            "판단과 책임 하에 이루어져야 합니다.\r\n\r\n" +
+            "5. 게임 이용약관 준수\r\n" +
+            "본 프로그램의 사용으로 인해 발생할 수 있는 게임 이용약관 위반 및 그에 따른 " +
+            "계정 제재 등의 불이익에 대해 저작권자는 책임을 지지 않습니다. 사용자는 해당 게임의 " +
+            "이용약관을 숙지하고 준수할 책임이 있습니다.\r\n\r\n" +
+            "6. 면책 조항\r\n" +
+            "본 프로그램은 어떠한 보증 없이 '있는 그대로(AS-IS)' 제공됩니다. 프로그램 사용으로 " +
+            "인해 발생하는 직접적, 간접적 손해에 대해 저작권자는 책임을 지지 않습니다. " +
+            "본 프로그램은 개인적인 참고 목적으로만 사용하시기 바랍니다.\r\n\r\n" +
+            "7. 위반 시 책임\r\n" +
+            "상기 사항을 위반하여 발생하는 모든 법적 책임은 위반자 본인에게 있으며, " +
+            "저작권자는 관련 법령에 따라 법적 조치를 취할 수 있습니다.\r\n\r\n" +
+            "[관련 법규 확인]\r\n" +
+            "- 한국저작권위원회 / 국가법령정보센터";
+
+        var txtLegalNotice = new TextBox
+        {
+            Text = legalNoticeText,
+            Font = new Font("Malgun Gothic", 8.5f),
+            ForeColor = clrLegalText,
+            BackColor = clrLegalBg,
+            BorderStyle = BorderStyle.FixedSingle,
+            ReadOnly = true,
+            Multiline = true,
+            WordWrap = true,
+            ScrollBars = ScrollBars.Vertical,
+            Location = new Point(leftMargin, 180),
+            Size = new Size(contentWidth, 260)
+        };
+
+        // OK button (centered at bottom) - styled manually for classic theme
+        var btnOk = new Button
+        {
+            Text = "확인",
+            Width = 80,
+            Height = 28,
+            DialogResult = DialogResult.OK,
+            Location = new Point((formWidth - 80) / 2 - 8, 455),
+            FlatStyle = FlatStyle.Flat,
+            BackColor = clrButtonBg,
+            ForeColor = clrButtonText,
+            Cursor = Cursors.Hand
+        };
+        btnOk.FlatAppearance.BorderSize = 0;
+
+        aboutForm.Controls.AddRange(new Control[] { lblTitle, lblDesc, lblSource, lblCreator, lblContact, linkKakao, txtLegalNotice, btnOk });
+        aboutForm.AcceptButton = btnOk;
+        aboutForm.ShowDialog(this);
     }
 
     private void ThemeMenuItem_Click(object? sender, EventArgs e)

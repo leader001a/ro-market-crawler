@@ -47,23 +47,26 @@ public class DealItem
         }
 
         // Auto-generate DisplayName
+        // Format: [Grade]+Refine아이템명 [CardSlots]
+        // Note: No space between grade/refine and item name (matches original game format)
         if (string.IsNullOrEmpty(DisplayName))
         {
-            var parts = new List<string>();
+            var sb = new System.Text.StringBuilder();
+
             if (!string.IsNullOrEmpty(Grade))
             {
-                parts.Add($"[{Grade}]");
+                sb.Append($"[{Grade}]");
             }
             if (Refine.HasValue && Refine > 0)
             {
-                parts.Add($"+{Refine}");
+                sb.Append($"+{Refine}");
             }
-            parts.Add(ItemName);
+            sb.Append(ItemName);
             if (!string.IsNullOrEmpty(CardSlots))
             {
-                parts.Add($"[{CardSlots}]");
+                sb.Append($"[{CardSlots}]");
             }
-            DisplayName = string.Join(" ", parts);
+            DisplayName = sb.ToString();
         }
     }
 

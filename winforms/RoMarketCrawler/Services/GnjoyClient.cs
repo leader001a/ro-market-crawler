@@ -23,23 +23,9 @@ public class GnjoyClient : IDisposable
     private readonly PriceQuoteParser _quoteParser;
     private readonly ItemDetailParser _detailParser;
 
-    // Retry settings - kafra.kr style (3 retries, 1 second delay)
+    // Retry settings (3 retries, 1 second delay)
     private const int MaxRetries = 3;
-    private const int RetryDelayMs = 1000; // 1 second delay between retries (kafra.kr style)
-
-    // Google Proxy settings - kafra.kr style proxy to avoid rate limiting
-    // NOTE: Disabled because Google OpenSocial proxy doesn't work reliably with GNJOY server
-    // kafra.kr uses this for browser-based requests, but desktop apps can call GNJOY directly
-    private const bool UseGoogleProxy = false;
-    private static readonly string[] GoogleProxyHosts = new[]
-    {
-        "images0-focus-opensocial.googleusercontent.com",
-        "images1-focus-opensocial.googleusercontent.com",
-        "images2-focus-opensocial.googleusercontent.com",
-        "images3-focus-opensocial.googleusercontent.com"
-    };
-    private int _proxyHostIndex = 0;
-    private readonly object _proxyLock = new object();
+    private const int RetryDelayMs = 1000;
 
     public GnjoyClient()
     {
@@ -85,38 +71,10 @@ public class GnjoyClient : IDisposable
         _detailParser = new ItemDetailParser();
 
         Debug.WriteLine("[GnjoyClient] Initialized with SocketsHttpHandler - MaxConnectionsPerServer=10, PooledConnectionLifetime=2min");
-        Debug.WriteLine($"[GnjoyClient] Google Proxy enabled: {UseGoogleProxy}");
     }
 
     /// <summary>
-    /// Build Google Proxy URL (kafra.kr style) to bypass rate limiting
-    /// Rotates between 4 proxy hosts for load balancing
-    /// </summary>
-    private string BuildProxyUrl(string targetUrl)
-    {
-        if (!UseGoogleProxy)
-            return targetUrl;
-
-        // Rotate proxy host for load balancing
-        string proxyHost;
-        lock (_proxyLock)
-        {
-            proxyHost = GoogleProxyHosts[_proxyHostIndex];
-            _proxyHostIndex = (_proxyHostIndex + 1) % GoogleProxyHosts.Length;
-        }
-
-        // URL encode the target URL
-        var encodedUrl = Uri.EscapeDataString(targetUrl);
-        var proxyUrl = $"https://{proxyHost}/gadgets/proxy?container=focus&url={encodedUrl}";
-
-        Debug.WriteLine($"[GnjoyClient] Proxy URL: {proxyHost} -> {targetUrl}");
-        return proxyUrl;
-    }
-
-    /// <summary>
-    /// HTTP GET with retry on error (kafra.kr style - 3 retries, 1 second delay)
-    /// No rate limiting - fire all requests in parallel like kafra.kr does
-    /// Uses Google Proxy if enabled
+    /// HTTP GET with retry on error (3 retries, 1 second delay)
     /// </summary>
     private async Task<HttpResponseMessage> GetWithRetryAsync(string url, CancellationToken cancellationToken)
     {
@@ -135,9 +93,7 @@ public class GnjoyClient : IDisposable
                     await Task.Delay(RetryDelayMs, cancellationToken);
                 }
 
-                // Use Google Proxy if enabled (kafra.kr style)
-                var requestUrl = BuildProxyUrl(url);
-                response = await _client.GetAsync(requestUrl, cancellationToken);
+                response = await _client.GetAsync(url, cancellationToken);
 
                 // Check for error responses that should trigger retry
                 if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests ||
@@ -537,7 +493,6 @@ public class GnjoyClient : IDisposable
             }
 
             page++;
-            // No delay needed - Google Proxy handles rate limiting (kafra.kr style)
         }
 
         Debug.WriteLine($"[GnjoyClient] SearchAllItemDealsAsync: Completed with {allItems.Count} total items from {page} page(s)");

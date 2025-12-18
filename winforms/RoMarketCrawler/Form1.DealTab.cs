@@ -100,13 +100,25 @@ public partial class Form1
         _btnDealCancel = new Button(); // Dummy for state management
         _btnDealCancelToolStrip = btnCancel;
 
-        // Add items to toolbar (without pagination)
+        // Progress bar (right-aligned, hidden by default)
+        _progressDealSearch = new ToolStripProgressBar
+        {
+            Minimum = 0,
+            Maximum = 100,
+            Value = 0,
+            Visible = false,
+            Alignment = ToolStripItemAlignment.Right,
+            Size = new Size(120, 16)
+        };
+
+        // Add items to toolbar
         toolStrip.Items.Add(cboServer);
         toolStrip.Items.Add(new ToolStripSeparator());
         toolStrip.Items.Add(txtSearch);
         toolStrip.Items.Add(new ToolStripSeparator());
         toolStrip.Items.Add(btnSearch);
         toolStrip.Items.Add(btnCancel);
+        toolStrip.Items.Add(_progressDealSearch);
 
         // Pagination panel (bottom, centered)
         var paginationPanel = new FlowLayoutPanel
@@ -195,7 +207,8 @@ public partial class Form1
             ReadOnly = true,
             AllowUserToAddRows = false,
             AllowUserToDeleteRows = false,
-            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+            SelectionMode = DataGridViewSelectionMode.CellSelect,
+            MultiSelect = true,
             RowHeadersVisible = false,
             AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None,
             AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCells
@@ -223,6 +236,23 @@ public partial class Form1
         _dgvDeals.CellFormatting += DgvDeals_CellFormatting;
         SetupDealGridColumns();
         _dgvDeals.DataSource = _dealBindingSource;
+
+        // Context menu for deals grid
+        var dealContextMenu = new ContextMenuStrip();
+        var addToMonitorItem = new ToolStripMenuItem("모니터링 추가");
+        addToMonitorItem.Click += DealContextMenu_AddToMonitor;
+        dealContextMenu.Items.Add(addToMonitorItem);
+        _dgvDeals.ContextMenuStrip = dealContextMenu;
+
+        // Handle right-click to select row before showing context menu
+        _dgvDeals.CellMouseDown += (s, e) =>
+        {
+            if (e.Button == MouseButtons.Right && e.RowIndex >= 0)
+            {
+                _dgvDeals.ClearSelection();
+                _dgvDeals.Rows[e.RowIndex].Selected = true;
+            }
+        };
 
         // Status bar
         _lblDealStatus = new Label
@@ -366,10 +396,25 @@ public partial class Form1
         }
 
         SetDealSearchingState(true);
-        _lblDealStatus.Text = $"{_dealCurrentPage}페이지 조회 중...";
+        _lblDealStatus.Text = $"서버 보호를 위해 대기 중...";
 
         try
         {
+            // Rate limiting: 1 second delay with progress bar animation
+            _progressDealSearch.Value = 0;
+            _progressDealSearch.Visible = true;
+            const int steps = 20;
+            const int stepDelay = DealSearchDelayMs / steps;
+            for (int i = 1; i <= steps; i++)
+            {
+                if (_cts.Token.IsCancellationRequested) break;
+                await Task.Delay(stepDelay, _cts.Token);
+                _progressDealSearch.Value = (i * 100) / steps;
+            }
+            _progressDealSearch.Visible = false;
+
+            _lblDealStatus.Text = $"{_dealCurrentPage}페이지 조회 중...";
+
             // Fetch single page from API (API uses 1-based page numbers)
             var items = await _gnjoyClient.SearchItemDealsAsync(searchText, serverId, _dealCurrentPage, _cts.Token);
 
@@ -577,6 +622,20 @@ public partial class Form1
         _cboDealServer.Enabled = !searching;
         _btnDealPrev.Enabled = !searching && _dealCurrentPage > 1;
         _btnDealNext.Enabled = !searching && _hasMorePages;
+
+        // Disable search history links during search
+        if (_pnlSearchHistory != null)
+        {
+            foreach (Control ctrl in _pnlSearchHistory.Controls)
+            {
+                if (ctrl is Label lbl && lbl.Tag is ValueTuple<string, string> tag && tag.Item1 == "SearchHistoryLink")
+                {
+                    lbl.Enabled = !searching;
+                    lbl.ForeColor = searching ? ThemeTextMuted : ThemeAccent;
+                    lbl.Cursor = searching ? Cursors.Default : Cursors.Hand;
+                }
+            }
+        }
     }
 
     private void DgvDeals_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
@@ -687,6 +746,56 @@ public partial class Form1
         {
             _autoCompleteItems.Insert(0, searchTerm);
             _autoCompleteDropdown?.SetDataSource(_autoCompleteItems);
+        }
+    }
+
+    /// <summary>
+    /// Context menu handler: Add selected deal item to monitoring list
+    /// </summary>
+    private async void DealContextMenu_AddToMonitor(object? sender, EventArgs e)
+    {
+        var selectedRow = _dgvDeals.CurrentRow;
+        if (selectedRow == null) return;
+
+        var dataSource = _dealBindingSource.DataSource as List<DealItem>;
+        if (dataSource == null || selectedRow.Index >= dataSource.Count) return;
+
+        var selectedItem = dataSource[selectedRow.Index];
+        // Use DisplayName which includes Grade, Refine, CardSlots (e.g., "[UNIQUE]+11딤반다나[4]")
+        var itemName = selectedItem.DisplayName ?? selectedItem.ItemName;
+        var serverId = selectedItem.ServerId;
+
+        Debug.WriteLine($"[DealTab] AddToMonitor: DisplayName='{selectedItem.DisplayName}', ItemName='{selectedItem.ItemName}'");
+        Debug.WriteLine($"[DealTab] AddToMonitor: Grade='{selectedItem.Grade}', Refine={selectedItem.Refine}, CardSlots='{selectedItem.CardSlots}'");
+        Debug.WriteLine($"[DealTab] AddToMonitor: Using itemName='{itemName}', serverId={serverId}");
+
+        // Add to monitoring
+        var (success, errorReason) = await _monitoringService.AddItemAsync(itemName, serverId);
+
+        if (success)
+        {
+            _lblDealStatus.Text = $"'{itemName}' 모니터링 목록에 추가됨";
+
+            // If auto-refresh is running on monitor tab, schedule immediate refresh
+            if (_monitoringService.Config.RefreshIntervalSeconds > 0)
+            {
+                var newItem = _monitoringService.Config.Items
+                    .FirstOrDefault(i => i.ItemName == itemName && i.ServerId == serverId);
+                if (newItem != null)
+                {
+                    newItem.NextRefreshTime = DateTime.Now;
+                }
+            }
+        }
+        else
+        {
+            var message = errorReason switch
+            {
+                "limit" => $"모니터링 목록은 최대 {Services.MonitoringService.MaxItemCount}개까지만 등록할 수 있습니다.",
+                "duplicate" => "이미 등록된 아이템입니다.",
+                _ => "아이템을 추가할 수 없습니다."
+            };
+            MessageBox.Show(message, "모니터링 추가", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
     }
 

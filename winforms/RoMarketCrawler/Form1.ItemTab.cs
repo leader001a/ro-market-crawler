@@ -195,7 +195,8 @@ public partial class Form1
             ReadOnly = true,
             AllowUserToAddRows = false,
             AllowUserToDeleteRows = false,
-            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+            SelectionMode = DataGridViewSelectionMode.CellSelect,
+            MultiSelect = true,
             RowHeadersVisible = false,
             AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill
         };
@@ -745,9 +746,10 @@ public partial class Form1
 
     private void DgvItems_SelectionChanged(object? sender, EventArgs e)
     {
-        if (_dgvItems.SelectedRows.Count == 0) return;
+        var currentRow = _dgvItems.CurrentRow;
+        if (currentRow == null) return;
 
-        var selectedIndex = _dgvItems.SelectedRows[0].Index;
+        var selectedIndex = currentRow.Index;
         if (selectedIndex < 0 || selectedIndex >= _itemResults.Count) return;
 
         var item = _itemResults[selectedIndex];
@@ -903,9 +905,10 @@ public partial class Form1
             var image = Image.FromStream(ms);
 
             // Check if form is still alive and same item is still selected
-            if (!IsDisposed && _dgvItems.SelectedRows.Count > 0)
+            var currentRow = _dgvItems.CurrentRow;
+            if (!IsDisposed && currentRow != null)
             {
-                var selectedIndex = _dgvItems.SelectedRows[0].Index;
+                var selectedIndex = currentRow.Index;
                 if (selectedIndex >= 0 && selectedIndex < _itemResults.Count)
                 {
                     var selectedItem = _itemResults[selectedIndex];

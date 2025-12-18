@@ -165,10 +165,19 @@ namespace RoMarketCrawler.Services
                 return (false, "limit");
             }
 
-            // Check for duplicates
-            if (_config.Items.Any(i => i.ItemName.Equals(itemName, StringComparison.OrdinalIgnoreCase) && i.ServerId == serverId))
+            // Check for duplicates - compare exact DisplayName (includes Grade, Refine, CardSlots)
+            Debug.WriteLine($"[MonitoringService] AddItem: Checking for duplicate of '{itemName}' (server={serverId})");
+            Debug.WriteLine($"[MonitoringService] Existing items: {_config.Items.Count}");
+            foreach (var existing in _config.Items)
             {
-                Debug.WriteLine($"[MonitoringService] Item '{itemName}' already exists");
+                Debug.WriteLine($"[MonitoringService]   - '{existing.ItemName}' (server={existing.ServerId})");
+            }
+
+            var duplicate = _config.Items.FirstOrDefault(i =>
+                i.ItemName.Equals(itemName, StringComparison.OrdinalIgnoreCase) && i.ServerId == serverId);
+            if (duplicate != null)
+            {
+                Debug.WriteLine($"[MonitoringService] DUPLICATE FOUND: '{itemName}' matches existing '{duplicate.ItemName}'");
                 return (false, "duplicate");
             }
 

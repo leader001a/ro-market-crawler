@@ -195,7 +195,7 @@ public partial class Form1
 
         // Right side: refresh and alarm controls (added in reverse display order)
         // Display order: [진행바] 수동조회 | [상태] 자동조회 | 알람설정 | 음소거
-        toolStrip.Items.Add(_btnSoundMute);    // Rightmost
+        toolStrip.Items.Add(_btnSoundMute);    // Sound mute (rightmost)
         toolStrip.Items.Add(sepRight1);        // |
         toolStrip.Items.Add(btnAlarmSettings); // Second from right
         toolStrip.Items.Add(sepRight2);        // |
@@ -228,8 +228,8 @@ public partial class Form1
         {
             Dock = DockStyle.Fill,
             AutoGenerateColumns = false,
-            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-            MultiSelect = false,
+            SelectionMode = DataGridViewSelectionMode.CellSelect,
+            MultiSelect = true,
             ReadOnly = false,  // Allow editing for server column ComboBox
             RowHeadersVisible = false,
             EditMode = DataGridViewEditMode.EditOnKeystrokeOrF2,
@@ -319,8 +319,8 @@ public partial class Form1
         {
             Dock = DockStyle.Fill,
             AutoGenerateColumns = false,
-            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-            MultiSelect = false,
+            SelectionMode = DataGridViewSelectionMode.CellSelect,
+            MultiSelect = true,
             ReadOnly = true,
             RowHeadersVisible = false
         };
@@ -1119,13 +1119,13 @@ public partial class Form1
 
     private async void BtnMonitorRemove_Click(object? sender, EventArgs e)
     {
-        if (_dgvMonitorItems.SelectedRows.Count == 0)
+        var row = _dgvMonitorItems.CurrentRow;
+        if (row == null)
         {
             MessageBox.Show("삭제할 아이템을 선택하세요.", "알림", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
-        var row = _dgvMonitorItems.SelectedRows[0];
         var item = row.DataBoundItem as MonitorItem;
         if (item == null) return;
 
