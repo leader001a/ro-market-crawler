@@ -32,7 +32,6 @@ public partial class Form1 : Form
     private readonly BindingSource _itemBindingSource;
     private readonly List<KafraItem> _itemResults;
     private CancellationTokenSource? _cts;
-    private CancellationTokenSource? _indexCts;
     private string _lastSearchTerm = string.Empty;
     private int _currentSearchId = 0;  // Increments with each search to prevent stale updates
 
@@ -66,7 +65,6 @@ public partial class Form1 : Form
     private Button _btnIndexRebuild = null!;
     private ToolStripButton _btnItemSearchToolStrip = null!;
     private ToolStripButton _btnIndexRebuildToolStrip = null!;
-    private ToolStripControlHost _progressIndexHost = null!;
     private DataGridView _dgvItems = null!;
     private RichTextBox _rtbItemDetail = null!;
     private PictureBox _picItemImage = null!;
@@ -476,7 +474,7 @@ public partial class Form1 : Form
 
     private void ShowHelpGuide(HelpGuideForm.HelpSection section = HelpGuideForm.HelpSection.Overview)
     {
-        using var helpForm = new HelpGuideForm(_currentTheme, section);
+        using var helpForm = new HelpGuideForm(_currentTheme, _baseFontSize, section);
         helpForm.ShowDialog(this);
     }
 
@@ -509,11 +507,16 @@ public partial class Form1 : Form
             ShowIcon = false
         };
 
+        // Font sizes consistent with Form1 control sizing scheme
+        var titleFontSize = _baseFontSize + 1;      // Large title (was +4, too big)
+        var normalFontSize = _baseFontSize - 2;     // Same as TextBox/ComboBox
+        var smallFontSize = _baseFontSize - 3;      // Same as Label
+
         // Title
         var lblTitle = new Label
         {
             Text = "RO Market Crawler v1.0.0",
-            Font = new Font("Malgun Gothic", 14, FontStyle.Bold),
+            Font = new Font("Malgun Gothic", titleFontSize, FontStyle.Bold),
             ForeColor = clrLink,
             AutoSize = true,
             Location = new Point(leftMargin, 18)
@@ -523,7 +526,7 @@ public partial class Form1 : Form
         var lblDesc = new Label
         {
             Text = "라그나로크 온라인 거래 정보 검색 및 모니터링 프로그램",
-            Font = new Font("Malgun Gothic", 9),
+            Font = new Font("Malgun Gothic", normalFontSize),
             ForeColor = clrTextMuted,
             AutoSize = true,
             Location = new Point(leftMargin, 45)
@@ -535,7 +538,7 @@ public partial class Form1 : Form
             Text = "[데이터 출처]\n" +
                    "  - 아이템 정보: kafra.kr\n" +
                    "  - 노점 거래: ro.gnjoy.com",
-            Font = new Font("Malgun Gothic", 9),
+            Font = new Font("Malgun Gothic", normalFontSize),
             ForeColor = clrText,
             AutoSize = true,
             Location = new Point(leftMargin, 72)
@@ -545,7 +548,7 @@ public partial class Form1 : Form
         var lblCreator = new Label
         {
             Text = "Created by: 티포니",
-            Font = new Font("Malgun Gothic", 9),
+            Font = new Font("Malgun Gothic", normalFontSize),
             ForeColor = clrText,
             AutoSize = true,
             Location = new Point(leftMargin, 130)
@@ -555,7 +558,7 @@ public partial class Form1 : Form
         var lblContact = new Label
         {
             Text = "문의:",
-            Font = new Font("Malgun Gothic", 9),
+            Font = new Font("Malgun Gothic", normalFontSize),
             ForeColor = clrText,
             AutoSize = true,
             Location = new Point(leftMargin, 150)
@@ -564,7 +567,7 @@ public partial class Form1 : Form
         var linkKakao = new LinkLabel
         {
             Text = "카카오톡 오픈프로필",
-            Font = new Font("Malgun Gothic", 9),
+            Font = new Font("Malgun Gothic", normalFontSize),
             LinkColor = clrLink,
             ActiveLinkColor = clrLink,
             AutoSize = true,
@@ -619,7 +622,7 @@ public partial class Form1 : Form
         var txtLegalNotice = new TextBox
         {
             Text = legalNoticeText,
-            Font = new Font("Malgun Gothic", 8.5f),
+            Font = new Font("Malgun Gothic", smallFontSize),
             ForeColor = clrLegalText,
             BackColor = clrLegalBg,
             BorderStyle = BorderStyle.FixedSingle,
@@ -730,6 +733,34 @@ public partial class Form1 : Form
             else if (control is NumericUpDown nud)
             {
                 nud.Font = new Font("Malgun Gothic", _baseFontSize - 3);
+            }
+            else if (control is CheckBox chk)
+            {
+                chk.Font = new Font("Malgun Gothic", _baseFontSize - 3);
+            }
+            else if (control is RadioButton rb)
+            {
+                rb.Font = new Font("Malgun Gothic", _baseFontSize - 3);
+            }
+            else if (control is LinkLabel ll)
+            {
+                ll.Font = new Font("Malgun Gothic", _baseFontSize - 3);
+            }
+            else if (control is GroupBox gb)
+            {
+                gb.Font = new Font("Malgun Gothic", _baseFontSize - 3);
+            }
+            else if (control is TabControl tc)
+            {
+                tc.Font = new Font("Malgun Gothic", _baseFontSize - 2);
+            }
+            else if (control is StatusStrip ss)
+            {
+                ss.Font = new Font("Malgun Gothic", _baseFontSize - 3);
+                foreach (ToolStripItem item in ss.Items)
+                {
+                    item.Font = new Font("Malgun Gothic", _baseFontSize - 3);
+                }
             }
             else if (control is ToolStrip toolStrip)
             {
@@ -998,8 +1029,9 @@ public partial class Form1 : Form
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
         _cts?.Cancel();
-        _indexCts?.Cancel();
         _monitorCts?.Cancel();
+        _queueCts?.Cancel();
+        _queueCts?.Dispose();
         _monitorTimer?.Stop();
         _monitorTimer?.Dispose();
         _alarmTimer?.Stop();

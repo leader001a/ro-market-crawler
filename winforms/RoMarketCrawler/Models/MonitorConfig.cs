@@ -61,6 +61,12 @@ namespace RoMarketCrawler.Models
         public DateTime? NextRefreshTime { get; set; }
 
         /// <summary>
+        /// Whether this item is waiting in the refresh queue (runtime only)
+        /// </summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool IsQueued { get; set; }
+
+        /// <summary>
         /// Whether this item is currently being refreshed (runtime only)
         /// </summary>
         [System.Text.Json.Serialization.JsonIgnore]

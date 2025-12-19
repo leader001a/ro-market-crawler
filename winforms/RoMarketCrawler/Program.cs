@@ -25,6 +25,9 @@ static class Program
         // To customize application configuration such as set high DPI settings or default font,
         // see https://aka.ms/applicationconfiguration.
         ApplicationConfiguration.Initialize();
-        Application.Run(new Form1());
+
+        // Run startup splash form which handles all validation checks
+        // Using ApplicationContext allows us to switch from splash to main form
+        Application.Run(new StartupApplicationContext());
     }
 }

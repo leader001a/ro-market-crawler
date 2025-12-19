@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Threading;
 using RoMarketCrawler.Models;
@@ -16,8 +17,18 @@ public partial class Form1
     private int _refreshedItemCount = 0;
     private Stopwatch _refreshStopwatch = new();
 
+    // Sort state for monitor results grid (persists across refreshes)
+    private string _monitorResultsSortColumn = "ItemName";
+    private bool _monitorResultsSortAscending = true;
+
     // UI update timer for status column countdown
     private System.Windows.Forms.Timer _uiUpdateTimer = null!;
+
+    // Queue-based sequential processing for auto-refresh (prevents rate limiting)
+    private readonly ConcurrentQueue<MonitorItem> _refreshQueue = new();
+    private Task? _queueProcessorTask;
+    private CancellationTokenSource? _queueCts;
+    private const int QueueProcessDelayMs = 500;
 
     private async Task LoadMonitoringAsync()
     {
@@ -330,6 +341,9 @@ public partial class Form1
         _dgvMonitorResults.DataSource = _monitorResultsBindingSource;
         _dgvMonitorResults.CellFormatting += DgvMonitorResults_CellFormatting;
 
+        // Column header click for sorting
+        _dgvMonitorResults.ColumnHeaderMouseClick += DgvMonitorResults_ColumnHeaderMouseClick;
+
         // Context menu for results grid
         var resultsContextMenu = new ContextMenuStrip();
         var resetColumnsItem = new ToolStripMenuItem("컬럼 크기 초기화");
@@ -337,17 +351,25 @@ public partial class Form1
         resultsContextMenu.Items.Add(resetColumnsItem);
         _dgvMonitorResults.ContextMenuStrip = resultsContextMenu;
 
-        // Force header center alignment by custom painting
+        // Force header center alignment and sort indicator by custom painting
         _dgvMonitorResults.CellPainting += (s, e) =>
         {
             if (e.RowIndex == -1 && e.ColumnIndex >= 0 && e.Graphics != null) // Header row
             {
                 e.PaintBackground(e.ClipBounds, true);
 
+                // Build header text with sort indicator if this is the sorted column
+                var headerText = e.FormattedValue?.ToString() ?? "";
+                var columnName = _dgvMonitorResults.Columns[e.ColumnIndex].Name;
+                if (columnName == _monitorResultsSortColumn)
+                {
+                    headerText += _monitorResultsSortAscending ? " ▲" : " ▼";
+                }
+
                 // Draw header text centered manually
                 TextRenderer.DrawText(
                     e.Graphics,
-                    e.FormattedValue?.ToString() ?? "",
+                    headerText,
                     e.CellStyle?.Font ?? _dgvMonitorResults.Font,
                     e.CellBounds,
                     e.CellStyle?.ForeColor ?? ThemeText,
@@ -699,7 +721,7 @@ public partial class Form1
 
             // Group by item ID + Refine + Grade + Server
             // This ensures same base item with different refine levels are shown separately
-            var groupedDeals = results
+            var groupedDealsQuery = results
                 .SelectMany(r => r.Deals.Select(d => new { Deal = d, Result = r }))
                 .GroupBy(x => new {
                     // Use item ID for grouping if available, otherwise use item name hash
@@ -727,12 +749,44 @@ public partial class Form1
                         WatchPrice = monitorItem.WatchPrice,
                         Deals = g.Select(x => x.Deal).ToList()
                     };
-                })
-                .OrderBy(x => x.DisplayName)
-                .ThenBy(x => x.Refine)
-                .ThenBy(x => gradeOrder.TryGetValue(x.Grade, out var g) ? g : 99)
-                .ThenBy(x => x.LowestPrice)
-                .ToList();
+                });
+
+            // Apply user-selected sort (persists across refreshes)
+            var sortedDeals = _monitorResultsSortColumn switch
+            {
+                "ServerName" => _monitorResultsSortAscending
+                    ? groupedDealsQuery.OrderBy(x => x.ServerName).ThenBy(x => x.DisplayName)
+                    : groupedDealsQuery.OrderByDescending(x => x.ServerName).ThenBy(x => x.DisplayName),
+                "Grade" => _monitorResultsSortAscending
+                    ? groupedDealsQuery.OrderBy(x => gradeOrder.TryGetValue(x.Grade, out var g) ? g : 99).ThenBy(x => x.DisplayName)
+                    : groupedDealsQuery.OrderByDescending(x => gradeOrder.TryGetValue(x.Grade, out var g) ? g : 99).ThenBy(x => x.DisplayName),
+                "Refine" => _monitorResultsSortAscending
+                    ? groupedDealsQuery.OrderBy(x => x.Refine).ThenBy(x => x.DisplayName)
+                    : groupedDealsQuery.OrderByDescending(x => x.Refine).ThenBy(x => x.DisplayName),
+                "DealCount" => _monitorResultsSortAscending
+                    ? groupedDealsQuery.OrderBy(x => x.DealCount).ThenBy(x => x.DisplayName)
+                    : groupedDealsQuery.OrderByDescending(x => x.DealCount).ThenBy(x => x.DisplayName),
+                "LowestPrice" => _monitorResultsSortAscending
+                    ? groupedDealsQuery.OrderBy(x => x.LowestPrice).ThenBy(x => x.DisplayName)
+                    : groupedDealsQuery.OrderByDescending(x => x.LowestPrice).ThenBy(x => x.DisplayName),
+                "YesterdayAvg" => _monitorResultsSortAscending
+                    ? groupedDealsQuery.OrderBy(x => x.YesterdayAvg ?? long.MaxValue).ThenBy(x => x.DisplayName)
+                    : groupedDealsQuery.OrderByDescending(x => x.YesterdayAvg ?? 0).ThenBy(x => x.DisplayName),
+                "WeekAvg" => _monitorResultsSortAscending
+                    ? groupedDealsQuery.OrderBy(x => x.WeekAvg ?? long.MaxValue).ThenBy(x => x.DisplayName)
+                    : groupedDealsQuery.OrderByDescending(x => x.WeekAvg ?? 0).ThenBy(x => x.DisplayName),
+                "PriceDiff" => _monitorResultsSortAscending
+                    ? groupedDealsQuery.OrderBy(x => x.WeekAvg.HasValue && x.WeekAvg > 0 ? (double)x.LowestPrice / x.WeekAvg.Value : double.MaxValue).ThenBy(x => x.DisplayName)
+                    : groupedDealsQuery.OrderByDescending(x => x.WeekAvg.HasValue && x.WeekAvg > 0 ? (double)x.LowestPrice / x.WeekAvg.Value : 0).ThenBy(x => x.DisplayName),
+                "Status" => _monitorResultsSortAscending
+                    ? groupedDealsQuery.OrderBy(x => GetStatusOrder(x.WatchPrice, x.LowestPrice, x.YesterdayAvg, x.WeekAvg)).ThenBy(x => x.DisplayName)
+                    : groupedDealsQuery.OrderByDescending(x => GetStatusOrder(x.WatchPrice, x.LowestPrice, x.YesterdayAvg, x.WeekAvg)).ThenBy(x => x.DisplayName),
+                _ => _monitorResultsSortAscending  // Default: ItemName
+                    ? groupedDealsQuery.OrderBy(x => x.DisplayName).ThenBy(x => x.Refine)
+                    : groupedDealsQuery.OrderByDescending(x => x.DisplayName).ThenBy(x => x.Refine)
+            };
+
+            var groupedDeals = sortedDeals.ToList();
 
             foreach (var group in groupedDeals)
             {
@@ -945,6 +999,46 @@ public partial class Form1
         }
     }
 
+    private void DgvMonitorResults_ColumnHeaderMouseClick(object? sender, DataGridViewCellMouseEventArgs e)
+    {
+        if (e.ColumnIndex < 0) return;
+
+        var columnName = _dgvMonitorResults.Columns[e.ColumnIndex].Name;
+
+        // Toggle sort direction if same column, otherwise start ascending
+        if (_monitorResultsSortColumn == columnName)
+        {
+            _monitorResultsSortAscending = !_monitorResultsSortAscending;
+        }
+        else
+        {
+            _monitorResultsSortColumn = columnName;
+            _monitorResultsSortAscending = true;
+        }
+
+        Debug.WriteLine($"[Monitor] Sort: {_monitorResultsSortColumn} {(_monitorResultsSortAscending ? "ASC" : "DESC")}");
+
+        // Re-apply results with new sort order
+        UpdateMonitorResults();
+    }
+
+    /// <summary>
+    /// Get status order value for sorting (lower = better deal)
+    /// </summary>
+    private static int GetStatusOrder(long? watchPrice, long lowestPrice, long? yesterdayAvg, long? weekAvg)
+    {
+        // Priority: 득템(0) > 저렴(1) > 양호(2) > 정상(3) > -(4)
+        var belowWatchPrice = watchPrice.HasValue && lowestPrice <= watchPrice.Value;
+        if (belowWatchPrice) return 0;
+
+        var belowYesterday = yesterdayAvg.HasValue && lowestPrice < yesterdayAvg;
+        var belowWeek = weekAvg.HasValue && lowestPrice < weekAvg;
+
+        if (belowYesterday && belowWeek) return 1;
+        if (belowYesterday || belowWeek) return 2;
+        return 3;
+    }
+
     private void UpdateMonitorRefreshLabel()
     {
         if (InvokeRequired)
@@ -1009,17 +1103,32 @@ public partial class Form1
         _uiUpdateTimer.Stop();
         _refreshStopwatch.Stop();
 
+        // Cancel queue processor
+        _queueCts?.Cancel();
+        _queueCts?.Dispose();
+        _queueCts = null;
+
+        // Clear queue and reset item states
+        while (_refreshQueue.TryDequeue(out var queuedItem))
+        {
+            queuedItem.IsQueued = false;
+            queuedItem.IsRefreshing = false;
+            Debug.WriteLine($"[Queue] Cleared from queue: {queuedItem.ItemName}");
+        }
+
         // Clear all item refresh states
         foreach (var item in _monitoringService.Config.Items)
         {
+            item.IsQueued = false;
             item.IsRefreshing = false;
+            item.IsProcessing = false;
             item.NextRefreshTime = null;
         }
 
         // Update status column to show "-"
         UpdateItemStatusColumn();
 
-        Debug.WriteLine("[Form1] Monitor timer stopped");
+        Debug.WriteLine("[Form1] Monitor timer and queue stopped");
     }
 
     // Event Handlers
@@ -1315,30 +1424,106 @@ public partial class Form1
 
     private void MonitorTimer_Tick(object? sender, EventArgs e)
     {
-        // Get all items due for refresh, excluding items already being processed or refreshed
+        // Get all items due for refresh, excluding items already queued, being processed, or refreshed
         var itemsDue = _monitoringService.GetAllItemsDueForRefresh()
-            .Where(i => !i.IsRefreshing && !i.IsProcessing)
+            .Where(i => !i.IsQueued && !i.IsRefreshing && !i.IsProcessing)
             .ToList();
         if (itemsDue.Count == 0)
         {
             return;
         }
 
-        Debug.WriteLine($"[Form1] Starting {itemsDue.Count} items independently");
+        Debug.WriteLine($"[Form1] Enqueuing {itemsDue.Count} items for sequential processing");
 
-        // Mark all items as refreshing and start independent processing
+        // Mark items as queued and add to queue (prevents duplicate enqueue)
         foreach (var item in itemsDue)
         {
-            item.IsRefreshing = true;
-            // Fire-and-forget: each item processes independently
-            _ = ProcessSingleItemAsync(item);
+            item.IsQueued = true;
+            item.IsRefreshing = false;  // Not refreshing yet, just waiting in queue
+            _refreshQueue.Enqueue(item);
+            Debug.WriteLine($"[Queue] Enqueued: {item.ItemName}");
         }
 
         UpdateItemStatusColumn();
 
         var itemNames = string.Join(", ", itemsDue.Select(i => i.ItemName).Take(3));
         if (itemsDue.Count > 3) itemNames += $" 외 {itemsDue.Count - 3}개";
-        _lblMonitorStatus.Text = $"조회 중: {itemNames}...";
+        _lblMonitorStatus.Text = $"대기열: {itemNames}... ({_refreshQueue.Count}개)";
+
+        // Ensure queue processor is running
+        EnsureQueueProcessorRunning();
+    }
+
+    /// <summary>
+    /// Ensure the queue processor task is running. Starts it if not already running.
+    /// </summary>
+    private void EnsureQueueProcessorRunning()
+    {
+        if (_queueProcessorTask == null || _queueProcessorTask.IsCompleted)
+        {
+            _queueCts?.Dispose();
+            _queueCts = new CancellationTokenSource();
+            _queueProcessorTask = ProcessQueueAsync(_queueCts.Token);
+            Debug.WriteLine("[Queue] Processor started");
+        }
+    }
+
+    /// <summary>
+    /// Queue processor - processes items sequentially with delay to prevent rate limiting.
+    /// Runs as a background task and stops when queue is empty.
+    /// </summary>
+    private async Task ProcessQueueAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                if (_refreshQueue.TryDequeue(out var item))
+                {
+                    Debug.WriteLine($"[Queue] Dequeued: {item.ItemName} (remaining: {_refreshQueue.Count})");
+
+                    // Transition from queued to refreshing state
+                    item.IsQueued = false;
+                    item.IsRefreshing = true;
+
+                    // Update status bar and item status on UI thread
+                    if (!IsDisposed)
+                    {
+                        Invoke(() =>
+                        {
+                            UpdateItemStatusColumn();
+                            var queueCount = _refreshQueue.Count;
+                            _lblMonitorStatus.Text = queueCount > 0
+                                ? $"조회 중: {item.ItemName} (대기: {queueCount}개)"
+                                : $"조회 중: {item.ItemName}";
+                        });
+                    }
+
+                    // Process the item (uses existing ProcessSingleItemAsync)
+                    await ProcessSingleItemAsync(item);
+
+                    // Delay between items to prevent rate limiting (except when queue is empty)
+                    if (!_refreshQueue.IsEmpty && !cancellationToken.IsCancellationRequested)
+                    {
+                        await Task.Delay(QueueProcessDelayMs, cancellationToken);
+                    }
+                }
+                else
+                {
+                    // Queue is empty, stop processor
+                    Debug.WriteLine("[Queue] Processor stopped (queue empty)");
+                    break;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            Debug.WriteLine("[Queue] Processor cancelled");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Queue] Processor error: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -1530,10 +1715,14 @@ public partial class Form1
             var row = _dgvMonitorItems.Rows[i];
             var statusCell = row.Cells["RefreshStatus"];
 
-            // State priority: Refreshing > Processing > Countdown
+            // State priority: Refreshing > Queued > Processing > Countdown
             if (item.IsRefreshing)
             {
                 statusCell.Value = "조회 중...";
+            }
+            else if (item.IsQueued)
+            {
+                statusCell.Value = "대기";
             }
             else if (item.IsProcessing)
             {

@@ -5,11 +5,13 @@ namespace RoMarketCrawler;
 /// </summary>
 public class HelpGuideForm : Form
 {
-    private TabControl _tabControl = null!;
+    private BorderlessTabControl _tabControl = null!;
     private readonly Color _bgColor;
     private readonly Color _textColor;
     private readonly Color _accentColor;
     private readonly Color _panelColor;
+    private readonly float _fontSize;
+    private readonly bool _isDarkTheme;
 
     public enum HelpSection
     {
@@ -19,10 +21,13 @@ public class HelpGuideForm : Form
         Monitoring
     }
 
-    public HelpGuideForm(ThemeType theme, HelpSection initialSection = HelpSection.Overview)
+    public HelpGuideForm(ThemeType theme, float fontSize = 10f, HelpSection initialSection = HelpSection.Overview)
     {
+        _fontSize = fontSize;
+        _isDarkTheme = theme == ThemeType.Dark;
+
         // Set theme colors
-        if (theme == ThemeType.Dark)
+        if (_isDarkTheme)
         {
             _bgColor = Color.FromArgb(30, 30, 30);
             _textColor = Color.FromArgb(220, 220, 220);
@@ -68,13 +73,19 @@ public class HelpGuideForm : Form
         mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
 
-        // Tab control
-        _tabControl = new TabControl
+        // Tab control - use BorderlessTabControl like main form
+        _tabControl = new BorderlessTabControl
         {
             Dock = DockStyle.Fill,
-            Font = new Font("Malgun Gothic", 10f),
-            Padding = new Point(15, 8)
+            Font = new Font("Malgun Gothic", _fontSize - 2),
+            Padding = new Point(12, 5),  // Same as main form
+            ItemSize = new Size(120, 30) // Adjusted for 5 tabs (main form uses 180 for 3 tabs)
         };
+
+        // Apply owner-draw styling (same as main form's ApplyTabControlStyle)
+        _tabControl.DrawMode = TabDrawMode.OwnerDrawFixed;
+        _tabControl.DrawItem += TabControl_DrawItem;
+        _tabControl.Paint += TabControl_Paint;
 
         // Add tabs
         _tabControl.TabPages.Add(CreateOverviewTab());
@@ -99,7 +110,7 @@ public class HelpGuideForm : Form
             FlatStyle = FlatStyle.Flat,
             BackColor = _panelColor,
             ForeColor = _textColor,
-            Font = new Font("Malgun Gothic", 10f),
+            Font = new Font("Malgun Gothic", _fontSize - 3, FontStyle.Bold),
             Cursor = Cursors.Hand
         };
         btnClose.FlatAppearance.BorderColor = _accentColor;
@@ -145,12 +156,13 @@ kafra.kr API를 통해 실시간 노점 정보를 조회합니다.
 
 [단축키]
 
-Ctrl + (+)  글꼴 크게
-Ctrl + (-)  글꼴 작게
-Ctrl + 0    글꼴 기본 크기
-Ctrl + R    아이템 정보 수집
+F1                사용 가이드 열기
+Ctrl + (+)        글꼴 크게
+Ctrl + (-)        글꼴 작게
+Ctrl + 0          글꼴 기본 크기
+Ctrl + R          아이템 정보 수집
 Ctrl + Shift + W  전체 팝업 닫기
-ESC         현재 창 닫기
+ESC               현재 창 닫기
 "));
         return tab;
     }
@@ -174,25 +186,24 @@ ESC         현재 창 닫기
    - 아이템명 일부만 입력해도 검색 가능
    - 자동완성 지원 (아이템 인덱스 로드 후)
 
-3. 고급 검색
-   - 제련: ""11 딤"" 형식으로 제련 수치 지정
-   - 등급: ""%UNIQUE% 딤"" 형식으로 등급 지정
-   - 조합: ""11%UNIQUE% 딤"" 형식 가능
+3. 고급 검색 (등급+제련+아이템명 순서)
+   - 등급: ""%UNIQUE%딤"" 형식으로 등급 지정
+   - 제련: ""11딤"" 형식으로 제련 수치 지정
+   - 조합: ""%UNIQUE%11딤"" 형식 가능
 
 
 [검색 결과]
 
 - 서버: 아이템이 있는 서버
 - 유형: 판매/구매
-- 아이템: 아이템명 (제련, 등급 포함)
-- 카드/인챈트: 장착된 카드와 인챈트
+- 아이템: 아이템명 (등급, 제련 포함)
+- 카드/인챈트/랜덤옵션: 장착된 카드와 인챈트, 랜덤옵션
 - 수량, 가격, 상점명
 
 
 [상세 조회]
 
 - 행 더블클릭: 상세 정보 팝업
-- 노점 내 다른 아이템 확인 가능
 - 가격 히스토리 조회
 
 
@@ -285,7 +296,7 @@ ESC         현재 창 닫기
 
 [조회 결과 (우측)]
 
-- 제련/등급: 아이템 상세
+- 등급/제련: 아이템 상세
 - 아이템명, 서버
 - 매물수: 현재 판매 중인 수량
 - 최저가, 어제평균, 주간평균
@@ -293,18 +304,28 @@ ESC         현재 창 닫기
 - 상태: 득템!/저렴!/양호/정상
 
 
-[자동 갱신]
+[버튼 기능]
 
-1. 자동조회 버튼 클릭
+- 수동조회: 모니터링 항목 즉시 갱신
+- 자동갱신: 설정한 주기마다 자동 갱신 시작/중지
+- 알람설정: 득템 발견 시 알람 주기 및 소리 설정
+- 음소거: 알람 소리 끄기/켜기
+
+
+[자동 갱신 사용법]
+
+1. 자동갱신 버튼 클릭
 2. 갱신 주기 설정 (1-60분)
-3. 자동갱신 버튼 클릭
+3. 적용 버튼 클릭
 4. 설정한 주기마다 자동 갱신
+5. 노점조회 탭 이동 시 자동 갱신 중지
 
 
 [알림]
 
 - 목표가 이하 매물 발견 시 알림음 재생
-- 소리 끄기/켜기 버튼으로 제어
+- 알람설정에서 알람 주기 및 소리 종류 선택 가능
+- 음소거 버튼으로 소리 끄기/켜기
 "));
         return tab;
     }
@@ -324,8 +345,8 @@ ESC         현재 창 닫기
 - 자동완성을 활용하세요
   입력 후 잠시 기다리면 추천 목록 표시
 
-- 제련과 등급을 함께 검색하세요
-  예: ""11%UNIQUE% 딤""
+- 등급과 제련을 함께 검색하세요
+  예: ""%UNIQUE%11딤""
 
 
 [모니터링 활용]
@@ -344,14 +365,21 @@ ESC         현재 창 닫기
 
 [성능 최적화]
 
-- 자동갱신 주기는 1분 이상 (최소값)
+- 자동갱신 주기는 1분 이상 권장
 - 모니터링 항목이 많으면 갱신 시간 증가
+- API 요청 제한으로 동시 요청 수 제한됨
 
 
-[문의 및 피드백]
+[단축키 모음]
 
-- GitHub: PM-KiWoong/ro-market-crawler
-- 버그 리포트 및 기능 제안 환영합니다
+- F1: 사용 가이드
+- Ctrl + R: 아이템 정보 수집
+- Ctrl + (+/-): 글꼴 크기 조절
+- Ctrl + 0: 글꼴 기본 크기
+- Ctrl + Shift + W: 전체 팝업 닫기
+- ESC: 현재 창 닫기
+
+
 "));
         return tab;
     }
@@ -363,7 +391,7 @@ ESC         현재 창 닫기
             Dock = DockStyle.Fill,
             BackColor = _bgColor,
             ForeColor = _textColor,
-            Font = new Font("Malgun Gothic", 10f),
+            Font = new Font("Malgun Gothic", _fontSize - 2),
             BorderStyle = BorderStyle.None,
             ReadOnly = true,
             ScrollBars = RichTextBoxScrollBars.Vertical,
@@ -378,55 +406,108 @@ ESC         현재 창 닫기
 
     private void FormatRichTextBox(RichTextBox rtb)
     {
-        var text = rtb.Text;
-        var lines = text.Split('\n');
-        int position = 0;
+        // Save content and clear - AppendText approach is more reliable than Select()
+        var content = rtb.Text;
+        var lines = content.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
 
-        foreach (var line in lines)
+        rtb.Clear();
+
+        // Font sizes consistent with Form1 (base - 2 for text, base for headers)
+        using var normalFont = new Font("Malgun Gothic", _fontSize - 2);
+        using var boldFont = new Font("Malgun Gothic", _fontSize - 2, FontStyle.Bold);
+        using var headerFont = new Font("Malgun Gothic", _fontSize, FontStyle.Bold);
+
+        for (int i = 0; i < lines.Length; i++)
         {
-            var trimmed = line.TrimStart();
+            var line = lines[i];
+            FormatAndAppendLine(rtb, line, normalFont, boldFont, headerFont);
 
-            // Section headers [...]
-            if (trimmed.StartsWith('[') && trimmed.Contains(']'))
+            // Add newline except for last line
+            if (i < lines.Length - 1)
             {
-                var start = text.IndexOf('[', position);
-                var end = text.IndexOf(']', start);
-                if (start >= 0 && end > start)
-                {
-                    rtb.Select(start, end - start + 1);
-                    rtb.SelectionFont = new Font("Malgun Gothic", 12f, FontStyle.Bold);
-                    rtb.SelectionColor = _accentColor;
-                }
+                rtb.SelectionColor = _textColor;
+                rtb.SelectionFont = normalFont;
+                rtb.AppendText(Environment.NewLine);
             }
-            // Numbered items (1., 2., etc.)
-            else if (trimmed.Length > 0 && char.IsDigit(trimmed[0]) && trimmed.Contains('.'))
-            {
-                var idx = text.IndexOf(trimmed, position);
-                if (idx >= 0)
-                {
-                    var dotIdx = trimmed.IndexOf('.');
-                    rtb.Select(idx, dotIdx + 1);
-                    rtb.SelectionFont = new Font("Malgun Gothic", 10f, FontStyle.Bold);
-                    rtb.SelectionColor = _accentColor;
-                }
-            }
-            // Bullet points with dash
-            else if (trimmed.StartsWith('-'))
-            {
-                var idx = text.IndexOf(trimmed, position);
-                if (idx >= 0)
-                {
-                    rtb.Select(idx, 1);
-                    rtb.SelectionColor = _accentColor;
-                }
-            }
-
-            position += line.Length + 1;
         }
 
-        // Reset selection
-        rtb.Select(0, 0);
+        rtb.SelectionStart = 0;
         rtb.ScrollToCaret();
+    }
+
+    private void FormatAndAppendLine(RichTextBox rtb, string line, Font normalFont, Font boldFont, Font headerFont)
+    {
+        if (string.IsNullOrEmpty(line))
+            return;
+
+        var trimmed = line.TrimStart();
+        var leadingSpaces = line.Substring(0, line.Length - trimmed.Length);
+
+        // Append leading spaces with normal formatting
+        if (leadingSpaces.Length > 0)
+        {
+            rtb.SelectionColor = _textColor;
+            rtb.SelectionFont = normalFont;
+            rtb.AppendText(leadingSpaces);
+        }
+
+        // Section headers [...] - larger and bold with accent color
+        if (trimmed.StartsWith('[') && trimmed.Contains(']'))
+        {
+            int bracketEnd = trimmed.IndexOf(']');
+            var headerPart = trimmed.Substring(0, bracketEnd + 1);
+            var restPart = trimmed.Substring(bracketEnd + 1);
+
+            rtb.SelectionColor = _accentColor;
+            rtb.SelectionFont = headerFont;
+            rtb.AppendText(headerPart);
+
+            if (restPart.Length > 0)
+            {
+                rtb.SelectionColor = _textColor;
+                rtb.SelectionFont = normalFont;
+                rtb.AppendText(restPart);
+            }
+        }
+        // Numbered items (1., 2., etc.) - bold number with accent color
+        else if (trimmed.Length > 1 && char.IsDigit(trimmed[0]) && trimmed[1] == '.')
+        {
+            var numberPart = trimmed.Substring(0, 2);
+            var restPart = trimmed.Substring(2);
+
+            rtb.SelectionColor = _accentColor;
+            rtb.SelectionFont = boldFont;
+            rtb.AppendText(numberPart);
+
+            if (restPart.Length > 0)
+            {
+                rtb.SelectionColor = _textColor;
+                rtb.SelectionFont = normalFont;
+                rtb.AppendText(restPart);
+            }
+        }
+        // Bullet points with dash - accent color for dash only
+        else if (trimmed.StartsWith('-'))
+        {
+            rtb.SelectionColor = _accentColor;
+            rtb.SelectionFont = normalFont;
+            rtb.AppendText("-");
+
+            var restPart = trimmed.Substring(1);
+            if (restPart.Length > 0)
+            {
+                rtb.SelectionColor = _textColor;
+                rtb.SelectionFont = normalFont;
+                rtb.AppendText(restPart);
+            }
+        }
+        // Normal line
+        else
+        {
+            rtb.SelectionColor = _textColor;
+            rtb.SelectionFont = normalFont;
+            rtb.AppendText(trimmed);
+        }
     }
 
     public void SelectSection(HelpSection section)
@@ -441,10 +522,159 @@ ESC         현재 창 닫기
         };
     }
 
+    // Exact copy from Form1.Theme.cs TabControl_DrawItem
+    private void TabControl_DrawItem(object? sender, DrawItemEventArgs e)
+    {
+        if (sender is not TabControl tabControl) return;
+
+        var tab = tabControl.TabPages[e.Index];
+        var isSelected = e.Index == tabControl.SelectedIndex;
+        var bounds = e.Bounds;
+        var stripBgColor = _isDarkTheme ? _bgColor : SystemColors.Control;
+        using var stripBgBrush = new SolidBrush(stripBgColor);
+
+        // First, cover the ENTIRE top strip with background color
+        e.Graphics.FillRectangle(stripBgBrush, 0, 0, tabControl.Width, 5);
+
+        // Cover area to the LEFT of first tab
+        if (e.Index == 0)
+        {
+            e.Graphics.FillRectangle(stripBgBrush, 0, 0, bounds.X + 5, tabControl.ItemSize.Height + 15);
+        }
+
+        // Draw the tab (includes extended border coverage)
+        if (_isDarkTheme)
+        {
+            DrawDarkThemeTab(e.Graphics, tabControl, bounds, tab.Text, isSelected);
+        }
+        else
+        {
+            DrawClassicThemeTab(e.Graphics, tabControl, bounds, tab.Text, isSelected);
+        }
+
+        // After drawing tab, fill gap to the RIGHT of this tab (more aggressively)
+        if (e.Index < tabControl.TabCount - 1)
+        {
+            var nextBounds = tabControl.GetTabRect(e.Index + 1);
+            var gapStart = bounds.Right - 5;
+            var gapWidth = nextBounds.X - bounds.Right + 10;
+            if (gapWidth > 0)
+            {
+                e.Graphics.FillRectangle(stripBgBrush, gapStart, 0, gapWidth, tabControl.ItemSize.Height + 15);
+            }
+        }
+
+        // Fill empty strip area after last tab
+        if (e.Index == tabControl.TabCount - 1)
+        {
+            var emptyAreaX = bounds.Right - 2;
+            var emptyAreaWidth = tabControl.Width - bounds.Right + 5;
+            if (emptyAreaWidth > 0)
+            {
+                e.Graphics.FillRectangle(stripBgBrush, emptyAreaX, 0, emptyAreaWidth, tabControl.ItemSize.Height + 15);
+            }
+        }
+
+        // Cover bottom border of tab strip (line between tabs and content)
+        e.Graphics.FillRectangle(stripBgBrush, 0, tabControl.ItemSize.Height, tabControl.Width, 15);
+    }
+
+    // Exact copy from Form1.Theme.cs DrawDarkThemeTab
+    private void DrawDarkThemeTab(Graphics g, TabControl tabControl, Rectangle bounds, string text, bool isSelected)
+    {
+        Color tabColor = isSelected ? _accentColor : _bgColor;
+        Color textColor = isSelected ? Color.White : Color.FromArgb(160, 160, 170);
+
+        // Step 1: Fill VERY LARGE extended area with background color (aggressive border removal)
+        using var borderBrush = new SolidBrush(_bgColor);
+
+        // Cover much larger area to ensure all system borders are hidden (especially left/right edges)
+        var extendedArea = new Rectangle(bounds.X - 8, bounds.Y - 5, bounds.Width + 16, bounds.Height + 15);
+        g.FillRectangle(borderBrush, extendedArea);
+
+        // Step 2: Fill the actual tab content area with tab color
+        using var tabBrush = new SolidBrush(tabColor);
+        g.FillRectangle(tabBrush, bounds);
+
+        // Step 3: Draw text
+        using var textBrush = new SolidBrush(textColor);
+        var sf = new StringFormat
+        {
+            Alignment = StringAlignment.Center,
+            LineAlignment = StringAlignment.Center
+        };
+        g.DrawString(text, tabControl.Font, textBrush, bounds, sf);
+    }
+
+    // Exact copy from Form1.Theme.cs DrawClassicThemeTab
+    private void DrawClassicThemeTab(Graphics g, TabControl tabControl, Rectangle bounds, string text, bool isSelected)
+    {
+        Color tabColor = isSelected ? SystemColors.Window : SystemColors.Control;
+        Color textColor = SystemColors.ControlText;
+
+        // Step 1: Fill VERY LARGE extended area with background color (aggressive border removal)
+        using var borderBrush = new SolidBrush(SystemColors.Control);
+        var extendedArea = new Rectangle(bounds.X - 5, bounds.Y - 5, bounds.Width + 10, bounds.Height + 12);
+        g.FillRectangle(borderBrush, extendedArea);
+
+        // Step 2: Fill the actual tab content area with tab color
+        using var tabBrush = new SolidBrush(tabColor);
+        g.FillRectangle(tabBrush, bounds);
+
+        // Step 3: Draw text
+        using var textBrush = new SolidBrush(textColor);
+        var sf = new StringFormat
+        {
+            Alignment = StringAlignment.Center,
+            LineAlignment = StringAlignment.Center
+        };
+        g.DrawString(text, tabControl.Font, textBrush, bounds, sf);
+    }
+
+    // Exact copy from Form1.Theme.cs TabControl_Paint
+    private void TabControl_Paint(object? sender, PaintEventArgs e)
+    {
+        if (sender is not TabControl tabControl) return;
+
+        var borderCoverColor = _isDarkTheme ? _bgColor : SystemColors.Control;
+        using var coverBrush = new SolidBrush(borderCoverColor);
+
+        var tabStripHeight = tabControl.ItemSize.Height;
+        var totalHeight = tabControl.Height;
+        var totalWidth = tabControl.Width;
+
+        // Cover all edge areas - entire control height for full border removal
+
+        // Left edge - full height (covers content area border too)
+        e.Graphics.FillRectangle(coverBrush, 0, 0, 4, totalHeight);
+
+        // Top edge (full width)
+        e.Graphics.FillRectangle(coverBrush, 0, 0, totalWidth, 6);
+
+        // Right edge - full height (covers content area border too)
+        e.Graphics.FillRectangle(coverBrush, totalWidth - 4, 0, 4, totalHeight);
+
+        // Bottom edge - full width (covers content area border)
+        e.Graphics.FillRectangle(coverBrush, 0, totalHeight - 4, totalWidth, 4);
+
+        // Bottom of tab strip (border between tabs and content)
+        e.Graphics.FillRectangle(coverBrush, 0, tabStripHeight - 2, totalWidth, 18);
+
+        // Also fill the area before first tab if there's any gap
+        if (tabControl.TabCount > 0)
+        {
+            var firstTabRect = tabControl.GetTabRect(0);
+            if (firstTabRect.X > 0)
+            {
+                e.Graphics.FillRectangle(coverBrush, 0, 0, firstTabRect.X + 3, tabStripHeight + 15);
+            }
+        }
+    }
+
     /// <summary>
     /// Show quick help popup for a specific tab
     /// </summary>
-    public static void ShowQuickHelp(IWin32Window owner, ThemeType theme, HelpSection section)
+    public static void ShowQuickHelp(IWin32Window owner, ThemeType theme, float fontSize, HelpSection section)
     {
         var content = section switch
         {
@@ -462,7 +692,7 @@ ESC         현재 창 닫기
             _ => "빠른 사용법"
         };
 
-        ShowQuickHelpDialog(owner, theme, title, content);
+        ShowQuickHelpDialog(owner, theme, fontSize, title, content);
     }
 
     private static string GetDealSearchQuickHelp()
@@ -472,10 +702,10 @@ ESC         현재 창 닫기
 2. 아이템명 입력
 3. 검색 버튼 클릭 또는 Enter
 
-[고급 검색]
-- 제련 지정: ""11 딤 글레이시아""
-- 등급 지정: ""%UNIQUE% 딤""
-- 조합: ""11%UNIQUE% 딤""
+[고급 검색] (등급+제련+아이템명 순서)
+- 등급 지정: ""%UNIQUE%딤""
+- 제련 지정: ""11딤 글레이시아""
+- 조합: ""%UNIQUE%11딤""
 
 [결과 활용]
 - 더블클릭: 상세 정보 보기
@@ -518,8 +748,8 @@ ESC         현재 창 닫기
 - 목표가 이하 매물 발견 시 알림
 
 [자동 갱신]
-1. 자동조회 버튼 클릭
-2. 주기 설정 (초 단위)
+1. 자동갱신 버튼 클릭
+2. 주기 설정 (분 단위)
 3. 적용 클릭
 
 [상태 표시]
@@ -528,12 +758,13 @@ ESC         현재 창 닫기
 - 양호: 평균보다 10% 이상 저렴
 - 정상: 평균 수준
 
-[기타]
+[버튼 기능]
 - 수동조회: 즉시 모든 항목 갱신
-- 소리: 알림음 켜기/끄기";
+- 알람설정: 알람 주기/소리 설정
+- 음소거: 알림음 켜기/끄기";
     }
 
-    private static void ShowQuickHelpDialog(IWin32Window owner, ThemeType theme, string title, string content)
+    private static void ShowQuickHelpDialog(IWin32Window owner, ThemeType theme, float fontSize, string title, string content)
     {
         Color bgColor, textColor, accentColor, panelColor;
 
@@ -573,42 +804,107 @@ ESC         현재 창 닫기
             Dock = DockStyle.Fill,
             BackColor = bgColor,
             ForeColor = textColor,
-            Font = new Font("Malgun Gothic", 10f),
+            Font = new Font("Malgun Gothic", fontSize - 2),
             BorderStyle = BorderStyle.None,
             ReadOnly = true,
-            Text = content,
             Padding = new Padding(10)
         };
 
-        // Format section headers
-        var text = rtb.Text;
-        int position = 0;
-        foreach (var line in text.Split('\n'))
+        // Use AppendText approach - more reliable than Select() for positioning
+        var lines = content.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+
+        // Font sizes consistent with Form1 (base - 2 for text, base for headers)
+        using var normalFont = new Font("Malgun Gothic", fontSize - 2);
+        using var boldFont = new Font("Malgun Gothic", fontSize - 2, FontStyle.Bold);
+        using var headerFont = new Font("Malgun Gothic", fontSize, FontStyle.Bold);
+
+        for (int i = 0; i < lines.Length; i++)
         {
-            var trimmed = line.TrimStart();
-            if (trimmed.StartsWith('[') && trimmed.Contains(']'))
+            var line = lines[i];
+
+            if (!string.IsNullOrEmpty(line))
             {
-                var start = text.IndexOf('[', position);
-                var end = text.IndexOf(']', start);
-                if (start >= 0 && end > start)
+                var trimmed = line.TrimStart();
+                var leadingSpaces = line.Substring(0, line.Length - trimmed.Length);
+
+                // Append leading spaces
+                if (leadingSpaces.Length > 0)
                 {
-                    rtb.Select(start, end - start + 1);
-                    rtb.SelectionFont = new Font("Malgun Gothic", 10f, FontStyle.Bold);
+                    rtb.SelectionColor = textColor;
+                    rtb.SelectionFont = normalFont;
+                    rtb.AppendText(leadingSpaces);
+                }
+
+                // Section headers [...]
+                if (trimmed.StartsWith('[') && trimmed.Contains(']'))
+                {
+                    int bracketEnd = trimmed.IndexOf(']');
+                    var headerPart = trimmed.Substring(0, bracketEnd + 1);
+                    var restPart = trimmed.Substring(bracketEnd + 1);
+
                     rtb.SelectionColor = accentColor;
+                    rtb.SelectionFont = headerFont;
+                    rtb.AppendText(headerPart);
+
+                    if (restPart.Length > 0)
+                    {
+                        rtb.SelectionColor = textColor;
+                        rtb.SelectionFont = normalFont;
+                        rtb.AppendText(restPart);
+                    }
+                }
+                // Numbered items (1., 2., etc.)
+                else if (trimmed.Length > 1 && char.IsDigit(trimmed[0]) && trimmed[1] == '.')
+                {
+                    var numberPart = trimmed.Substring(0, 2);
+                    var restPart = trimmed.Substring(2);
+
+                    rtb.SelectionColor = accentColor;
+                    rtb.SelectionFont = boldFont;
+                    rtb.AppendText(numberPart);
+
+                    if (restPart.Length > 0)
+                    {
+                        rtb.SelectionColor = textColor;
+                        rtb.SelectionFont = normalFont;
+                        rtb.AppendText(restPart);
+                    }
+                }
+                // Bullet points with dash
+                else if (trimmed.StartsWith('-'))
+                {
+                    rtb.SelectionColor = accentColor;
+                    rtb.SelectionFont = normalFont;
+                    rtb.AppendText("-");
+
+                    var restPart = trimmed.Substring(1);
+                    if (restPart.Length > 0)
+                    {
+                        rtb.SelectionColor = textColor;
+                        rtb.SelectionFont = normalFont;
+                        rtb.AppendText(restPart);
+                    }
+                }
+                // Normal line
+                else
+                {
+                    rtb.SelectionColor = textColor;
+                    rtb.SelectionFont = normalFont;
+                    rtb.AppendText(trimmed);
                 }
             }
-            else if (trimmed.StartsWith('-'))
+
+            // Add newline except for last line
+            if (i < lines.Length - 1)
             {
-                var idx = text.IndexOf(trimmed, position);
-                if (idx >= 0)
-                {
-                    rtb.Select(idx, 1);
-                    rtb.SelectionColor = accentColor;
-                }
+                rtb.SelectionColor = textColor;
+                rtb.SelectionFont = normalFont;
+                rtb.AppendText(Environment.NewLine);
             }
-            position += line.Length + 1;
         }
-        rtb.Select(0, 0);
+
+        rtb.SelectionStart = 0;
+        rtb.ScrollToCaret();
 
         var panel = new Panel
         {

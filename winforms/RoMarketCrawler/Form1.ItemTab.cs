@@ -934,65 +934,26 @@ public partial class Form1
     {
         if (_itemIndexService.IsLoading)
         {
-            // Cancel current operation
-            _indexCts?.Cancel();
             return;
         }
 
-        _indexCts = new CancellationTokenSource();
-        _btnIndexRebuildToolStrip.Text = "취소";
-        _btnItemSearchToolStrip.Enabled = false;
-        _progressIndexHost.Visible = true;
-        _progressIndex.Visible = true;
-        _progressIndex.Value = 0;
+        // Use modal dialog for progress - visible from any tab
+        using var progressDialog = new IndexProgressDialog(_currentTheme, _baseFontSize);
+        var success = await progressDialog.ShowAndRunAsync(this, _itemIndexService);
 
-        var progress = new Progress<IndexProgress>(p =>
+        if (success)
         {
-            if (InvokeRequired)
-            {
-                Invoke(new Action(() => UpdateProgress(p)));
-            }
-            else
-            {
-                UpdateProgress(p);
-            }
-        });
-
-        try
-        {
-            var success = await _itemIndexService.RebuildIndexAsync(progress, _indexCts.Token);
-
-            if (success)
-            {
-                UpdateIndexStatus();
-                RefreshAutoCompleteSource(); // Update autocomplete with new item names
-                MessageBox.Show(
-                    $"인덱스 생성 완료!\n\n총 {_itemIndexService.TotalCount:N0}개 아이템이 저장되었습니다.",
-                    "완료",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information);
-            }
+            UpdateIndexStatus();
+            RefreshAutoCompleteSource(); // Update autocomplete with new item names
+            MessageBox.Show(
+                $"인덱스 생성 완료!\n\n총 {progressDialog.TotalCount:N0}개 아이템이 저장되었습니다.",
+                "완료",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
         }
-        catch (OperationCanceledException)
+        else if (progressDialog.WasCancelled)
         {
             _lblItemStatus.Text = "인덱스 생성이 취소되었습니다.";
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(
-                $"인덱스 생성 중 오류가 발생했습니다:\n{ex.Message}",
-                "오류",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Error);
-            Debug.WriteLine($"[Form1] Index rebuild error: {ex}");
-        }
-        finally
-        {
-            _btnIndexRebuildToolStrip.Text = "아이템정보 수집";
-            _btnItemSearchToolStrip.Enabled = true;
-            _progressIndexHost.Visible = false;
-            _progressIndex.Visible = false;
-            _indexCts = null;
         }
     }
 
