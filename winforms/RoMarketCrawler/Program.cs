@@ -10,14 +10,6 @@ static class Program
     [STAThread]
     static void Main(string[] args)
     {
-        // Run test mode if --test argument is passed
-        if (args.Length > 0 && args[0] == "--test")
-        {
-            // Run async test synchronously to maintain STA thread
-            TestParser.RunTest().GetAwaiter().GetResult();
-            return;
-        }
-
         // Increase HTTP connection limit to allow concurrent API requests from Deal/Monitor tabs
         // Default is 2 connections per host, which causes blocking when both tabs query simultaneously
         ServicePointManager.DefaultConnectionLimit = 20;

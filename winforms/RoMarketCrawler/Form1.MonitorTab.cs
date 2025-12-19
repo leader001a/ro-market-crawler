@@ -2159,20 +2159,6 @@ public partial class Form1
     #endregion
 }
 
-// Helper class for alarm sound combo box
-internal class AlarmSoundItem
-{
-    public AlarmSoundType SoundType { get; }
-    public string Name { get; }
-
-    public AlarmSoundItem(AlarmSoundType soundType, string name)
-    {
-        SoundType = soundType;
-        Name = name;
-    }
-
-    public override string ToString() => Name;
-}
 
 // Dark theme renderer for ToolStrip
 internal class DarkToolStripRenderer : ToolStripProfessionalRenderer

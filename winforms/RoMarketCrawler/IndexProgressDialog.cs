@@ -7,6 +7,8 @@ namespace RoMarketCrawler;
 /// Modal dialog that shows index rebuild progress.
 /// Similar to StartupSplashForm but for manual index rebuilding.
 /// </summary>
+using RoMarketCrawler.Models;
+
 public class IndexProgressDialog : Form
 {
     private readonly Label _lblStatus;

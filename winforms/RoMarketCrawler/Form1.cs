@@ -1074,59 +1074,7 @@ public partial class Form1 : Form
 }
 
 // Helper class for item type combo box
-internal class ItemTypeItem
-{
-    public int Id { get; }
-    public string Name { get; }
-
-    public ItemTypeItem(int id, string name)
-    {
-        Id = id;
-        Name = name;
-    }
-
-    public override string ToString() => Name;
-}
 
 // App settings for persistence
-internal class AppSettings
-{
-    public float FontSize { get; set; } = 12f;
-    public ThemeType Theme { get; set; } = ThemeType.Dark;
-    public bool IsSoundMuted { get; set; } = false;
-    public AlarmSoundType AlarmSound { get; set; } = AlarmSoundType.SystemSound;
-    public int AlarmIntervalSeconds { get; set; } = 5;
-    public List<string> DealSearchHistory { get; set; } = new();
-}
-
 // Theme types
-public enum ThemeType
-{
-    Dark,
-    Classic
-}
 
-// Alarm sound types
-public enum AlarmSoundType
-{
-    SystemSound,  // 시스템 경고음 (기본값)
-    Chime,        // 차임벨
-    DingDong,     // 딩동
-    Rising,       // 상승음
-    Alert         // 알림음
-}
-
-// Helper class for server combo box
-internal class ServerItem
-{
-    public int Id { get; }
-    public string Name { get; }
-
-    public ServerItem(int id, string name)
-    {
-        Id = id;
-        Name = name;
-    }
-
-    public override string ToString() => Name;
-}

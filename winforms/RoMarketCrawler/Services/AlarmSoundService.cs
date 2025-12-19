@@ -7,6 +7,8 @@ namespace RoMarketCrawler.Services;
 /// <summary>
 /// Service for generating and playing different alarm sounds using NAudio
 /// </summary>
+using RoMarketCrawler.Models;
+
 public static class AlarmSoundService
 {
     private static WaveOutEvent? _waveOut;

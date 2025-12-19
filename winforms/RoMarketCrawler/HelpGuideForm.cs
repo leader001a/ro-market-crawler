@@ -3,6 +3,10 @@ namespace RoMarketCrawler;
 /// <summary>
 /// Help guide form showing comprehensive usage instructions
 /// </summary>
+using RoMarketCrawler.Controls;
+
+using RoMarketCrawler.Models;
+
 public class HelpGuideForm : Form
 {
     private BorderlessTabControl _tabControl = null!;
