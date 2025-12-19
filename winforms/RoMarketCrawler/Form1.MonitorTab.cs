@@ -845,26 +845,28 @@ public partial class Form1
                         _dgvMonitorResults.Rows[row].Cells["PriceDiff"].Value = "-";
                     }
 
-                    // Status based on watch price only
-                    var belowYesterday = group.YesterdayAvg.HasValue && group.LowestPrice < group.YesterdayAvg;
-                    var belowWeek = group.WeekAvg.HasValue && group.LowestPrice < group.WeekAvg;
-
-                    // Watch price triggers "득템!" status
+                    // Status based on price difference percentage (% column value)
+                    // Watch price triggers "득템!" status, otherwise use % thresholds
+                    string status;
                     if (belowWatchPrice)
-                        _dgvMonitorResults.Rows[row].Cells["Status"].Value = "득템!";
-                    else if (belowYesterday && belowWeek)
-                        _dgvMonitorResults.Rows[row].Cells["Status"].Value = "저렴!";
-                    else if (belowYesterday || belowWeek)
-                        _dgvMonitorResults.Rows[row].Cells["Status"].Value = "양호";
+                        status = "득템!";
+                    else if (priceDiff.HasValue && priceDiff <= -20)
+                        status = "저렴!";
+                    else if (priceDiff.HasValue && priceDiff < 0)
+                        status = "양호";
                     else
-                        _dgvMonitorResults.Rows[row].Cells["Status"].Value = "정상";
+                        status = "정상";
+
+                    _dgvMonitorResults.Rows[row].Cells["Status"].Value = status;
 
                     // Store for formatting: grade, refine and price comparison info
+                    var isBargain = priceDiff.HasValue && priceDiff <= -20;
+                    var isGood = priceDiff.HasValue && priceDiff < 0;
                     _dgvMonitorResults.Rows[row].Tag = new {
                         Grade = group.Grade,
                         Refine = group.Refine,
-                        BelowYesterday = belowYesterday,
-                        BelowWeek = belowWeek,
+                        BelowYesterday = isGood,
+                        BelowWeek = isBargain,
                         IsBargain = belowWatchPrice
                     };
                 }

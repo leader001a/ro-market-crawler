@@ -3,12 +3,107 @@ namespace RoMarketCrawler;
 /// <summary>
 /// Help guide form showing comprehensive usage instructions
 /// </summary>
-using RoMarketCrawler.Controls;
+using System.Runtime.InteropServices;
 
+using RoMarketCrawler.Controls;
 using RoMarketCrawler.Models;
 
 public class HelpGuideForm : Form
 {
+    [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)]
+    private static extern int SetWindowTheme(IntPtr hWnd, string pszSubAppName, string? pszSubIdList);
+
+    [DllImport("uxtheme.dll", EntryPoint = "#135", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern int SetPreferredAppMode(int mode);
+
+    [DllImport("uxtheme.dll", EntryPoint = "#133", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool AllowDarkModeForWindow(IntPtr hWnd, bool allow);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
+    private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+    private const int PreferredAppMode_AllowDark = 1;
+
+    /// <summary>
+    /// Apply dark or light scrollbar theme to a control and all its children recursively (static version)
+    /// </summary>
+    private static void ApplyScrollBarThemeStatic(Control control, bool isDark)
+    {
+        string themeName = isDark ? "DarkMode_Explorer" : "Explorer";
+
+        if (control.IsHandleCreated)
+        {
+            SetWindowTheme(control.Handle, themeName, null);
+        }
+        else
+        {
+            string capturedTheme = themeName;
+            control.HandleCreated += (s, e) =>
+            {
+                if (s is Control c)
+                    SetWindowTheme(c.Handle, capturedTheme, null);
+            };
+        }
+
+        foreach (Control child in control.Controls)
+        {
+            ApplyScrollBarThemeStatic(child, isDark);
+        }
+
+        if (control.IsHandleCreated)
+        {
+            control.Invalidate(true);
+        }
+    }
+
+    /// <summary>
+    /// Apply dark or light scrollbar theme to a control and all its children recursively
+    /// </summary>
+    private void ApplyScrollBarTheme(Control control, bool isDark)
+    {
+        string themeName = isDark ? "DarkMode_Explorer" : "Explorer";
+
+        // For the Form itself, enable dark mode at the window level
+        if (control is Form form && isDark)
+        {
+            SetPreferredAppMode(PreferredAppMode_AllowDark);
+            if (form.IsHandleCreated)
+            {
+                AllowDarkModeForWindow(form.Handle, true);
+                int darkMode = 1;
+                DwmSetWindowAttribute(form.Handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref darkMode, sizeof(int));
+            }
+        }
+
+        // Apply to the control itself
+        if (control.IsHandleCreated)
+        {
+            SetWindowTheme(control.Handle, themeName, null);
+        }
+        else
+        {
+            string capturedTheme = themeName;
+            control.HandleCreated += (s, e) =>
+            {
+                if (s is Control c)
+                    SetWindowTheme(c.Handle, capturedTheme, null);
+            };
+        }
+
+        // Recursively apply to all existing child controls
+        foreach (Control child in control.Controls)
+        {
+            ApplyScrollBarTheme(child, isDark);
+        }
+
+        // Invalidate the control to force redraw
+        if (control.IsHandleCreated)
+        {
+            control.Invalidate(true);
+        }
+    }
+
     private BorderlessTabControl _tabControl = null!;
     private readonly Color _bgColor;
     private readonly Color _textColor;
@@ -48,6 +143,41 @@ public class HelpGuideForm : Form
 
         InitializeComponents();
         SelectSection(initialSection);
+
+        // Apply dark theme scrollbar to all controls
+        if (_isDarkTheme)
+        {
+            ApplyScrollBarTheme(this, true);
+        }
+    }
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+
+        if (_isDarkTheme)
+        {
+            // Enable dark mode for the window
+            SetPreferredAppMode(PreferredAppMode_AllowDark);
+            AllowDarkModeForWindow(this.Handle, true);
+            int darkMode = 1;
+            DwmSetWindowAttribute(this.Handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref darkMode, sizeof(int));
+
+            // Apply dark scrollbar theme to all controls
+            ApplyDarkScrollbarsToAllControls(this);
+        }
+    }
+
+    private void ApplyDarkScrollbarsToAllControls(Control parent)
+    {
+        foreach (Control control in parent.Controls)
+        {
+            if (control.IsHandleCreated)
+            {
+                SetWindowTheme(control.Handle, "DarkMode_Explorer", null);
+            }
+            ApplyDarkScrollbarsToAllControls(control);
+        }
     }
 
     private void InitializeComponents()
@@ -934,6 +1064,12 @@ ESC               현재 창 닫기
         panel.Controls.Add(btnClose);
         form.Controls.Add(rtb);
         form.Controls.Add(panel);
+
+        // Apply dark theme scrollbar
+        if (theme == ThemeType.Dark)
+        {
+            ApplyScrollBarThemeStatic(form, true);
+        }
 
         form.ShowDialog(owner);
     }
