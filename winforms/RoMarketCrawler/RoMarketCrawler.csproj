@@ -9,6 +9,22 @@
     <Version>1.0.0</Version>
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <FileVersion>1.0.0.0</FileVersion>
+
+    <!-- Application Info -->
+    <Product>RO Market Crawler</Product>
+    <Company>RO Market Tools</Company>
+    <Description>Ragnarok Origin Market Price Tracker</Description>
+    <Copyright>Copyright 2024-2025</Copyright>
+
+    <!-- Publishing Settings -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+
+    <!-- Icon (optional - add if you have one) -->
+    <!-- <ApplicationIcon>app.ico</ApplicationIcon> -->
   </PropertyGroup>
 
   <ItemGroup>

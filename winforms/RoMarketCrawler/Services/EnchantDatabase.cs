@@ -48,9 +48,9 @@ public class EnchantDatabase
 
         try
         {
-            // Try to load from file in Data folder
-            var exePath = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-            var jsonPath = Path.Combine(exePath ?? ".", "Data", "EnchantEffects.json");
+            // Try to load from file in Data folder (use AppContext.BaseDirectory for single-file apps)
+            var exePath = AppContext.BaseDirectory;
+            var jsonPath = Path.Combine(exePath, "Data", "EnchantEffects.json");
 
             if (!File.Exists(jsonPath))
             {
