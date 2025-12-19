@@ -26,11 +26,12 @@ public partial class Form1
             await _monitoringService.LoadConfigAsync();
             UpdateMonitorItemList();
 
-            // Load saved interval value to NumericUpDown, but don't start auto-refresh
+            // Load saved interval value to NumericUpDown (convert seconds to minutes), but don't start auto-refresh
             // Auto-refresh should always start in stopped state
             if (_monitoringService.Config.RefreshIntervalSeconds > 0)
             {
-                _nudRefreshInterval.Value = _monitoringService.Config.RefreshIntervalSeconds;
+                var savedMinutes = Math.Max(1, _monitoringService.Config.RefreshIntervalSeconds / 60);
+                _nudRefreshInterval.Value = Math.Min(savedMinutes, 60); // Clamp to max 60 minutes
             }
             // Reset RefreshIntervalSeconds to 0 so auto-refresh is stopped
             _monitoringService.Config.RefreshIntervalSeconds = 0;
@@ -952,10 +953,11 @@ public partial class Form1
             return;
         }
 
-        var interval = _monitoringService.Config.RefreshIntervalSeconds;
-        if (interval > 0)
+        var intervalSeconds = _monitoringService.Config.RefreshIntervalSeconds;
+        if (intervalSeconds > 0)
         {
-            _btnApplyInterval.Text = $"중지 ({interval}s)";
+            var minutes = intervalSeconds / 60;
+            _btnApplyInterval.Text = $"중지 ({minutes}분)";
             _btnApplyInterval.ForeColor = ThemeSaleColor;
             if (_lblAutoRefreshStatus != null)
             {
@@ -1298,12 +1300,13 @@ public partial class Form1
         }
         else
         {
-            // Start auto-refresh
-            var seconds = (int)_nudRefreshInterval.Value;
-            if (seconds < 15) seconds = 15; // Minimum 15 seconds
+            // Start auto-refresh - convert minutes to seconds
+            var minutes = (int)_nudRefreshInterval.Value;
+            if (minutes < 1) minutes = 1; // Minimum 1 minute
+            var seconds = minutes * 60;
             await _monitoringService.SetRefreshIntervalAsync(seconds);
             StartMonitorTimer(seconds);
-            _lblMonitorStatus.Text = $"자동 갱신 시작: {seconds}초";
+            _lblMonitorStatus.Text = $"자동 갱신 시작: {minutes}분";
         }
 
         UpdateMonitorRefreshLabel();
@@ -1717,7 +1720,7 @@ public partial class Form1
         var lblInterval = new Label
         {
             Name = "lblInterval",
-            Text = "새로고침 간격 (초)",
+            Text = "새로고침 간격 (분)",
             Location = new Point(8, yPos + 2),
             AutoSize = true,
             ForeColor = ThemeText,
@@ -1727,7 +1730,7 @@ public partial class Form1
         _nudRefreshInterval = new NumericUpDown
         {
             Name = "nudRefreshInterval",
-            Minimum = 15, Maximum = 600, Value = 30, Increment = 5,
+            Minimum = 1, Maximum = 60, Value = 1, Increment = 1,  // 1분~60분 (최소 1분)
             Location = new Point((int)(140 * scale), yPos),
             Size = new Size((int)(65 * scale), rowHeight),
             BackColor = ThemeGrid,

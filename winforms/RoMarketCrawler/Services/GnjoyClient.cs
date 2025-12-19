@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
+using RoMarketCrawler.Exceptions;
 using RoMarketCrawler.Models;
 
 namespace RoMarketCrawler.Services;
@@ -23,9 +24,96 @@ public class GnjoyClient : IDisposable
     private readonly PriceQuoteParser _quoteParser;
     private readonly ItemDetailParser _detailParser;
 
-    // Retry settings (3 retries, 1 second delay)
-    private const int MaxRetries = 3;
-    private const int RetryDelayMs = 1000;
+    // Retry settings with exponential backoff
+    private const int MaxRetries = 4;
+    private const int BaseRetryDelayMs = 1000;  // 1s -> 2s -> 4s -> 8s
+
+    /// <summary>
+    /// Current rate limit status - null if not rate limited
+    /// </summary>
+    public static DateTime? RateLimitedUntil { get; private set; }
+
+    /// <summary>
+    /// Check if currently rate limited
+    /// </summary>
+    public static bool IsRateLimited => RateLimitedUntil.HasValue && DateTime.Now < RateLimitedUntil.Value;
+
+    /// <summary>
+    /// Get remaining rate limit time in seconds
+    /// </summary>
+    public static int RemainingRateLimitSeconds =>
+        IsRateLimited ? (int)(RateLimitedUntil!.Value - DateTime.Now).TotalSeconds : 0;
+
+    /// <summary>
+    /// Clear rate limit status (call when rate limit is lifted)
+    /// </summary>
+    public static void ClearRateLimit()
+    {
+        RateLimitedUntil = null;
+        Debug.WriteLine("[GnjoyClient] Rate limit cleared");
+    }
+
+    // Request counter for rate limit monitoring
+    private static readonly object _counterLock = new();
+    private static int _requestCount = 0;
+    private static DateTime _counterStartTime = DateTime.Now;
+
+    /// <summary>
+    /// Get current request count in the monitoring window
+    /// </summary>
+    public static int RequestCount
+    {
+        get
+        {
+            lock (_counterLock)
+            {
+                ResetCounterIfNeeded();
+                return _requestCount;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Get requests per minute rate
+    /// </summary>
+    public static double RequestsPerMinute
+    {
+        get
+        {
+            lock (_counterLock)
+            {
+                ResetCounterIfNeeded();
+                var elapsed = (DateTime.Now - _counterStartTime).TotalMinutes;
+                return elapsed > 0 ? _requestCount / elapsed : 0;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Increment request counter
+    /// </summary>
+    private static void IncrementRequestCounter()
+    {
+        lock (_counterLock)
+        {
+            ResetCounterIfNeeded();
+            _requestCount++;
+            Debug.WriteLine($"[GnjoyClient] Request #{_requestCount} (Rate: {RequestsPerMinute:F1}/min)");
+        }
+    }
+
+    /// <summary>
+    /// Reset counter if more than 1 minute has passed
+    /// </summary>
+    private static void ResetCounterIfNeeded()
+    {
+        if ((DateTime.Now - _counterStartTime).TotalMinutes >= 1)
+        {
+            Debug.WriteLine($"[GnjoyClient] Counter reset - Previous: {_requestCount} requests in 1 minute");
+            _requestCount = 0;
+            _counterStartTime = DateTime.Now;
+        }
+    }
 
     public GnjoyClient()
     {
@@ -74,12 +162,52 @@ public class GnjoyClient : IDisposable
     }
 
     /// <summary>
-    /// HTTP GET with retry on error (3 retries, 1 second delay)
+    /// Parse Retry-After header value (can be seconds or HTTP date)
+    /// </summary>
+    private static int ParseRetryAfterHeader(HttpResponseMessage response)
+    {
+        if (response.Headers.TryGetValues("Retry-After", out var values))
+        {
+            var retryAfter = values.FirstOrDefault();
+            if (!string.IsNullOrEmpty(retryAfter))
+            {
+                // Try parsing as integer (seconds)
+                if (int.TryParse(retryAfter, out var seconds))
+                {
+                    Debug.WriteLine($"[GnjoyClient] Retry-After (seconds): {seconds}");
+                    return seconds;
+                }
+
+                // Try parsing as HTTP date
+                if (DateTimeOffset.TryParse(retryAfter, out var date))
+                {
+                    var diff = (int)(date - DateTimeOffset.Now).TotalSeconds;
+                    Debug.WriteLine($"[GnjoyClient] Retry-After (date): {retryAfter} -> {diff}s");
+                    return Math.Max(0, diff);
+                }
+            }
+        }
+
+        // Default to 60 seconds if no Retry-After header
+        return 60;
+    }
+
+    /// <summary>
+    /// HTTP GET with exponential backoff retry (1s -> 2s -> 4s -> 8s)
+    /// Throws RateLimitException on 429 with Retry-After header
     /// </summary>
     private async Task<HttpResponseMessage> GetWithRetryAsync(string url, CancellationToken cancellationToken)
     {
         HttpResponseMessage? response = null;
         Exception? lastException = null;
+
+        // Check if currently rate limited
+        if (IsRateLimited)
+        {
+            var remaining = RemainingRateLimitSeconds;
+            Debug.WriteLine($"[GnjoyClient] Currently rate limited, {remaining}s remaining");
+            throw new RateLimitException(remaining, $"API 요청 제한 중. {remaining}초 후 재시도 가능");
+        }
 
         for (int retryCount = 0; retryCount <= MaxRetries; retryCount++)
         {
@@ -89,24 +217,51 @@ public class GnjoyClient : IDisposable
 
                 if (retryCount > 0)
                 {
-                    Debug.WriteLine($"[GnjoyClient] Retry {retryCount}/{MaxRetries} after {RetryDelayMs}ms: {url}");
-                    await Task.Delay(RetryDelayMs, cancellationToken);
+                    // Exponential backoff: 1s, 2s, 4s, 8s
+                    var delayMs = BaseRetryDelayMs * (int)Math.Pow(2, retryCount - 1);
+                    Debug.WriteLine($"[GnjoyClient] Retry {retryCount}/{MaxRetries} after {delayMs}ms (exponential backoff): {url}");
+                    await Task.Delay(delayMs, cancellationToken);
                 }
+
+                // Increment request counter for rate limit monitoring
+                IncrementRequestCounter();
 
                 response = await _client.GetAsync(url, cancellationToken);
 
-                // Check for error responses that should trigger retry
-                if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests ||
-                    response.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable ||
-                    response.StatusCode == System.Net.HttpStatusCode.GatewayTimeout)
+                // Handle 429 Too Many Requests - throw exception with Retry-After info
+                if (response.StatusCode == HttpStatusCode.TooManyRequests)
                 {
-                    Debug.WriteLine($"[GnjoyClient] HTTP {(int)response.StatusCode} - will retry");
+                    var retryAfterSeconds = ParseRetryAfterHeader(response);
+                    RateLimitedUntil = DateTime.Now.AddSeconds(retryAfterSeconds);
+
+                    Debug.WriteLine($"[GnjoyClient] HTTP 429 - Rate limited for {retryAfterSeconds}s (until {RateLimitedUntil})");
+                    response.Dispose();
+
+                    throw new RateLimitException(retryAfterSeconds,
+                        $"API 요청 제한됨. {retryAfterSeconds}초 후 재시도 가능");
+                }
+
+                // Handle 503/504 - retry with exponential backoff
+                if (response.StatusCode == HttpStatusCode.ServiceUnavailable ||
+                    response.StatusCode == HttpStatusCode.GatewayTimeout)
+                {
+                    Debug.WriteLine($"[GnjoyClient] HTTP {(int)response.StatusCode} - will retry with backoff");
                     response.Dispose();
                     continue;
                 }
 
-                // Success or client error (4xx) - return response
+                // Success - clear any previous rate limit
+                if (response.IsSuccessStatusCode)
+                {
+                    ClearRateLimit();
+                }
+
                 return response;
+            }
+            catch (RateLimitException)
+            {
+                // Don't catch RateLimitException - let it propagate
+                throw;
             }
             catch (HttpRequestException ex)
             {

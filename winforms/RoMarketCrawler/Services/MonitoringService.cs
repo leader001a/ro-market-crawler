@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using RoMarketCrawler.Exceptions;
 using RoMarketCrawler.Models;
 
 namespace RoMarketCrawler.Services
@@ -30,13 +31,18 @@ namespace RoMarketCrawler.Services
         private readonly object _lock = new();
         private bool _disposed;
 
-        // Parallel processing with atomic update pattern to prevent race conditions
-        private readonly SemaphoreSlim _refreshSemaphore = new(3); // Max 3 concurrent refreshes
+        // Sequential processing delay to prevent API rate limiting (500ms between items)
+        private const int RefreshDelayMs = 500;
 
-        // Session-level cache for price statistics (yesterday/weekly averages)
-        // Key: "{priceListMatch}|{priceServerId}", Value: PriceStatistics
+        // Price statistics cache expiration time in hours
+        // GNJOY price data is updated daily, but we refresh every 3 hours to ensure freshness
+        private const int PriceStatsCacheExpirationHours = 3;
+
+        // Session-level cache for price statistics (yesterday/weekly averages) with TTL
+        // Key: "{priceListMatch}|{priceServerId}", Value: (PriceStatistics, CachedAt timestamp)
         // Avoids duplicate API calls when same item name is monitored across different servers
-        private readonly ConcurrentDictionary<string, PriceStatistics?> _priceStatsCache = new(StringComparer.OrdinalIgnoreCase);
+        // Cache entries expire after PriceStatsCacheExpirationHours
+        private readonly ConcurrentDictionary<string, (PriceStatistics? Stats, DateTime CachedAt)> _priceStatsCache = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
         /// Creates MonitoringService with its own dedicated GnjoyClient.
@@ -441,9 +447,9 @@ namespace RoMarketCrawler.Services
         }
 
         /// <summary>
-        /// Refresh all monitored items using parallel processing with atomic update
-        /// Uses temporary dictionary to collect results, then updates _results atomically
-        /// This prevents race conditions when refresh is cancelled mid-way
+        /// Refresh all monitored items using sequential processing to prevent API rate limiting.
+        /// Uses temporary dictionary to collect results, then updates _results atomically.
+        /// This prevents race conditions when refresh is cancelled mid-way.
         /// </summary>
         public async Task RefreshAllAsync(
             IProgress<MonitorProgress>? progress = null,
@@ -465,70 +471,63 @@ namespace RoMarketCrawler.Services
                 return;
             }
 
-            Debug.WriteLine($"[MonitoringService] Refreshing {total} items with parallel processing (max 3 concurrent, atomic update)...");
+            Debug.WriteLine($"[MonitoringService] Refreshing {total} items sequentially ({RefreshDelayMs}ms delay between items)...");
 
             // Temporary dictionary for collecting results - prevents partial updates on cancellation
-            var tempResults = new ConcurrentDictionary<string, MonitorResult>();
-            int completedCount = 0;
+            var tempResults = new Dictionary<string, MonitorResult>();
 
             progress?.Report(new MonitorProgress
             {
-                Phase = "병렬 조회 중",
+                Phase = "순차 조회 중",
                 CurrentItem = $"{total}개 아이템 처리 중...",
                 CurrentIndex = 0,
                 TotalItems = total,
                 ProgressPercent = 0
             });
 
-            // Create tasks for parallel execution with semaphore rate limiting
-            var tasks = items.Select(async item =>
+            // Sequential processing with delays between items to prevent rate limiting
+            for (int i = 0; i < items.Count; i++)
             {
+                var item = items[i];
+
                 // Capture item identity at start to prevent race condition
                 // If user renames item during async API call, we must discard stale results
                 var searchName = item.ItemName;
                 var searchServerId = item.ServerId;
 
-                await _refreshSemaphore.WaitAsync(cancellationToken);
-                try
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // Report progress before starting each item
+                progress?.Report(new MonitorProgress
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
+                    Phase = "순차 조회 중",
+                    CurrentItem = searchName,
+                    CurrentIndex = i,
+                    TotalItems = total,
+                    ProgressPercent = (int)((double)i / total * 100)
+                });
 
-                    var result = await RefreshItemAsync(item, cancellationToken);
+                var result = await RefreshItemAsync(item, cancellationToken);
 
-                    // Check if item was renamed during the async operation
-                    if (item.ItemName != searchName || item.ServerId != searchServerId)
-                    {
-                        Debug.WriteLine($"[MonitoringService] RefreshAllAsync: Item changed during refresh: '{searchName}' -> '{item.ItemName}', discarding stale results");
-                        // Don't store - the stale data would be stored under wrong key
-                    }
-                    else
-                    {
-                        // Store in temporary dictionary only if item identity unchanged
-                        var key = GetResultKey(searchName, searchServerId);
-                        tempResults[key] = result;
-                    }
-
-                    // Update progress after each item completes
-                    var currentCompleted = Interlocked.Increment(ref completedCount);
-                    progress?.Report(new MonitorProgress
-                    {
-                        Phase = "병렬 조회 중",
-                        CurrentItem = searchName,
-                        CurrentIndex = currentCompleted,
-                        TotalItems = total,
-                        ProgressPercent = (int)((double)currentCompleted / total * 100)
-                    });
-
-                    return result;
-                }
-                finally
+                // Check if item was renamed during the async operation
+                if (item.ItemName != searchName || item.ServerId != searchServerId)
                 {
-                    _refreshSemaphore.Release();
+                    Debug.WriteLine($"[MonitoringService] RefreshAllAsync: Item changed during refresh: '{searchName}' -> '{item.ItemName}', discarding stale results");
+                    // Don't store - the stale data would be stored under wrong key
                 }
-            }).ToList();
+                else
+                {
+                    // Store in temporary dictionary only if item identity unchanged
+                    var key = GetResultKey(searchName, searchServerId);
+                    tempResults[key] = result;
+                }
 
-            // Wait for ALL tasks to complete
-            await Task.WhenAll(tasks);
+                // Delay between items to prevent API rate limiting (except after last item)
+                if (i < items.Count - 1)
+                {
+                    await Task.Delay(RefreshDelayMs, cancellationToken);
+                }
+            }
 
             // ATOMIC UPDATE: Only update _results after ALL items complete successfully
             // This prevents partial results when refresh is cancelled
@@ -563,7 +562,7 @@ namespace RoMarketCrawler.Services
                 ProgressPercent = 100
             });
 
-            Debug.WriteLine($"[MonitoringService] Parallel refresh completed for {total} items (atomic update)");
+            Debug.WriteLine($"[MonitoringService] Sequential refresh completed for {total} items");
         }
 
         /// <summary>
@@ -693,20 +692,35 @@ namespace RoMarketCrawler.Services
 
                             // Check session-level cache first (same item averages are shared across servers)
                             var statsCacheKey = $"{priceListMatch}|{priceServerId}";
-                            if (_priceStatsCache.TryGetValue(statsCacheKey, out var cachedPriceStats))
+                            var cacheHit = false;
+
+                            if (_priceStatsCache.TryGetValue(statsCacheKey, out var cached))
                             {
-                                stats = cachedPriceStats;
-                                Debug.WriteLine($"[MonitoringService] Using cached stats for '{priceListMatch}': Yesterday={stats?.YesterdayAvgPrice:N0}, Week={stats?.Week7AvgPrice:N0}");
+                                var cacheAge = DateTime.Now - cached.CachedAt;
+                                if (cacheAge.TotalHours < PriceStatsCacheExpirationHours)
+                                {
+                                    // Cache is still valid
+                                    stats = cached.Stats;
+                                    cacheHit = true;
+                                    Debug.WriteLine($"[MonitoringService] Using cached stats for '{priceListMatch}' (age: {cacheAge.TotalMinutes:F0}min): Yesterday={stats?.YesterdayAvgPrice:N0}, Week={stats?.Week7AvgPrice:N0}");
+                                }
+                                else
+                                {
+                                    // Cache expired, remove stale entry
+                                    _priceStatsCache.TryRemove(statsCacheKey, out _);
+                                    Debug.WriteLine($"[MonitoringService] Cache expired for '{priceListMatch}' (age: {cacheAge.TotalHours:F1}h > {PriceStatsCacheExpirationHours}h), refreshing...");
+                                }
                             }
-                            else
+
+                            if (!cacheHit)
                             {
                                 // Fetch price statistics from API
                                 stats = await _gnjoyClient.FetchPriceHistoryAsync(
                                     priceListMatch,
                                     priceServerId,
                                     cancellationToken);
-                                // Cache the result for future use
-                                _priceStatsCache[statsCacheKey] = stats;
+                                // Cache the result with timestamp for TTL management
+                                _priceStatsCache[statsCacheKey] = (stats, DateTime.Now);
                                 Debug.WriteLine($"[MonitoringService] Fetched and cached stats for '{priceListMatch}': Yesterday={stats?.YesterdayAvgPrice:N0}, Week={stats?.Week7AvgPrice:N0}");
                             }
                         }
@@ -728,6 +742,13 @@ namespace RoMarketCrawler.Services
                 result.Statistics = statsCache.Values.FirstOrDefault(s => s != null);
 
                 Debug.WriteLine($"[MonitoringService] Refreshed '{capturedItemName}': {deals.Count} deals across {dealsByItemName.Count} item names");
+            }
+            catch (RateLimitException rateLimitEx)
+            {
+                result.ErrorMessage = $"API 요청 제한: {rateLimitEx.RemainingTimeText}";
+                result.IsRateLimited = true;
+                result.RateLimitedUntil = rateLimitEx.RetryAfterTime;
+                Debug.WriteLine($"[MonitoringService] Rate limited for '{capturedItemName}': {rateLimitEx.RetryAfterSeconds}s");
             }
             catch (Exception ex)
             {
@@ -885,7 +906,6 @@ namespace RoMarketCrawler.Services
             {
                 _gnjoyClient.Dispose();
             }
-            _refreshSemaphore.Dispose();
         }
     }
 

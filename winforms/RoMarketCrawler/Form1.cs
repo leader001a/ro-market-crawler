@@ -52,7 +52,6 @@ public partial class Form1 : Form
     private FlowLayoutPanel _pnlSearchHistory = null!;
     private List<string> _dealSearchHistory = new();
     private const int MaxSearchHistoryCount = 10;
-    private const int DealSearchDelayMs = 1000;  // 1 second delay between searches
 
     // Deal Tab Pagination (server-side: API returns 10 items per page)
     private Button _btnDealPrev = null!;

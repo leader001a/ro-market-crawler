@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using RoMarketCrawler.Exceptions;
 using RoMarketCrawler.Models;
+using RoMarketCrawler.Services;
 
 namespace RoMarketCrawler;
 
@@ -396,25 +398,12 @@ public partial class Form1
         }
 
         SetDealSearchingState(true);
-        _lblDealStatus.Text = $"서버 보호를 위해 대기 중...";
+        _lblDealStatus.Text = $"{_dealCurrentPage}페이지 조회 중...";
+        _progressDealSearch.Value = 0;
+        _progressDealSearch.Visible = true;
 
         try
         {
-            // Rate limiting: 1 second delay with progress bar animation
-            _progressDealSearch.Value = 0;
-            _progressDealSearch.Visible = true;
-            const int steps = 20;
-            const int stepDelay = DealSearchDelayMs / steps;
-            for (int i = 1; i <= steps; i++)
-            {
-                if (_cts.Token.IsCancellationRequested) break;
-                await Task.Delay(stepDelay, _cts.Token);
-                _progressDealSearch.Value = (i * 100) / steps;
-            }
-            _progressDealSearch.Visible = false;
-
-            _lblDealStatus.Text = $"{_dealCurrentPage}페이지 조회 중...";
-
             // Fetch single page from API (API uses 1-based page numbers)
             var items = await _gnjoyClient.SearchItemDealsAsync(searchText, serverId, _dealCurrentPage, _cts.Token);
 
@@ -429,7 +418,15 @@ public partial class Form1
                 item.ComputeFields();
             }
 
-            // Update grid
+            // Load details sequentially BEFORE showing results (prevents rate limiting)
+            var equipmentItems = items.Where(i => i.HasDetailParams && IsEquipmentItem(i)).ToList();
+            if (equipmentItems.Count > 0)
+            {
+                _lblDealStatus.Text = $"상세정보 로딩 중... (0/{equipmentItems.Count})";
+                await LoadDetailsSequentiallyAsync(items, equipmentItems, searchId, _cts.Token);
+            }
+
+            // Show all results at once after loading is complete
             _searchResults.Clear();
             _searchResults.AddRange(items);
             _dealBindingSource.DataSource = items;
@@ -438,18 +435,30 @@ public partial class Form1
             // Update pagination UI
             UpdateDealPaginationUI();
 
-            // Update status
-            _lblDealStatus.Text = $"{_dealCurrentPage}페이지: {items.Count}개 결과 - 상세정보 로딩 중...";
-
-            // Load details for current page items
-            await LoadCurrentPageDetailsAsync(searchId, _cts.Token);
-
             // Final status update
+            _progressDealSearch.Visible = false;
             _lblDealStatus.Text = $"{_dealCurrentPage}페이지: {items.Count}개 결과 (더블클릭으로 상세정보 조회)";
         }
         catch (OperationCanceledException)
         {
             _lblDealStatus.Text = "검색이 취소되었습니다.";
+        }
+        catch (RateLimitException rateLimitEx)
+        {
+            // Show rate limit status to user
+            var remainingTime = rateLimitEx.RemainingTimeText;
+            _lblDealStatus.Text = $"API 요청 제한됨: {remainingTime}";
+            _lblDealStatus.ForeColor = ThemeSaleColor;  // Red color for warning
+
+            Debug.WriteLine($"[Form1] Rate limited: {rateLimitEx.RetryAfterSeconds}s, until {rateLimitEx.RetryAfterTime}");
+
+            MessageBox.Show(
+                $"GNJOY API 요청 제한이 적용되었습니다.\n\n" +
+                $"재시도 가능 시간: {remainingTime}\n\n" +
+                "과도한 검색을 자제해 주세요.",
+                "API 요청 제한",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
         }
         catch (Exception ex)
         {
@@ -459,8 +468,83 @@ public partial class Form1
         }
         finally
         {
+            _progressDealSearch.Visible = false;
             SetDealSearchingState(false);
         }
+    }
+
+    /// <summary>
+    /// Delay between detail requests to prevent rate limiting (in milliseconds)
+    /// </summary>
+    private const int DetailRequestDelayMs = 500;
+
+    /// <summary>
+    /// Load item details sequentially with delay to prevent rate limiting.
+    /// Shows progress in status label and progress bar.
+    /// </summary>
+    private async Task LoadDetailsSequentiallyAsync(
+        List<DealItem> allItems,
+        List<DealItem> equipmentItems,
+        int searchId,
+        CancellationToken cancellationToken)
+    {
+        bool IsCurrentSearch() => searchId == _currentSearchId && !cancellationToken.IsCancellationRequested;
+
+        var total = equipmentItems.Count;
+        var loaded = 0;
+
+        foreach (var item in equipmentItems)
+        {
+            if (!IsCurrentSearch()) break;
+
+            try
+            {
+                var detail = await _gnjoyClient.FetchItemDetailAsync(
+                    item.ServerId,
+                    item.MapId!.Value,
+                    item.Ssi!,
+                    cancellationToken);
+
+                if (detail != null && IsCurrentSearch())
+                {
+                    item.ApplyDetailInfo(detail);
+                }
+
+                loaded++;
+
+                // Update progress
+                if (!IsDisposed && IsCurrentSearch())
+                {
+                    var progress = (loaded * 100) / total;
+                    Invoke(() =>
+                    {
+                        if (IsCurrentSearch())
+                        {
+                            _progressDealSearch.Value = progress;
+                            _lblDealStatus.Text = $"상세정보 로딩 중... ({loaded}/{total})";
+                        }
+                    });
+                }
+
+                // Delay between requests to prevent rate limiting
+                if (loaded < total && IsCurrentSearch())
+                {
+                    await Task.Delay(DetailRequestDelayMs, cancellationToken);
+                }
+            }
+            catch (RateLimitException)
+            {
+                // Re-throw rate limit exceptions to be handled by caller
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Form1] Failed to load detail for {item.ItemName}: {ex.Message}");
+                loaded++;
+            }
+        }
+
+        Debug.WriteLine($"[Form1] Loaded {loaded}/{total} item details sequentially");
     }
 
     /// <summary>
@@ -482,100 +566,6 @@ public partial class Form1
 
         Debug.WriteLine($"[Form1] Item '{item.ItemName}' (ID:{effectiveItemId}) Type:{itemType} IsEquipment:{isEquipment}");
         return isEquipment;
-    }
-
-    /// <summary>
-    /// Load item details (card/enchant info) for current page items only
-    /// Only loads for equipment items (무기, 방어구, 쉐도우, 의상)
-    /// </summary>
-    private async Task LoadCurrentPageDetailsAsync(int searchId, CancellationToken cancellationToken)
-    {
-        bool IsCurrentSearch() => searchId == _currentSearchId && !cancellationToken.IsCancellationRequested;
-
-        var currentPageItems = (_dealBindingSource.DataSource as List<DealItem>) ?? new List<DealItem>();
-        // Filter: has detail params, not loaded yet, AND is equipment type
-        var itemsWithDetails = currentPageItems
-            .Where(i => i.HasDetailParams && i.SlotInfo.Count == 0 && IsEquipmentItem(i))
-            .ToList();
-
-        if (itemsWithDetails.Count == 0)
-        {
-            Debug.WriteLine($"[Form1] No items need detail loading on page {_dealCurrentPage}");
-            return;
-        }
-
-        Debug.WriteLine($"[Form1] Loading details for {itemsWithDetails.Count} items on page {_dealCurrentPage}");
-        var loadedCount = 0;
-        var totalCount = itemsWithDetails.Count;
-
-        // Update status to show loading started
-        if (!IsDisposed && IsCurrentSearch())
-        {
-            Invoke(() =>
-            {
-                if (IsCurrentSearch())
-                    _lblDealStatus.Text = $"{_dealCurrentPage}페이지: 상세정보 로딩 중... (0/{totalCount})";
-            });
-        }
-
-        var tasks = itemsWithDetails.Select(async item =>
-        {
-            try
-            {
-                if (!IsCurrentSearch()) return;
-
-                var detail = await _gnjoyClient.FetchItemDetailAsync(
-                    item.ServerId,
-                    item.MapId!.Value,
-                    item.Ssi!,
-                    cancellationToken);
-
-                if (detail != null && IsCurrentSearch())
-                {
-                    item.ApplyDetailInfo(detail);
-                    var count = Interlocked.Increment(ref loadedCount);
-
-                    if (!IsDisposed && IsCurrentSearch())
-                    {
-                        Invoke(() =>
-                        {
-                            if (IsCurrentSearch())
-                            {
-                                _dealBindingSource.ResetBindings(false);
-                                _lblDealStatus.Text = $"{_dealCurrentPage}페이지: 상세정보 로딩 중... ({count}/{totalCount})";
-                            }
-                        });
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[Form1] Failed to load detail for {item.ItemName}: {ex.Message}");
-            }
-        });
-
-        try
-        {
-            await Task.WhenAll(tasks);
-        }
-        catch (OperationCanceledException)
-        {
-            Debug.WriteLine("[Form1] Detail loading cancelled");
-        }
-
-        // Final update
-        if (!IsDisposed && IsCurrentSearch())
-        {
-            Invoke(() =>
-            {
-                if (IsCurrentSearch())
-                {
-                    _dealBindingSource.ResetBindings(false);
-                    var displayCount = (_dealBindingSource.DataSource as List<DealItem>)?.Count ?? 0;
-                    _lblDealStatus.Text = $"{_dealCurrentPage}페이지: {displayCount}개 결과 (상세정보 {loadedCount}개 로딩됨, 더블클릭으로 상세정보 조회)";
-                }
-            });
-        }
     }
 
     /// <summary>
@@ -622,6 +612,12 @@ public partial class Form1
         _cboDealServer.Enabled = !searching;
         _btnDealPrev.Enabled = !searching && _dealCurrentPage > 1;
         _btnDealNext.Enabled = !searching && _hasMorePages;
+
+        // Reset status label color when starting a new search
+        if (searching)
+        {
+            _lblDealStatus.ForeColor = ThemeText;
+        }
 
         // Disable search history links during search
         if (_pnlSearchHistory != null)

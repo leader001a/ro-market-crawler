@@ -14,9 +14,9 @@ namespace RoMarketCrawler.Models
         public List<MonitorItem> Items { get; set; } = new();
 
         /// <summary>
-        /// Auto-refresh interval in seconds (0 = disabled)
+        /// Auto-refresh interval in seconds (0 = disabled, minimum 60 seconds = 1 minute)
         /// </summary>
-        public int RefreshIntervalSeconds { get; set; } = 30;
+        public int RefreshIntervalSeconds { get; set; } = 60;
 
         /// <summary>
         /// Default server ID for new items (-1 = all servers)
@@ -133,6 +133,16 @@ namespace RoMarketCrawler.Models
         /// Error message if refresh failed
         /// </summary>
         public string? ErrorMessage { get; set; }
+
+        /// <summary>
+        /// Whether this result was blocked by rate limiting
+        /// </summary>
+        public bool IsRateLimited { get; set; }
+
+        /// <summary>
+        /// Time when rate limit will expire (if rate limited)
+        /// </summary>
+        public DateTime? RateLimitedUntil { get; set; }
 
         /// <summary>
         /// Price difference from 7-day average (percentage)
