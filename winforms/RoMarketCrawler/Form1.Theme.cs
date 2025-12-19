@@ -391,11 +391,19 @@ public partial class Form1
             }
             else if (control is StatusStrip statusStrip)
             {
+                // Use brighter/darker colors for better visibility
+                var statusTextColor = _currentTheme == ThemeType.Dark
+                    ? Color.FromArgb(200, 200, 200)  // Brighter for dark theme
+                    : Color.FromArgb(60, 60, 60);     // Darker for light theme
+                var statusFont = new Font("Malgun Gothic", _baseFontSize - 2, FontStyle.Bold);
+
                 statusStrip.BackColor = _currentTheme == ThemeType.Dark ? ThemePanel : SystemColors.Control;
-                statusStrip.ForeColor = ThemeTextMuted;
+                statusStrip.ForeColor = statusTextColor;
+                statusStrip.Font = statusFont;
                 foreach (ToolStripItem item in statusStrip.Items)
                 {
-                    item.ForeColor = ThemeTextMuted;
+                    item.ForeColor = statusTextColor;
+                    item.Font = statusFont;
                 }
             }
             else if (control is ToolStrip toolStrip)

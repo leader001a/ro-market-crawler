@@ -311,12 +311,32 @@ public partial class Form1 : Form
         _tabControl.Selecting += TabControl_Selecting;
 
         // Status bar at bottom with creator info
+        // Use brighter/darker colors for better visibility
+        var statusTextColor = _currentTheme == ThemeType.Dark
+            ? Color.FromArgb(200, 200, 200)  // Brighter for dark theme
+            : Color.FromArgb(60, 60, 60);     // Darker for light theme
+        var statusFont = new Font("Malgun Gothic", _baseFontSize - 2, FontStyle.Bold);
+
         _statusStrip = new StatusStrip
         {
             Dock = DockStyle.Bottom,
             BackColor = ThemePanel,
-            ForeColor = ThemeTextMuted,
-            SizingGrip = false
+            ForeColor = statusTextColor,
+            SizingGrip = false,
+            Font = statusFont
+        };
+
+        // Expiration date label (far left)
+        var expirationText = !string.IsNullOrEmpty(Services.StartupValidator.ExpirationDateKST)
+            ? $"사용가능일: ~{Services.StartupValidator.ExpirationDateKST[..10]}"
+            : "";
+        var lblExpiration = new ToolStripStatusLabel
+        {
+            Text = expirationText,
+            TextAlign = ContentAlignment.MiddleLeft,
+            ForeColor = statusTextColor,
+            Font = statusFont,
+            Margin = new Padding(5, 0, 10, 0)
         };
 
         _lblCreator = new ToolStripStatusLabel
@@ -324,9 +344,14 @@ public partial class Form1 : Form
             Text = "Created by 티포니",
             Spring = true,
             TextAlign = ContentAlignment.MiddleRight,
-            ForeColor = ThemeTextMuted
+            ForeColor = statusTextColor,
+            Font = statusFont
         };
 
+        if (!string.IsNullOrEmpty(expirationText))
+        {
+            _statusStrip.Items.Add(lblExpiration);
+        }
         _statusStrip.Items.Add(_lblCreator);
 
         // Add controls in reverse dock order (last added = first docked)
@@ -756,10 +781,11 @@ public partial class Form1 : Form
             }
             else if (control is StatusStrip ss)
             {
-                ss.Font = new Font("Malgun Gothic", _baseFontSize - 3);
+                var statusFont = new Font("Malgun Gothic", _baseFontSize - 2, FontStyle.Bold);
+                ss.Font = statusFont;
                 foreach (ToolStripItem item in ss.Items)
                 {
-                    item.Font = new Font("Malgun Gothic", _baseFontSize - 3);
+                    item.Font = statusFont;
                 }
             }
             else if (control is ToolStrip toolStrip)

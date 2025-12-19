@@ -1230,28 +1230,55 @@ public partial class Form1
 
     private async void BtnMonitorRemove_Click(object? sender, EventArgs e)
     {
-        var row = _dgvMonitorItems.CurrentRow;
-        if (row == null)
+        // Get unique rows from selected cells (CellSelect mode)
+        var selectedRowIndices = new HashSet<int>();
+        foreach (DataGridViewCell cell in _dgvMonitorItems.SelectedCells)
+        {
+            if (cell.RowIndex >= 0)
+                selectedRowIndices.Add(cell.RowIndex);
+        }
+
+        if (selectedRowIndices.Count == 0)
         {
             MessageBox.Show("삭제할 아이템을 선택하세요.", "알림", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
-        var item = row.DataBoundItem as MonitorItem;
-        if (item == null) return;
+        // Collect items to delete
+        var itemsToDelete = new List<MonitorItem>();
+        foreach (var rowIndex in selectedRowIndices)
+        {
+            if (_dgvMonitorItems.Rows[rowIndex].DataBoundItem is MonitorItem item)
+            {
+                itemsToDelete.Add(item);
+            }
+        }
+
+        if (itemsToDelete.Count == 0) return;
+
+        // Confirmation message
+        var message = itemsToDelete.Count == 1
+            ? $"'{itemsToDelete[0].ItemName}'을(를) 삭제하시겠습니까?"
+            : $"선택한 {itemsToDelete.Count}개 아이템을 삭제하시겠습니까?";
 
         var result = MessageBox.Show(
-            $"'{item.ItemName}'을(를) 삭제하시겠습니까?",
+            message,
             "삭제 확인",
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Question);
 
         if (result == DialogResult.Yes)
         {
-            await _monitoringService.RemoveItemAsync(item.ItemName, item.ServerId);
+            // Delete all selected items
+            foreach (var item in itemsToDelete)
+            {
+                await _monitoringService.RemoveItemAsync(item.ItemName, item.ServerId);
+            }
             UpdateMonitorItemList();
             UpdateMonitorResults();
-            _lblMonitorStatus.Text = $"'{item.ItemName}' 삭제됨";
+            _lblMonitorStatus.Text = itemsToDelete.Count == 1
+                ? $"'{itemsToDelete[0].ItemName}' 삭제됨"
+                : $"{itemsToDelete.Count}개 아이템 삭제됨";
         }
     }
 
