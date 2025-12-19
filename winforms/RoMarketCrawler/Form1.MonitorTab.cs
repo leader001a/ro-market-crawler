@@ -318,8 +318,37 @@ public partial class Form1
         itemsContextMenu.Items.Add(resetItemsColumnsItem);
         _dgvMonitorItems.ContextMenuStrip = itemsContextMenu;
 
-        leftPanel.Controls.Add(_dgvMonitorItems);
-        leftPanel.Controls.Add(lblItemList);
+        // Warning labels (theme-aware colors at bottom)
+        var warningColor = _currentTheme == ThemeType.Dark 
+            ? Color.FromArgb(255, 100, 100)   // Bright red for dark theme
+            : Color.FromArgb(200, 50, 50);    // Dark red for light theme
+
+        var lblWarning2 = new Label
+        {
+            Text = "  예: '빙화 마석' -> 매물이 많아 일부만 조회될 수 있음",
+            Dock = DockStyle.Bottom,
+            Height = 16,
+            ForeColor = warningColor,
+            Font = new Font("Malgun Gothic", 7.5f),
+            TextAlign = ContentAlignment.MiddleLeft,
+            Padding = new Padding(2, 0, 0, 0)
+        };
+
+        var lblWarning = new Label
+        {
+            Text = "* 아이템 이름을 자세히 입력하세요 (최대 30개 노점만 검색)",
+            Dock = DockStyle.Bottom,
+            Height = 16,
+            ForeColor = warningColor,
+            Font = new Font("Malgun Gothic", 8f),
+            TextAlign = ContentAlignment.MiddleLeft,
+            Padding = new Padding(2, 0, 0, 0)
+        };
+
+        leftPanel.Controls.Add(lblWarning);      // Bottom (main warning - shows first)
+        leftPanel.Controls.Add(lblWarning2);     // Above lblWarning (example - shows second)
+        leftPanel.Controls.Add(_dgvMonitorItems); // Fill
+        leftPanel.Controls.Add(lblItemList);      // Top
         contentLayout.Controls.Add(leftPanel, 0, 0);
 
         // Right panel: Results

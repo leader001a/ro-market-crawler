@@ -611,6 +611,16 @@ public partial class Form1 : Form
             catch { }
         };
 
+        // Privacy notice (emphasized)
+        var lblPrivacy = new Label
+        {
+            Text = "** 본 프로그램은 개인정보 및 게임정보를 일체 수집하지 않습니다 **",
+            Font = new Font("Malgun Gothic", normalFontSize, FontStyle.Bold),
+            ForeColor = Color.FromArgb(0, 120, 60),  // Green for trust
+            AutoSize = true,
+            Location = new Point(leftMargin, 175)
+        };
+
         // Legal notice (scrollable)
         var legalNoticeText =
             "[프로그램 이용 및 배포 제한 안내]\r\n\r\n" +
@@ -638,7 +648,11 @@ public partial class Form1 : Form
             "본 프로그램은 어떠한 보증 없이 '있는 그대로(AS-IS)' 제공됩니다. 프로그램 사용으로 " +
             "인해 발생하는 직접적, 간접적 손해에 대해 저작권자는 책임을 지지 않습니다. " +
             "본 프로그램은 개인적인 참고 목적으로만 사용하시기 바랍니다.\r\n\r\n" +
-            "7. 위반 시 책임\r\n" +
+            "7. 개인정보 및 게임정보 보호\r\n" +
+            "본 프로그램은 사용자의 개인정보, 게임 계정 정보, 게임 내 활동 정보 등 " +
+            "어떠한 정보도 수집하거나 외부로 전송하지 않습니다. 모든 데이터는 " +
+            "사용자의 로컬 PC에만 저장됩니다.\r\n\r\n" +
+            "8. 위반 시 책임\r\n" +
             "상기 사항을 위반하여 발생하는 모든 법적 책임은 위반자 본인에게 있으며, " +
             "저작권자는 관련 법령에 따라 법적 조치를 취할 수 있습니다.\r\n\r\n" +
             "[관련 법규 확인]\r\n" +
@@ -655,8 +669,8 @@ public partial class Form1 : Form
             Multiline = true,
             WordWrap = true,
             ScrollBars = ScrollBars.Vertical,
-            Location = new Point(leftMargin, 180),
-            Size = new Size(contentWidth, 260)
+            Location = new Point(leftMargin, 200),
+            Size = new Size(contentWidth, 240)
         };
 
         // OK button (centered at bottom) - styled manually for classic theme
@@ -674,7 +688,7 @@ public partial class Form1 : Form
         };
         btnOk.FlatAppearance.BorderSize = 0;
 
-        aboutForm.Controls.AddRange(new Control[] { lblTitle, lblDesc, lblSource, lblCreator, lblContact, linkKakao, txtLegalNotice, btnOk });
+        aboutForm.Controls.AddRange(new Control[] { lblTitle, lblDesc, lblSource, lblCreator, lblContact, linkKakao, lblPrivacy, txtLegalNotice, btnOk });
         aboutForm.AcceptButton = btnOk;
         aboutForm.ShowDialog(this);
     }
