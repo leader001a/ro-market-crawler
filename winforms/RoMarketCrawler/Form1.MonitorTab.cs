@@ -733,23 +733,31 @@ public partial class Form1
             var gradeOrder = new Dictionary<string, int> { { "S", 0 }, { "A", 1 }, { "B", 2 }, { "C", 3 }, { "D", 4 } };
 
             // Helper to get display name from cache or fallback to deal item name
+            // Includes card slot notation if present (e.g., "아이템명[1]")
             string GetDisplayName(DealItem deal)
             {
+                string baseName;
                 var itemId = deal.GetEffectiveItemId();
                 if (itemId.HasValue && _itemIndexService.IsLoaded)
                 {
                     var cachedItem = _itemIndexService.GetItemById(itemId.Value);
-                    if (cachedItem?.ScreenName != null)
-                    {
-                        return cachedItem.ScreenName;
-                    }
+                    baseName = cachedItem?.ScreenName ?? deal.ItemName;
                 }
-                // Fallback to original item name
-                return deal.ItemName;
+                else
+                {
+                    baseName = deal.ItemName;
+                }
+
+                // Append card slots if present (distinguishes slotted vs non-slotted items)
+                if (!string.IsNullOrEmpty(deal.CardSlots))
+                {
+                    return $"{baseName}[{deal.CardSlots}]";
+                }
+                return baseName;
             }
 
-            // Group by item ID + Refine + Grade + Server
-            // This ensures same base item with different refine levels are shown separately
+            // Group by item ID + Refine + Grade + CardSlots + Server
+            // This ensures same base item with different refine levels or card slots are shown separately
             var groupedDealsQuery = results
                 .SelectMany(r => r.Deals.Select(d => new { Deal = d, Result = r }))
                 .GroupBy(x => new {
@@ -757,6 +765,7 @@ public partial class Form1
                     GroupKey = x.Deal.GetEffectiveItemId()?.ToString() ?? $"name:{x.Deal.ItemName}",
                     Refine = x.Deal.Refine ?? 0,
                     Grade = x.Deal.Grade ?? "",
+                    CardSlots = x.Deal.CardSlots ?? "",
                     x.Deal.ServerName
                 })
                 .Select(g => {
@@ -1121,6 +1130,10 @@ public partial class Form1
             // UI timer updates status column every second
             _uiUpdateTimer.Start();
 
+            // Disable manual refresh during auto-refresh
+            _btnMonitorRefresh.Enabled = false;
+            _btnMonitorRefresh.ToolTipText = "자동조회 실행 중에는 수동조회를 사용할 수 없습니다";
+
             // Immediately update status column to show initial countdowns
             UpdateItemStatusColumn();
 
@@ -1155,6 +1168,10 @@ public partial class Form1
             item.IsProcessing = false;
             item.NextRefreshTime = null;
         }
+
+        // Re-enable manual refresh when auto-refresh stops
+        _btnMonitorRefresh.Enabled = true;
+        _btnMonitorRefresh.ToolTipText = "즉시 조회 실행";
 
         // Update status column to show "-"
         UpdateItemStatusColumn();

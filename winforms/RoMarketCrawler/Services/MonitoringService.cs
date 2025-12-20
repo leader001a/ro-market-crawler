@@ -605,8 +605,13 @@ namespace RoMarketCrawler.Services
                 // (e.g., "포링 선글래스" search returns both base item and enhanced "+" version)
                 var priceServerId = capturedServerId == -1 ? 1 : capturedServerId;
 
-                // Group deals by actual item name for processing
-                var dealsByItemName = deals.GroupBy(d => d.ItemName ?? "").ToList();
+                // Group deals by actual item name + card slots for processing
+                // This ensures slotted items (e.g., "아이템[1]") get separate price lookups from base items
+                var dealsByItemName = deals.GroupBy(d =>
+                    string.IsNullOrEmpty(d.CardSlots)
+                        ? d.ItemName ?? ""
+                        : $"{d.ItemName ?? ""}[{d.CardSlots}]"
+                ).ToList();
 
                 // Cache for statistics to avoid duplicate lookups
                 var statsCache = new Dictionary<string, PriceStatistics?>(StringComparer.OrdinalIgnoreCase);
