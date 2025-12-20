@@ -34,12 +34,13 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="Data\EnchantEffects.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="Data\logo.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
+    <!-- Embed resources in exe for single-file deployment -->
+    <EmbeddedResource Include="Data\EnchantEffects.json">
+      <LogicalName>RoMarketCrawler.Data.EnchantEffects.json</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Data\logo.png">
+      <LogicalName>RoMarketCrawler.Data.logo.png</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
 </Project>

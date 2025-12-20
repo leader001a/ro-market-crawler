@@ -385,12 +385,10 @@ public partial class Form1 : Form
     /// </summary>
     private void LoadWatermarkImage()
     {
-        var logoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "logo.png");
-        if (!File.Exists(logoPath)) return;
-
         try
         {
-            _watermarkImage = Image.FromFile(logoPath);
+            _watermarkImage = Services.ResourceHelper.GetLogoImage();
+            if (_watermarkImage == null) return;
 
             // Create a faded (semi-transparent) version of the watermark
             var fadedBitmap = new Bitmap(_watermarkImage.Width, _watermarkImage.Height);
@@ -598,18 +596,17 @@ public partial class Form1 : Form
         Image? logoImage = null;
         int logoHeight = 0;
         int logoOffset = 0;
-        var logoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "logo.png");
-        if (File.Exists(logoPath))
+        try
         {
-            try
+            logoImage = Services.ResourceHelper.GetLogoImage();
+            if (logoImage != null)
             {
-                logoImage = Image.FromFile(logoPath);
                 var scale = (float)contentWidth / logoImage.Width;
                 logoHeight = (int)(logoImage.Height * scale);
                 logoOffset = logoHeight + 20;
             }
-            catch { }
         }
+        catch { }
 
         int formHeight = baseFormHeight + logoOffset;
 

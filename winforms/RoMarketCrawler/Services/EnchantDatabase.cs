@@ -48,25 +48,17 @@ public class EnchantDatabase
 
         try
         {
-            // Try to load from file in Data folder (use AppContext.BaseDirectory for single-file apps)
-            var exePath = AppContext.BaseDirectory;
-            var jsonPath = Path.Combine(exePath, "Data", "EnchantEffects.json");
+            // Load from embedded resource
+            var json = ResourceHelper.GetEnchantEffectsJson();
 
-            if (!File.Exists(jsonPath))
+            if (!string.IsNullOrEmpty(json))
             {
-                // Try relative to current directory
-                jsonPath = Path.Combine("Data", "EnchantEffects.json");
-            }
-
-            if (File.Exists(jsonPath))
-            {
-                var json = File.ReadAllText(jsonPath);
                 ParseJson(json);
-                Debug.WriteLine($"[EnchantDatabase] Loaded from file: {jsonPath}");
+                Debug.WriteLine("[EnchantDatabase] Loaded from embedded resource");
             }
             else
             {
-                Debug.WriteLine($"[EnchantDatabase] JSON file not found: {jsonPath}");
+                Debug.WriteLine("[EnchantDatabase] Embedded resource not found");
                 LoadDefaultData();
             }
 

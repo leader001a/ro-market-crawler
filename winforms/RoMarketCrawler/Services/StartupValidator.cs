@@ -462,19 +462,18 @@ public class StartupValidator : IDisposable
         Image? logoImage = null;
         int logoHeight = 0;
         int logoOffset = 0;
-        var logoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "logo.png");
-        if (File.Exists(logoPath))
+        try
         {
-            try
+            logoImage = ResourceHelper.GetLogoImage();
+            if (logoImage != null)
             {
-                logoImage = Image.FromFile(logoPath);
                 // Scale to fit contentWidth while maintaining aspect ratio
                 var scale = (float)contentWidth / logoImage.Width;
                 logoHeight = (int)(logoImage.Height * scale);
                 logoOffset = logoHeight + 20;  // Logo height + padding
             }
-            catch { /* Ignore image loading errors */ }
         }
+        catch { /* Ignore image loading errors */ }
 
         int formHeight = baseFormHeight + logoOffset;
 
