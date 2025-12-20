@@ -1,0 +1,842 @@
+{
+  "version": "1.0",
+  "lastUpdated": "2025-01-01",
+  "enchants": {
+    "설화 마력(마법등급)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "1": "마법 공격 시 데미지 +1%",
+        "2": "마법 공격 시 데미지 +2%",
+        "3": "마법 공격 시 데미지 +3%",
+        "4": "마법 공격 시 데미지 +4%",
+        "5": "마법 공격 시 데미지 +5%"
+      }
+    },
+    "설화 마력(크로스 레인)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "default": "크로스 레인 데미지 +10%"
+      }
+    },
+    "설화 마력(화염볼트)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "default": "파이어 볼트 데미지 +10%"
+      }
+    },
+    "설화 마력(냉기볼트)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "default": "콜드 볼트 데미지 +10%"
+      }
+    },
+    "설화 마력(번개볼트)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "default": "라이트닝 볼트 데미지 +10%"
+      }
+    },
+    "설화 마력(매직 크래셔)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "default": "매직 크래셔 데미지 +10%"
+      }
+    },
+    "설화 마력(소울 스트라이크)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "default": "소울 스트라이크 데미지 +10%"
+      }
+    },
+    "설화 마력(메테오 스톰)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "default": "메테오 스톰 데미지 +10%"
+      }
+    },
+    "설화 마력(스톰 가스트)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "default": "스톰 가스트 데미지 +10%"
+      }
+    },
+    "설화 마력(주피텔 썬더)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "default": "주피텔 썬더 데미지 +10%"
+      }
+    },
+    "설화 마력(헬 인페르노)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "default": "헬 인페르노 데미지 +10%"
+      }
+    },
+    "설화 마력(어스 스트레인)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "default": "어스 스트레인 데미지 +10%"
+      }
+    },
+    "설화 마력(크림슨 록)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "default": "크림슨 록 데미지 +10%"
+      }
+    },
+    "설화 마력(체인 라이트닝)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "default": "체인 라이트닝 데미지 +10%"
+      }
+    },
+    "설화 마력(잭 프로스트)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "default": "잭 프로스트 데미지 +10%"
+      }
+    },
+    "설화 마력(코멧)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "default": "코멧 데미지 +10%"
+      }
+    },
+    "설화 마력(테트라 보텍스)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "default": "테트라 보텍스 데미지 +10%"
+      }
+    },
+    "설화 마력(사이킥 웨이브)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "default": "사이킥 웨이브 데미지 +10%"
+      }
+    },
+    "설화 마력(소울 익스펜션)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "default": "소울 익스펜션 데미지 +10%"
+      }
+    },
+    "설화 예리(물리등급)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "1": "물리 공격 시 데미지 +1%",
+        "2": "물리 공격 시 데미지 +2%",
+        "3": "물리 공격 시 데미지 +3%",
+        "4": "물리 공격 시 데미지 +4%",
+        "5": "물리 공격 시 데미지 +5%"
+      }
+    },
+    "설화 예리(배쉬)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "default": "배쉬 데미지 +10%"
+      }
+    },
+    "설화 예리(소닉 블로우)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "default": "소닉 블로우 데미지 +10%"
+      }
+    },
+    "설화 예리(롤링 커터)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "default": "롤링 커터 데미지 +10%"
+      }
+    },
+    "설화 예리(크로스 임팩트)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "default": "크로스 임팩트 데미지 +10%"
+      }
+    },
+    "설화 예리(더블 스트레이핑)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "default": "더블 스트레이핑 데미지 +10%"
+      }
+    },
+    "설화 예리(트라이앵글 샷)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "default": "트라이앵글 샷 데미지 +10%"
+      }
+    },
+    "설화 예리(애로우 스톰)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "default": "애로우 스톰 데미지 +10%"
+      }
+    },
+    "설화 예리(에임드 볼트)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "default": "에임드 볼트 데미지 +10%"
+      }
+    },
+    "설화 예리(오토 스펠)": {
+      "category": "설화",
+      "type": "weapon",
+      "effects": {
+        "default": "오토 스펠 데미지 +10%"
+      }
+    },
+    "예언 인내(MaxHP)": {
+      "category": "예언",
+      "type": "armor",
+      "effects": {
+        "1": "MaxHP +100",
+        "2": "MaxHP +200",
+        "3": "MaxHP +300",
+        "4": "MaxHP +400",
+        "5": "MaxHP +500"
+      }
+    },
+    "예언 인내(MaxSP)": {
+      "category": "예언",
+      "type": "armor",
+      "effects": {
+        "1": "MaxSP +20",
+        "2": "MaxSP +40",
+        "3": "MaxSP +60",
+        "4": "MaxSP +80",
+        "5": "MaxSP +100"
+      }
+    },
+    "예언 인내(DEF)": {
+      "category": "예언",
+      "type": "armor",
+      "effects": {
+        "1": "DEF +10",
+        "2": "DEF +20",
+        "3": "DEF +30",
+        "4": "DEF +40",
+        "5": "DEF +50"
+      }
+    },
+    "예언 인내(MDEF)": {
+      "category": "예언",
+      "type": "armor",
+      "effects": {
+        "1": "MDEF +1",
+        "2": "MDEF +2",
+        "3": "MDEF +3",
+        "4": "MDEF +4",
+        "5": "MDEF +5"
+      }
+    },
+    "축복 STR": {
+      "category": "축복",
+      "type": "accessory",
+      "effects": {
+        "1": "STR +1",
+        "2": "STR +2",
+        "3": "STR +3"
+      }
+    },
+    "축복 AGI": {
+      "category": "축복",
+      "type": "accessory",
+      "effects": {
+        "1": "AGI +1",
+        "2": "AGI +2",
+        "3": "AGI +3"
+      }
+    },
+    "축복 VIT": {
+      "category": "축복",
+      "type": "accessory",
+      "effects": {
+        "1": "VIT +1",
+        "2": "VIT +2",
+        "3": "VIT +3"
+      }
+    },
+    "축복 INT": {
+      "category": "축복",
+      "type": "accessory",
+      "effects": {
+        "1": "INT +1",
+        "2": "INT +2",
+        "3": "INT +3"
+      }
+    },
+    "축복 DEX": {
+      "category": "축복",
+      "type": "accessory",
+      "effects": {
+        "1": "DEX +1",
+        "2": "DEX +2",
+        "3": "DEX +3"
+      }
+    },
+    "축복 LUK": {
+      "category": "축복",
+      "type": "accessory",
+      "effects": {
+        "1": "LUK +1",
+        "2": "LUK +2",
+        "3": "LUK +3"
+      }
+    },
+    "각성 ATK": {
+      "category": "각성",
+      "type": "weapon",
+      "effects": {
+        "1": "ATK +5",
+        "2": "ATK +10",
+        "3": "ATK +15",
+        "4": "ATK +20",
+        "5": "ATK +25"
+      }
+    },
+    "각성 MATK": {
+      "category": "각성",
+      "type": "weapon",
+      "effects": {
+        "1": "MATK +5",
+        "2": "MATK +10",
+        "3": "MATK +15",
+        "4": "MATK +20",
+        "5": "MATK +25"
+      }
+    },
+    "투지": {
+      "category": "특수",
+      "type": "armor",
+      "effects": {
+        "default": "물리 공격 시 데미지 +2%, ATK +15"
+      }
+    },
+    "명궁": {
+      "category": "특수",
+      "type": "armor",
+      "effects": {
+        "default": "원거리 물리 공격 시 데미지 +2%, ATK +15"
+      }
+    },
+    "마력": {
+      "category": "특수",
+      "type": "armor",
+      "effects": {
+        "default": "마법 공격 시 데미지 +2%, MATK +15"
+      }
+    },
+    "완력": {
+      "category": "특수",
+      "type": "armor",
+      "effects": {
+        "default": "STR +2"
+      }
+    },
+    "민첩": {
+      "category": "특수",
+      "type": "armor",
+      "effects": {
+        "default": "AGI +2"
+      }
+    },
+    "체력": {
+      "category": "특수",
+      "type": "armor",
+      "effects": {
+        "default": "VIT +2"
+      }
+    },
+    "지력": {
+      "category": "특수",
+      "type": "armor",
+      "effects": {
+        "default": "INT +2"
+      }
+    },
+    "재주": {
+      "category": "특수",
+      "type": "armor",
+      "effects": {
+        "default": "DEX +2"
+      }
+    },
+    "행운": {
+      "category": "특수",
+      "type": "armor",
+      "effects": {
+        "default": "LUK +2"
+      }
+    },
+    "치명타": {
+      "category": "특수",
+      "type": "armor",
+      "effects": {
+        "default": "크리티컬 +5"
+      }
+    },
+    "명중": {
+      "category": "특수",
+      "type": "armor",
+      "effects": {
+        "default": "HIT +5"
+      }
+    },
+    "회피": {
+      "category": "특수",
+      "type": "armor",
+      "effects": {
+        "default": "FLEE +5"
+      }
+    },
+    "공속": {
+      "category": "특수",
+      "type": "armor",
+      "effects": {
+        "default": "ASPD +1"
+      }
+    },
+    "시전": {
+      "category": "특수",
+      "type": "armor",
+      "effects": {
+        "default": "변동 캐스팅 -3%"
+      }
+    },
+    "저항 불사": {
+      "category": "저항",
+      "type": "armor",
+      "effects": {
+        "default": "불사 속성 내성 +5%"
+      }
+    },
+    "저항 독": {
+      "category": "저항",
+      "type": "armor",
+      "effects": {
+        "default": "독 속성 내성 +5%"
+      }
+    },
+    "저항 성": {
+      "category": "저항",
+      "type": "armor",
+      "effects": {
+        "default": "성 속성 내성 +5%"
+      }
+    },
+    "저항 무": {
+      "category": "저항",
+      "type": "armor",
+      "effects": {
+        "default": "무 속성 내성 +5%"
+      }
+    },
+    "저항 화": {
+      "category": "저항",
+      "type": "armor",
+      "effects": {
+        "default": "화 속성 내성 +5%"
+      }
+    },
+    "저항 수": {
+      "category": "저항",
+      "type": "armor",
+      "effects": {
+        "default": "수 속성 내성 +5%"
+      }
+    },
+    "저항 풍": {
+      "category": "저항",
+      "type": "armor",
+      "effects": {
+        "default": "풍 속성 내성 +5%"
+      }
+    },
+    "저항 지": {
+      "category": "저항",
+      "type": "armor",
+      "effects": {
+        "default": "지 속성 내성 +5%"
+      }
+    },
+    "저항 암": {
+      "category": "저항",
+      "type": "armor",
+      "effects": {
+        "default": "암 속성 내성 +5%"
+      }
+    },
+    "저항 염": {
+      "category": "저항",
+      "type": "armor",
+      "effects": {
+        "default": "염 속성 내성 +5%"
+      }
+    },
+    "파괴 불사": {
+      "category": "파괴",
+      "type": "weapon",
+      "effects": {
+        "default": "불사 속성 적 추가 데미지 +5%"
+      }
+    },
+    "파괴 독": {
+      "category": "파괴",
+      "type": "weapon",
+      "effects": {
+        "default": "독 속성 적 추가 데미지 +5%"
+      }
+    },
+    "파괴 성": {
+      "category": "파괴",
+      "type": "weapon",
+      "effects": {
+        "default": "성 속성 적 추가 데미지 +5%"
+      }
+    },
+    "파괴 무": {
+      "category": "파괴",
+      "type": "weapon",
+      "effects": {
+        "default": "무 속성 적 추가 데미지 +5%"
+      }
+    },
+    "파괴 화": {
+      "category": "파괴",
+      "type": "weapon",
+      "effects": {
+        "default": "화 속성 적 추가 데미지 +5%"
+      }
+    },
+    "파괴 수": {
+      "category": "파괴",
+      "type": "weapon",
+      "effects": {
+        "default": "수 속성 적 추가 데미지 +5%"
+      }
+    },
+    "파괴 풍": {
+      "category": "파괴",
+      "type": "weapon",
+      "effects": {
+        "default": "풍 속성 적 추가 데미지 +5%"
+      }
+    },
+    "파괴 지": {
+      "category": "파괴",
+      "type": "weapon",
+      "effects": {
+        "default": "지 속성 적 추가 데미지 +5%"
+      }
+    },
+    "파괴 암": {
+      "category": "파괴",
+      "type": "weapon",
+      "effects": {
+        "default": "암 속성 적 추가 데미지 +5%"
+      }
+    },
+    "파괴 염": {
+      "category": "파괴",
+      "type": "weapon",
+      "effects": {
+        "default": "염 속성 적 추가 데미지 +5%"
+      }
+    },
+    "특화 동물": {
+      "category": "특화",
+      "type": "weapon",
+      "effects": {
+        "default": "동물형 몬스터 추가 데미지 +5%"
+      }
+    },
+    "특화 악마": {
+      "category": "특화",
+      "type": "weapon",
+      "effects": {
+        "default": "악마형 몬스터 추가 데미지 +5%"
+      }
+    },
+    "특화 불사": {
+      "category": "특화",
+      "type": "weapon",
+      "effects": {
+        "default": "불사형 몬스터 추가 데미지 +5%"
+      }
+    },
+    "특화 인간": {
+      "category": "특화",
+      "type": "weapon",
+      "effects": {
+        "default": "인간형 몬스터 추가 데미지 +5%"
+      }
+    },
+    "특화 천사": {
+      "category": "특화",
+      "type": "weapon",
+      "effects": {
+        "default": "천사형 몬스터 추가 데미지 +5%"
+      }
+    },
+    "특화 용": {
+      "category": "특화",
+      "type": "weapon",
+      "effects": {
+        "default": "용형 몬스터 추가 데미지 +5%"
+      }
+    },
+    "특화 곤충": {
+      "category": "특화",
+      "type": "weapon",
+      "effects": {
+        "default": "곤충형 몬스터 추가 데미지 +5%"
+      }
+    },
+    "특화 어류": {
+      "category": "특화",
+      "type": "weapon",
+      "effects": {
+        "default": "어류형 몬스터 추가 데미지 +5%"
+      }
+    },
+    "특화 식물": {
+      "category": "특화",
+      "type": "weapon",
+      "effects": {
+        "default": "식물형 몬스터 추가 데미지 +5%"
+      }
+    },
+    "특화 무형": {
+      "category": "특화",
+      "type": "weapon",
+      "effects": {
+        "default": "무형 몬스터 추가 데미지 +5%"
+      }
+    },
+    "특화 소형": {
+      "category": "특화",
+      "type": "weapon",
+      "effects": {
+        "default": "소형 몬스터 추가 데미지 +5%"
+      }
+    },
+    "특화 중형": {
+      "category": "특화",
+      "type": "weapon",
+      "effects": {
+        "default": "중형 몬스터 추가 데미지 +5%"
+      }
+    },
+    "특화 대형": {
+      "category": "특화",
+      "type": "weapon",
+      "effects": {
+        "default": "대형 몬스터 추가 데미지 +5%"
+      }
+    },
+    "특화 보스": {
+      "category": "특화",
+      "type": "weapon",
+      "effects": {
+        "default": "보스 몬스터 추가 데미지 +5%"
+      }
+    },
+    "특화 일반": {
+      "category": "특화",
+      "type": "weapon",
+      "effects": {
+        "default": "일반 몬스터 추가 데미지 +5%"
+      }
+    }
+  },
+  "cards": {
+    "미노타우르스 카드": {
+      "slot": "weapon",
+      "effects": "대형 몬스터 +15% 물리 데미지"
+    },
+    "히드라 카드": {
+      "slot": "weapon",
+      "effects": "인간형 몬스터 +20% 물리 데미지"
+    },
+    "스켈레톤 워커 카드": {
+      "slot": "weapon",
+      "effects": "중형 몬스터 +15% 물리 데미지"
+    },
+    "데저트 울프 카드": {
+      "slot": "weapon",
+      "effects": "소형 몬스터 +15% 물리 데미지"
+    },
+    "아바돈 카드": {
+      "slot": "weapon",
+      "effects": "악마형 몬스터 +25% 데미지"
+    },
+    "타오 군카 카드": {
+      "slot": "armor",
+      "effects": "MaxHP +100%, HP 회복력 -50%, DEF -50, MDEF -50"
+    },
+    "데빌링 카드": {
+      "slot": "armor",
+      "effects": "무 속성 공격 25% 감소, 다른 속성 공격 50% 증가"
+    },
+    "마르크 카드": {
+      "slot": "armor",
+      "effects": "빙결 상태이상 면역"
+    },
+    "에비아 카드": {
+      "slot": "armor",
+      "effects": "침묵 상태이상 면역"
+    },
+    "이블 드루이드 카드": {
+      "slot": "armor",
+      "effects": "불사 속성 부여, 빙결/석화 면역"
+    },
+    "바실리스크 카드": {
+      "slot": "accessory",
+      "effects": "상대 DEF 무시 30%"
+    },
+    "요요 카드": {
+      "slot": "accessory",
+      "effects": "AGI +1, 완벽회피 +5"
+    },
+    "제로미 카드": {
+      "slot": "accessory",
+      "effects": "ATK +3%"
+    },
+    "스모키 카드": {
+      "slot": "accessory",
+      "effects": "하이딩 Lv1 사용 가능"
+    },
+    "호른 카드": {
+      "slot": "accessory",
+      "effects": "원거리 물리 공격 내성 +15%"
+    },
+    "엔젤링 카드": {
+      "slot": "armor",
+      "effects": "성 속성 부여, 암 속성 공격 25% 증가"
+    },
+    "고스트링 카드": {
+      "slot": "armor",
+      "effects": "염 속성 부여, 무 속성 공격 25% 증가"
+    },
+    "파이어링 카드": {
+      "slot": "armor",
+      "effects": "화 속성 부여"
+    },
+    "아쿠아링 카드": {
+      "slot": "armor",
+      "effects": "수 속성 부여"
+    },
+    "윈드링 카드": {
+      "slot": "armor",
+      "effects": "풍 속성 부여"
+    },
+    "어스링 카드": {
+      "slot": "armor",
+      "effects": "지 속성 부여"
+    },
+    "킬 하이르 카드": {
+      "slot": "footgear",
+      "effects": "MaxHP +1000"
+    },
+    "그린 페러스 카드": {
+      "slot": "footgear",
+      "effects": "HP 회복력 +20%"
+    },
+    "매틀리얼스 카드": {
+      "slot": "footgear",
+      "effects": "AGI +1, 완벽회피 +3"
+    },
+    "스프린터 카드": {
+      "slot": "footgear",
+      "effects": "ASPD +1%"
+    },
+    "레이드릭 카드": {
+      "slot": "garment",
+      "effects": "무 속성 내성 +20%"
+    },
+    "와카무샤 카드": {
+      "slot": "garment",
+      "effects": "크리티컬 데미지 +10%"
+    },
+    "에클리지 카드": {
+      "slot": "garment",
+      "effects": "무 속성 마법 데미지 +10%"
+    },
+    "누일 카드": {
+      "slot": "garment",
+      "effects": "마법 공격 시 변동 캐스팅 -10%"
+    },
+    "황금벌레 카드": {
+      "slot": "shield",
+      "effects": "리플렉트 시 데미지 반사"
+    },
+    "아몬 라 카드": {
+      "slot": "shield",
+      "effects": "피격 시 5% 확률로 키리에 엘레이손 Lv10 발동"
+    },
+    "오크 워리어 카드": {
+      "slot": "shield",
+      "effects": "원거리 물리 공격 데미지 -5%"
+    },
+    "툴레 카드": {
+      "slot": "shield",
+      "effects": "마법 공격 데미지 -5%"
+    },
+    "하이 위자드 카드": {
+      "slot": "headgear",
+      "effects": "마법 공격 시 적 MDEF 10% 무시"
+    },
+    "마야 퍼플 카드": {
+      "slot": "headgear",
+      "effects": "숨어있는 적 탐지"
+    },
+    "크리미 카드": {
+      "slot": "headgear",
+      "effects": "텔레포트 Lv1 사용 가능"
+    },
+    "인큐버스 카드": {
+      "slot": "headgear",
+      "effects": "INT +1, MaxSP +150, SP 소모량 +20%"
+    },
+    "서큐버스 카드": {
+      "slot": "headgear",
+      "effects": "VIT +1, MaxHP +1000, HP 회복력 -20%"
+    },
+    "스토미 나이트 카드": {
+      "slot": "headgear",
+      "effects": "공격 시 5% 확률로 스톰 가스트 Lv1 발동"
+    },
+    "드레이크 카드": {
+      "slot": "weapon",
+      "effects": "모든 크기 몬스터에 100% 데미지"
+    }
+  }
+}

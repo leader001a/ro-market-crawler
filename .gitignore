@@ -43,3 +43,8 @@ Thumbs.db
 
 # Temporary files
 nul
+
+# Allow specific Data files for RoMarketCrawler
+!winforms/RoMarketCrawler/Data/
+!winforms/RoMarketCrawler/Data/logo.png
+!winforms/RoMarketCrawler/Data/EnchantEffects.json
