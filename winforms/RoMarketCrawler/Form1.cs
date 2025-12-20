@@ -396,10 +396,10 @@ public partial class Form1 : Form
             var fadedBitmap = new Bitmap(_watermarkImage.Width, _watermarkImage.Height);
             using (var g = Graphics.FromImage(fadedBitmap))
             {
-                // Use color matrix to apply transparency (opacity: 0.08 for subtle watermark)
+                // Use color matrix to apply transparency (opacity: 0.04 for subtle watermark)
                 var colorMatrix = new System.Drawing.Imaging.ColorMatrix
                 {
-                    Matrix33 = 0.08f  // Alpha channel
+                    Matrix33 = 0.04f  // Alpha channel
                 };
                 var imageAttributes = new System.Drawing.Imaging.ImageAttributes();
                 imageAttributes.SetColorMatrix(colorMatrix, System.Drawing.Imaging.ColorMatrixFlag.Default, System.Drawing.Imaging.ColorAdjustType.Bitmap);
