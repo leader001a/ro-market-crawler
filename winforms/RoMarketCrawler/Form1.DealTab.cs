@@ -35,13 +35,13 @@ public partial class Form1
         mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 25));   // Row 4: Status
         ApplyTableLayoutPanelStyle(mainPanel);
 
-        // ToolStrip-based toolbar
+        // ToolStrip-based toolbar with modern renderer
         var toolStrip = new ToolStrip
         {
             GripStyle = ToolStripGripStyle.Hidden,
-            BackColor = ThemePanel,
-            Renderer = new DarkToolStripRenderer()
+            BackColor = ThemePanel
         };
+        ApplyModernToolStripRenderer(toolStrip);
 
         // Server combo
         var cboServer = new ToolStripComboBox
@@ -133,18 +133,15 @@ public partial class Form1
             Padding = new Padding(0, 3, 0, 0)
         };
 
-        // Pagination buttons
-        _btnDealPrev = new Button
+        // Pagination buttons (using RoundedButton for modern look)
+        _btnDealPrev = new RoMarketCrawler.Controls.RoundedButton
         {
             Text = "<",
-            Size = new Size(30, 24),
-            FlatStyle = FlatStyle.Flat,
-            BackColor = ThemePanel,
-            ForeColor = ThemeText,
-            Enabled = false,
-            Cursor = Cursors.Hand
+            Size = new Size(36, 28),
+            CornerRadius = 6,
+            Enabled = false
         };
-        _btnDealPrev.FlatAppearance.BorderColor = ThemeBorder;
+        ApplyRoundedButtonStyle(_btnDealPrev, false);
         _btnDealPrev.Click += BtnDealPrev_Click;
 
         _lblDealPage = new Label
@@ -156,17 +153,14 @@ public partial class Form1
             Padding = new Padding(10, 5, 10, 0)
         };
 
-        _btnDealNext = new Button
+        _btnDealNext = new RoMarketCrawler.Controls.RoundedButton
         {
             Text = ">",
-            Size = new Size(30, 24),
-            FlatStyle = FlatStyle.Flat,
-            BackColor = ThemePanel,
-            ForeColor = ThemeText,
-            Enabled = false,
-            Cursor = Cursors.Hand
+            Size = new Size(36, 28),
+            CornerRadius = 6,
+            Enabled = false
         };
-        _btnDealNext.FlatAppearance.BorderColor = ThemeBorder;
+        ApplyRoundedButtonStyle(_btnDealNext, false);
         _btnDealNext.Click += BtnDealNext_Click;
 
         paginationPanel.Controls.Add(_btnDealPrev);

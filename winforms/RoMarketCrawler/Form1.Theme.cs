@@ -1108,5 +1108,159 @@ public partial class Form1
         label.Padding = new Padding(10, 0, 0, 0);
     }
 
+    private void ApplyNumericUpDownStyle(NumericUpDown numericUpDown)
+    {
+        if (_currentTheme == ThemeType.Dark)
+        {
+            numericUpDown.BackColor = ThemeGrid;
+            numericUpDown.ForeColor = ThemeText;
+        }
+        else
+        {
+            numericUpDown.BackColor = SystemColors.Window;
+            numericUpDown.ForeColor = SystemColors.WindowText;
+        }
+        numericUpDown.Font = new Font("Malgun Gothic", _baseFontSize - 3);
+    }
+
+    #endregion
+
+    #region Modern Custom Control Styling
+
+    /// <summary>
+    /// Apply theme styling to RoundedButton (primary style)
+    /// </summary>
+    private void ApplyRoundedButtonStyle(RoMarketCrawler.Controls.RoundedButton button, bool isPrimary = true)
+    {
+        button.Font = new Font("Malgun Gothic", _baseFontSize - 3, FontStyle.Bold);
+        button.CornerRadius = 8;
+        button.UseGradient = true;
+
+        if (_currentTheme == ThemeType.Dark)
+        {
+            if (isPrimary)
+            {
+                button.ApplyPrimaryStyle(ThemeAccent, ThemeAccentHover,
+                    Color.FromArgb(50, 110, 180), ThemeAccentText);
+            }
+            else
+            {
+                button.ApplySecondaryStyle(ThemePanel, ThemeGridAlt,
+                    Color.FromArgb(55, 55, 65), ThemeText, ThemeBorder);
+            }
+            button.DisabledBackground = Color.FromArgb(60, 60, 70);
+            button.DisabledForeColor = Color.FromArgb(120, 120, 130);
+        }
+        else
+        {
+            if (isPrimary)
+            {
+                button.ApplyPrimaryStyle(SystemColors.Highlight, SystemColors.HotTrack,
+                    Color.FromArgb(0, 84, 153), SystemColors.HighlightText);
+            }
+            else
+            {
+                button.ApplySecondaryStyle(Color.FromArgb(240, 240, 245),
+                    Color.FromArgb(225, 225, 230), Color.FromArgb(210, 210, 220),
+                    SystemColors.ControlText, SystemColors.ActiveBorder);
+            }
+            button.DisabledBackground = SystemColors.Control;
+            button.DisabledForeColor = SystemColors.GrayText;
+        }
+    }
+
+    /// <summary>
+    /// Apply theme styling to RoundedTextBox
+    /// </summary>
+    private void ApplyRoundedTextBoxStyle(RoMarketCrawler.Controls.RoundedTextBox textBox)
+    {
+        textBox.Font = new Font("Malgun Gothic", _baseFontSize - 2);
+        textBox.CornerRadius = 8;
+
+        if (_currentTheme == ThemeType.Dark)
+        {
+            textBox.ApplyTheme(
+                background: Color.FromArgb(50, 50, 60),
+                text: ThemeText,
+                unfocusedBorder: ThemeBorder,
+                focusedBorder: ThemeAccent,
+                placeholder: ThemeTextMuted
+            );
+        }
+        else
+        {
+            textBox.ApplyTheme(
+                background: SystemColors.Window,
+                text: SystemColors.WindowText,
+                unfocusedBorder: SystemColors.ActiveBorder,
+                focusedBorder: SystemColors.Highlight,
+                placeholder: SystemColors.GrayText
+            );
+        }
+    }
+
+    /// <summary>
+    /// Apply theme styling to RoundedComboBox
+    /// </summary>
+    private void ApplyRoundedComboBoxStyle(RoMarketCrawler.Controls.RoundedComboBox comboBox)
+    {
+        comboBox.Font = new Font("Malgun Gothic", _baseFontSize - 3);
+        comboBox.CornerRadius = 8;
+
+        if (_currentTheme == ThemeType.Dark)
+        {
+            comboBox.ApplyDarkTheme(
+                background: Color.FromArgb(50, 50, 60),
+                border: ThemeBorder,
+                focusBorder: ThemeAccent,
+                text: ThemeText,
+                accent: ThemeAccent
+            );
+        }
+        else
+        {
+            comboBox.ApplyLightTheme();
+        }
+    }
+
+    /// <summary>
+    /// Apply theme styling to RoundedPanel
+    /// </summary>
+    private void ApplyRoundedPanelStyle(RoMarketCrawler.Controls.RoundedPanel panel, bool useGradient = false)
+    {
+        panel.CornerRadius = 10;
+
+        if (_currentTheme == ThemeType.Dark)
+        {
+            panel.ApplyDarkTheme(ThemePanel, ThemeBorder, useGradient);
+        }
+        else
+        {
+            panel.PanelColor = Color.FromArgb(248, 248, 250);
+            panel.BorderColor = SystemColors.ControlLight;
+            panel.UseGradient = useGradient;
+            if (useGradient)
+            {
+                panel.GradientStartColor = Color.FromArgb(252, 252, 254);
+                panel.GradientEndColor = Color.FromArgb(244, 244, 248);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Apply modern ToolStrip renderer based on current theme
+    /// </summary>
+    private void ApplyModernToolStripRenderer(ToolStrip toolStrip)
+    {
+        if (_currentTheme == ThemeType.Dark)
+        {
+            toolStrip.Renderer = RoMarketCrawler.Controls.ToolStripRendererFactory.CreateDarkRenderer();
+        }
+        else
+        {
+            toolStrip.Renderer = RoMarketCrawler.Controls.ToolStripRendererFactory.CreateLightRenderer();
+        }
+    }
+
     #endregion
 }

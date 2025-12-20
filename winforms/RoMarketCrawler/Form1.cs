@@ -53,8 +53,8 @@ public partial class Form1 : Form
     private const int MaxSearchHistoryCount = 10;
 
     // Deal Tab Pagination (server-side: API returns 10 items per page)
-    private Button _btnDealPrev = null!;
-    private Button _btnDealNext = null!;
+    private RoMarketCrawler.Controls.RoundedButton _btnDealPrev = null!;
+    private RoMarketCrawler.Controls.RoundedButton _btnDealNext = null!;
     private Label _lblDealPage = null!;
     private int _dealCurrentPage = 1;  // API uses 1-based page numbers
 
@@ -86,8 +86,8 @@ public partial class Form1 : Form
     private readonly Dictionary<string, CheckBox> _jobFilterCheckBoxes = new();
 
     // Item Tab Pagination
-    private Button _btnItemPrev = null!;
-    private Button _btnItemNext = null!;
+    private RoMarketCrawler.Controls.RoundedButton _btnItemPrev = null!;
+    private RoMarketCrawler.Controls.RoundedButton _btnItemNext = null!;
     private Label _lblItemPage = null!;
     private int _itemCurrentPage = 0;
     private int _itemTotalCount = 0;

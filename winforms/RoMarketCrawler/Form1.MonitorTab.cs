@@ -73,16 +73,16 @@ public partial class Form1
         mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); // Content area
         ApplyTableLayoutPanelStyle(mainLayout);
 
-        // Create ToolStrip toolbar
+        // Create ToolStrip toolbar with modern renderer
         var toolStrip = new ToolStrip
         {
             Dock = DockStyle.Fill,
             GripStyle = ToolStripGripStyle.Hidden,
             BackColor = ThemePanel,
             ForeColor = ThemeText,
-            Renderer = _currentTheme == ThemeType.Dark ? new DarkToolStripRenderer() : new ToolStripProfessionalRenderer(),
             Padding = new Padding(4, 0, 4, 0)
         };
+        ApplyModernToolStripRenderer(toolStrip);
 
         // Item name input
         var txtItemName = new ToolStripTextBox
@@ -1980,10 +1980,9 @@ public partial class Form1
             Minimum = 1, Maximum = 60, Value = 1, Increment = 1,  // 1분~60분 (최소 1분)
             Location = new Point((int)(140 * scale), yPos),
             Size = new Size((int)(65 * scale), rowHeight),
-            BackColor = ThemeGrid,
-            ForeColor = ThemeText,
             Font = font
         };
+        ApplyNumericUpDownStyle(_nudRefreshInterval);
         yPos += rowHeight + 6;
 
         _btnApplyInterval = new Button
@@ -1992,12 +1991,9 @@ public partial class Form1
             Text = "자동갱신",
             Location = new Point(8, yPos),
             Size = new Size(panelWidth - 20, rowHeight),
-            FlatStyle = FlatStyle.Flat,
-            BackColor = ThemeAccent,
-            ForeColor = ThemeAccentText,
             Font = font
         };
-        _btnApplyInterval.FlatAppearance.BorderSize = 0;
+        ApplyButtonStyle(_btnApplyInterval, true);
         _btnApplyInterval.Click += BtnApplyInterval_Click;
 
         panel.Size = new Size(panelWidth, yPos + rowHeight + 10);
@@ -2056,10 +2052,9 @@ public partial class Form1
             Location = new Point((int)(75 * scale), yPos),
             Size = new Size((int)(90 * scale), rowHeight),
             DropDownStyle = ComboBoxStyle.DropDownList,
-            BackColor = ThemeGrid,
-            ForeColor = ThemeText,
             Font = font
         };
+        ApplyComboBoxStyle(_cboAlarmSound);
         _cboAlarmSound.Items.AddRange(new object[]
         {
             new AlarmSoundItem(AlarmSoundType.SystemSound, "시스템"),
@@ -2086,12 +2081,9 @@ public partial class Form1
             Text = "테스트",
             Location = new Point((int)(170 * scale), yPos),
             Size = new Size((int)(65 * scale), rowHeight),
-            FlatStyle = FlatStyle.Flat,
-            BackColor = ThemeGrid,
-            ForeColor = ThemeText,
             Font = font
         };
-        btnTest.FlatAppearance.BorderColor = ThemeBorder;
+        ApplyButtonStyle(btnTest, false);
         btnTest.Click += (s, e) => PlayAlarmSound();
         yPos += rowHeight + 6;
 
@@ -2112,10 +2104,9 @@ public partial class Form1
             Minimum = 1, Maximum = 60, Value = _alarmIntervalSeconds,
             Location = new Point((int)(75 * scale), yPos),
             Size = new Size((int)(55 * scale), rowHeight),
-            BackColor = ThemeGrid,
-            ForeColor = ThemeText,
             Font = font
         };
+        ApplyNumericUpDownStyle(_nudAlarmInterval);
         _nudAlarmInterval.ValueChanged += NudAlarmInterval_ValueChanged;
 
         var lblSec = new Label

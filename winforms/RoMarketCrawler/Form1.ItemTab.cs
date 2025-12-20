@@ -357,15 +357,16 @@ public partial class Form1
         };
         ApplyTableLayoutPanelStyle(paginationWrapper);
 
-        _btnItemPrev = new Button
+        _btnItemPrev = new RoMarketCrawler.Controls.RoundedButton
         {
             Text = "< 이전",
-            Width = 70,
+            Size = new Size(80, 28),
+            CornerRadius = 6,
             Enabled = false,
             Margin = new Padding(0, 0, 5, 0)
         };
+        ApplyRoundedButtonStyle(_btnItemPrev, false);
         _btnItemPrev.Click += BtnItemPrev_Click;
-        ApplyButtonStyle(_btnItemPrev, false);
 
         _lblItemPage = new Label
         {
@@ -377,15 +378,16 @@ public partial class Form1
             Font = new Font("Malgun Gothic", _baseFontSize - 3, FontStyle.Regular)
         };
 
-        _btnItemNext = new Button
+        _btnItemNext = new RoMarketCrawler.Controls.RoundedButton
         {
             Text = "다음 >",
-            Width = 70,
+            Size = new Size(80, 28),
+            CornerRadius = 6,
             Enabled = false,
             Margin = new Padding(5, 0, 0, 0)
         };
+        ApplyRoundedButtonStyle(_btnItemNext, false);
         _btnItemNext.Click += BtnItemNext_Click;
-        ApplyButtonStyle(_btnItemNext, false);
 
         paginationPanel.Controls.AddRange(new Control[] { _btnItemPrev, _lblItemPage, _btnItemNext });
         paginationPanel.AutoSize = true;
