@@ -1,6 +1,26 @@
 # RO Market Crawler
 
-GNJOY/kafra.kr 라그나로크 온라인 아이템 시세 조회 도구 (C# WinForms)
+GNJOY/kafra.kr 라그나로크 오리진 아이템 시세 조회 도구 (C# WinForms)
+
+## 다운로드
+
+📦 **[최신 버전 다운로드](../../releases/latest)**
+
+- Windows 10/11 64비트 전용
+- .NET 런타임 내장 (별도 설치 불필요)
+- 단일 실행 파일 (약 69MB)
+
+### 파일 검증
+
+다운로드한 파일이 원본인지 확인하려면 SHA256 해시를 비교하세요.
+해시 값은 각 [릴리스 페이지](../../releases)에서 확인할 수 있습니다.
+
+**Windows PowerShell에서 확인:**
+```powershell
+Get-FileHash RoMarketCrawler.exe -Algorithm SHA256
+```
+
+> ⚠️ **주의**: 공식 GitHub 릴리스에서만 다운로드하세요. 다른 경로에서 받은 파일은 변조되었을 수 있습니다.
 
 ## 기능
 
@@ -24,8 +44,8 @@ GNJOY/kafra.kr 라그나로크 온라인 아이템 시세 조회 도구 (C# WinF
 
 ## 요구사항
 
-- Windows 10/11
-- .NET 8.0 Runtime
+- Windows 10/11 (64비트)
+- .NET 8.0 Runtime 내장 (별도 설치 불필요)
 
 ## 빌드
 
