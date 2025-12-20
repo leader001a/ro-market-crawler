@@ -430,7 +430,6 @@ public partial class Form1 : Form
 
         _dgvDeals.Paint += DataGridView_PaintWatermark;
         _dgvItems.Paint += DataGridView_PaintWatermark;
-        _dgvMonitorItems.Paint += DataGridView_PaintWatermark;
         _dgvMonitorResults.Paint += DataGridView_PaintWatermark;
     }
 
