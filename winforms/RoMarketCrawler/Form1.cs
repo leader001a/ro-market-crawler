@@ -440,39 +440,21 @@ public partial class Form1 : Form
     {
         if (_watermarkFaded == null || sender is not DataGridView dgv) return;
 
-        // Calculate the visible area (excluding rows with data)
-        var visibleRowsHeight = dgv.ColumnHeadersHeight;
-        for (int i = 0; i < dgv.DisplayedRowCount(true); i++)
-        {
-            var rowIndex = dgv.FirstDisplayedScrollingRowIndex + i;
-            if (rowIndex >= 0 && rowIndex < dgv.RowCount)
-            {
-                visibleRowsHeight += dgv.Rows[rowIndex].Height;
-            }
-        }
-
-        // Only draw watermark if there's empty space below the data
-        var emptyAreaTop = visibleRowsHeight;
-        var emptyAreaHeight = dgv.ClientSize.Height - emptyAreaTop;
-
-        if (emptyAreaHeight <= 0) return;
-
         // Calculate watermark size (scale to fit 80% of grid height)
         var targetHeight = dgv.ClientSize.Height * 0.8;
         var scale = (float)targetHeight / _watermarkFaded.Height;
         var watermarkWidth = (int)(_watermarkFaded.Width * scale);
         var watermarkHeight = (int)(_watermarkFaded.Height * scale);
 
-        // Center the watermark in the empty area
+        // Center the watermark in the grid (below header)
         var x = (dgv.ClientSize.Width - watermarkWidth) / 2;
-        var y = emptyAreaTop + (emptyAreaHeight - watermarkHeight) / 2;
+        var contentTop = dgv.ColumnHeadersHeight;
+        var contentHeight = dgv.ClientSize.Height - contentTop;
+        var y = contentTop + (contentHeight - watermarkHeight) / 2;
 
-        // Only draw if the watermark fits in the empty area
-        if (y >= emptyAreaTop && y + watermarkHeight <= dgv.ClientSize.Height)
-        {
-            e.Graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-            e.Graphics.DrawImage(_watermarkFaded, x, y, watermarkWidth, watermarkHeight);
-        }
+        // Draw the watermark
+        e.Graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+        e.Graphics.DrawImage(_watermarkFaded, x, y, watermarkWidth, watermarkHeight);
     }
 
     private void SetupMenuStrip()
