@@ -103,6 +103,7 @@ public partial class Form1 : Form
     private ToolStripButton _btnMonitorAdd = null!;
     private ToolStripButton _btnMonitorRemove = null!;
     private ToolStripButton _btnMonitorRefresh = null!;
+    private ToolStripDropDownButton _btnAutoRefresh = null!;
     private ToolStripProgressBar _progressMonitor = null!;
     private DataGridView _dgvMonitorItems = null!;
     private DataGridView _dgvMonitorResults = null!;

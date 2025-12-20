@@ -363,9 +363,9 @@ public partial class Form1
     private async Task FetchDealPageAsync()
     {
         var searchText = _txtDealSearch.Text.Trim();
-        if (string.IsNullOrEmpty(searchText))
+        if (string.IsNullOrEmpty(searchText) || searchText.Length < 2)
         {
-            MessageBox.Show("검색어를 입력하세요.", "알림", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show("검색어는 2글자 이상 입력하세요.", "알림", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 

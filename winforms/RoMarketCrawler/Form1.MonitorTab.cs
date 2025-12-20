@@ -147,15 +147,15 @@ public partial class Form1
         };
 
         // Auto-refresh dropdown (right-aligned)
-        var btnAutoRefresh = new ToolStripDropDownButton("자동조회")
+        _btnAutoRefresh = new ToolStripDropDownButton("자동조회")
         {
             Alignment = ToolStripItemAlignment.Right,
             AutoToolTip = false
         };
         var autoRefreshPanel = CreateAutoRefreshPanel();
         var autoRefreshHost = new ToolStripControlHost(autoRefreshPanel) { AutoSize = false, Size = autoRefreshPanel.Size };
-        btnAutoRefresh.DropDownItems.Add(autoRefreshHost);
-        btnAutoRefresh.DropDown.BackColor = ThemePanel;
+        _btnAutoRefresh.DropDownItems.Add(autoRefreshHost);
+        _btnAutoRefresh.DropDown.BackColor = ThemePanel;
 
         // Alarm settings dropdown (right-aligned)
         var btnAlarmSettings = new ToolStripDropDownButton("알람설정")
@@ -211,7 +211,7 @@ public partial class Form1
         toolStrip.Items.Add(sepRight1);        // |
         toolStrip.Items.Add(btnAlarmSettings); // Second from right
         toolStrip.Items.Add(sepRight2);        // |
-        toolStrip.Items.Add(btnAutoRefresh);   // 자동조회 button
+        toolStrip.Items.Add(_btnAutoRefresh);   // 자동조회 button
         toolStrip.Items.Add(_lblAutoRefreshStatus); // Status label [정지/동작중]
         toolStrip.Items.Add(sepRight3);        // |
         toolStrip.Items.Add(_btnMonitorRefresh);       // 수동조회 button
@@ -509,9 +509,18 @@ public partial class Form1
         {
             // Handle ItemName change (rename)
             var oldName = originalValues?.GetValueOrDefault("ItemName")?.ToString();
-            var newName = row.Cells["ItemName"].Value?.ToString();
+            var newName = row.Cells["ItemName"].Value?.ToString()?.Trim();
 
             if (string.IsNullOrEmpty(oldName) || string.IsNullOrEmpty(newName) || oldName == newName) return;
+
+            // Validate minimum length
+            if (newName.Length < 2)
+            {
+                row.Cells["ItemName"].Value = oldName;
+                MessageBox.Show("아이템명은 2글자 이상 입력하세요.", "알림", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                originalValues?.Remove("ItemName");
+                return;
+            }
 
             // Find the MonitorItem by NEW name (data binding already updated ItemName before this event fires)
             var items = _monitoringService.Config.Items;
@@ -1236,9 +1245,9 @@ public partial class Form1
     private async void BtnMonitorAdd_Click(object? sender, EventArgs e)
     {
         var itemName = _txtMonitorItemName.Text.Trim();
-        if (string.IsNullOrEmpty(itemName))
+        if (string.IsNullOrEmpty(itemName) || itemName.Length < 2)
         {
-            MessageBox.Show("아이템명을 입력하세요.", "알림", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show("아이템명은 2글자 이상 입력하세요.", "알림", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -1369,12 +1378,21 @@ public partial class Form1
             return;
         }
 
+        // Pause auto-refresh during manual refresh
+        var wasAutoRefreshRunning = _monitorTimer.Enabled;
+        if (wasAutoRefreshRunning)
+        {
+            _monitorTimer.Stop();
+            Debug.WriteLine("[Form1] Auto-refresh paused for manual refresh");
+        }
+
         _monitorCts?.Cancel();
         _monitorCts = new CancellationTokenSource();
 
         _btnMonitorRefresh.Enabled = false;
         _btnMonitorAdd.Enabled = false;
         _btnMonitorRemove.Enabled = false;
+        _btnAutoRefresh.Enabled = false;
 
         // Show and initialize progress bar
         _progressMonitor.Value = 0;
@@ -1463,9 +1481,19 @@ public partial class Form1
         }
         finally
         {
-            _btnMonitorRefresh.Enabled = true;
+            // Resume auto-refresh if it was running before manual refresh
+            if (wasAutoRefreshRunning)
+            {
+                _monitorTimer.Start();
+                Debug.WriteLine("[Form1] Auto-refresh resumed after manual refresh");
+            }
+            else
+            {
+                _btnMonitorRefresh.Enabled = true;
+            }
             _btnMonitorAdd.Enabled = true;
             _btnMonitorRemove.Enabled = true;
+            _btnAutoRefresh.Enabled = true;
             _progressMonitor.Visible = false;
         }
     }
