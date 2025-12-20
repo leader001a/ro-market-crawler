@@ -118,6 +118,10 @@ public partial class Form1 : Form
     // Monitor Results Processing State
     private bool _isProcessingResults = false;
 
+    // Watermark image for DataGridView backgrounds
+    private Image? _watermarkImage = null;
+    private Image? _watermarkFaded = null;  // Pre-rendered faded version
+
     // Font Size Settings
     private float _baseFontSize = 12f;
     private readonly string _settingsFilePath;
@@ -371,6 +375,105 @@ public partial class Form1 : Form
 
         // Initialize custom autocomplete dropdown for Korean IME support
         InitializeAutoComplete();
+
+        // Load watermark image for DataGridView backgrounds
+        LoadWatermarkImage();
+    }
+
+    /// <summary>
+    /// Load and prepare the watermark image for DataGridView backgrounds
+    /// </summary>
+    private void LoadWatermarkImage()
+    {
+        var logoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "logo.png");
+        if (!File.Exists(logoPath)) return;
+
+        try
+        {
+            _watermarkImage = Image.FromFile(logoPath);
+
+            // Create a faded (semi-transparent) version of the watermark
+            var fadedBitmap = new Bitmap(_watermarkImage.Width, _watermarkImage.Height);
+            using (var g = Graphics.FromImage(fadedBitmap))
+            {
+                // Use color matrix to apply transparency (opacity: 0.08 for subtle watermark)
+                var colorMatrix = new System.Drawing.Imaging.ColorMatrix
+                {
+                    Matrix33 = 0.08f  // Alpha channel
+                };
+                var imageAttributes = new System.Drawing.Imaging.ImageAttributes();
+                imageAttributes.SetColorMatrix(colorMatrix, System.Drawing.Imaging.ColorMatrixFlag.Default, System.Drawing.Imaging.ColorAdjustType.Bitmap);
+
+                g.DrawImage(_watermarkImage,
+                    new Rectangle(0, 0, _watermarkImage.Width, _watermarkImage.Height),
+                    0, 0, _watermarkImage.Width, _watermarkImage.Height,
+                    GraphicsUnit.Pixel,
+                    imageAttributes);
+            }
+            _watermarkFaded = fadedBitmap;
+
+            // Attach paint handlers to all DataGridViews
+            AttachWatermarkPaintHandlers();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Form1] Watermark load error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Attach watermark paint handlers to all DataGridViews
+    /// </summary>
+    private void AttachWatermarkPaintHandlers()
+    {
+        if (_watermarkFaded == null) return;
+
+        _dgvDeals.Paint += DataGridView_PaintWatermark;
+        _dgvItems.Paint += DataGridView_PaintWatermark;
+        _dgvMonitorItems.Paint += DataGridView_PaintWatermark;
+        _dgvMonitorResults.Paint += DataGridView_PaintWatermark;
+    }
+
+    /// <summary>
+    /// Paint watermark on DataGridView background
+    /// </summary>
+    private void DataGridView_PaintWatermark(object? sender, PaintEventArgs e)
+    {
+        if (_watermarkFaded == null || sender is not DataGridView dgv) return;
+
+        // Calculate the visible area (excluding rows with data)
+        var visibleRowsHeight = dgv.ColumnHeadersHeight;
+        for (int i = 0; i < dgv.DisplayedRowCount(true); i++)
+        {
+            var rowIndex = dgv.FirstDisplayedScrollingRowIndex + i;
+            if (rowIndex >= 0 && rowIndex < dgv.RowCount)
+            {
+                visibleRowsHeight += dgv.Rows[rowIndex].Height;
+            }
+        }
+
+        // Only draw watermark if there's empty space below the data
+        var emptyAreaTop = visibleRowsHeight;
+        var emptyAreaHeight = dgv.ClientSize.Height - emptyAreaTop;
+
+        if (emptyAreaHeight <= 0) return;
+
+        // Calculate watermark size (scale to fit 60% of grid width, max 300px)
+        var maxWidth = Math.Min(dgv.ClientSize.Width * 0.6, 300);
+        var scale = (float)maxWidth / _watermarkFaded.Width;
+        var watermarkWidth = (int)(_watermarkFaded.Width * scale);
+        var watermarkHeight = (int)(_watermarkFaded.Height * scale);
+
+        // Center the watermark in the empty area
+        var x = (dgv.ClientSize.Width - watermarkWidth) / 2;
+        var y = emptyAreaTop + (emptyAreaHeight - watermarkHeight) / 2;
+
+        // Only draw if the watermark fits in the empty area
+        if (y >= emptyAreaTop && y + watermarkHeight <= dgv.ClientSize.Height)
+        {
+            e.Graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            e.Graphics.DrawImage(_watermarkFaded, x, y, watermarkWidth, watermarkHeight);
+        }
     }
 
     private void SetupMenuStrip()
@@ -506,9 +609,28 @@ public partial class Form1 : Form
     private void ShowAboutDialog()
     {
         const int formWidth = 500;
-        const int formHeight = 540;
+        const int baseFormHeight = 540;
         const int leftMargin = 25;
         const int contentWidth = 440;
+
+        // Load logo first to calculate dynamic heights
+        Image? logoImage = null;
+        int logoHeight = 0;
+        int logoOffset = 0;
+        var logoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "logo.png");
+        if (File.Exists(logoPath))
+        {
+            try
+            {
+                logoImage = Image.FromFile(logoPath);
+                var scale = (float)contentWidth / logoImage.Width;
+                logoHeight = (int)(logoImage.Height * scale);
+                logoOffset = logoHeight + 20;
+            }
+            catch { }
+        }
+
+        int formHeight = baseFormHeight + logoOffset;
 
         // Classic theme colors for consistent readability (always light theme)
         var clrBackground = Color.FromArgb(250, 250, 250);
@@ -532,6 +654,19 @@ public partial class Form1 : Form
             ShowIcon = false
         };
 
+        // Logo image
+        PictureBox? picLogo = null;
+        if (logoImage != null)
+        {
+            picLogo = new PictureBox
+            {
+                Image = logoImage,
+                SizeMode = PictureBoxSizeMode.Zoom,
+                Size = new Size(contentWidth, logoHeight),
+                Location = new Point(leftMargin, 10)
+            };
+        }
+
         // Font sizes consistent with Form1 control sizing scheme
         var titleFontSize = _baseFontSize + 1;      // Large title (was +4, too big)
         var normalFontSize = _baseFontSize - 2;     // Same as TextBox/ComboBox
@@ -544,7 +679,7 @@ public partial class Form1 : Form
             Font = new Font("Malgun Gothic", titleFontSize, FontStyle.Bold),
             ForeColor = clrLink,
             AutoSize = true,
-            Location = new Point(leftMargin, 18)
+            Location = new Point(leftMargin, 18 + logoOffset)
         };
 
         // Description
@@ -554,7 +689,7 @@ public partial class Form1 : Form
             Font = new Font("Malgun Gothic", normalFontSize),
             ForeColor = clrTextMuted,
             AutoSize = true,
-            Location = new Point(leftMargin, 45)
+            Location = new Point(leftMargin, 45 + logoOffset)
         };
 
         // Data source section
@@ -566,7 +701,7 @@ public partial class Form1 : Form
             Font = new Font("Malgun Gothic", normalFontSize),
             ForeColor = clrText,
             AutoSize = true,
-            Location = new Point(leftMargin, 72)
+            Location = new Point(leftMargin, 72 + logoOffset)
         };
 
         // Creator
@@ -576,7 +711,7 @@ public partial class Form1 : Form
             Font = new Font("Malgun Gothic", normalFontSize),
             ForeColor = clrText,
             AutoSize = true,
-            Location = new Point(leftMargin, 130)
+            Location = new Point(leftMargin, 130 + logoOffset)
         };
 
         // Contact: separate Label + LinkLabel for proper styling
@@ -586,7 +721,7 @@ public partial class Form1 : Form
             Font = new Font("Malgun Gothic", normalFontSize),
             ForeColor = clrText,
             AutoSize = true,
-            Location = new Point(leftMargin, 150)
+            Location = new Point(leftMargin, 150 + logoOffset)
         };
 
         var linkKakao = new LinkLabel
@@ -596,7 +731,7 @@ public partial class Form1 : Form
             LinkColor = clrLink,
             ActiveLinkColor = clrLink,
             AutoSize = true,
-            Location = new Point(leftMargin + 38, 150)
+            Location = new Point(leftMargin + 38, 150 + logoOffset)
         };
         linkKakao.LinkClicked += (s, e) =>
         {
@@ -618,7 +753,7 @@ public partial class Form1 : Form
             Font = new Font("Malgun Gothic", normalFontSize, FontStyle.Bold),
             ForeColor = Color.FromArgb(0, 120, 60),  // Green for trust
             AutoSize = true,
-            Location = new Point(leftMargin, 175)
+            Location = new Point(leftMargin, 175 + logoOffset)
         };
 
         // Legal notice (scrollable)
@@ -669,7 +804,7 @@ public partial class Form1 : Form
             Multiline = true,
             WordWrap = true,
             ScrollBars = ScrollBars.Vertical,
-            Location = new Point(leftMargin, 200),
+            Location = new Point(leftMargin, 200 + logoOffset),
             Size = new Size(contentWidth, 240)
         };
 
@@ -680,7 +815,7 @@ public partial class Form1 : Form
             Width = 80,
             Height = 28,
             DialogResult = DialogResult.OK,
-            Location = new Point((formWidth - 80) / 2 - 8, 455),
+            Location = new Point((formWidth - 80) / 2 - 8, 455 + logoOffset),
             FlatStyle = FlatStyle.Flat,
             BackColor = clrButtonBg,
             ForeColor = clrButtonText,
@@ -688,6 +823,11 @@ public partial class Form1 : Form
         };
         btnOk.FlatAppearance.BorderSize = 0;
 
+        // Add controls to form
+        if (picLogo != null)
+        {
+            aboutForm.Controls.Add(picLogo);
+        }
         aboutForm.Controls.AddRange(new Control[] { lblTitle, lblDesc, lblSource, lblCreator, lblContact, linkKakao, lblPrivacy, txtLegalNotice, btnOk });
         aboutForm.AcceptButton = btnOk;
         aboutForm.ShowDialog(this);
@@ -1083,6 +1223,8 @@ public partial class Form1 : Form
         _imageHttpClient.Dispose();
         _picItemImage?.Image?.Dispose();
         _autoCompleteDropdown?.Dispose();
+        _watermarkImage?.Dispose();
+        _watermarkFaded?.Dispose();
         base.OnFormClosed(e);
     }
 }

@@ -454,9 +454,29 @@ public class StartupValidator : IDisposable
     {
         // Layout constants (matching ShowAboutDialog in Form1.cs)
         const int formWidth = 500;
-        const int formHeight = 540;
+        const int baseFormHeight = 540;  // Base height without logo
         const int leftMargin = 25;
         const int contentWidth = 440;
+
+        // Load logo first to calculate dynamic heights
+        Image? logoImage = null;
+        int logoHeight = 0;
+        int logoOffset = 0;
+        var logoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "logo.png");
+        if (File.Exists(logoPath))
+        {
+            try
+            {
+                logoImage = Image.FromFile(logoPath);
+                // Scale to fit contentWidth while maintaining aspect ratio
+                var scale = (float)contentWidth / logoImage.Width;
+                logoHeight = (int)(logoImage.Height * scale);
+                logoOffset = logoHeight + 20;  // Logo height + padding
+            }
+            catch { /* Ignore image loading errors */ }
+        }
+
+        int formHeight = baseFormHeight + logoOffset;
 
         // Classic theme colors for consistent readability (always light theme)
         var clrBackground = Color.FromArgb(250, 250, 250);
@@ -518,6 +538,19 @@ public class StartupValidator : IDisposable
             ShowIcon = false
         };
 
+        // Logo image
+        PictureBox? picLogo = null;
+        if (logoImage != null)
+        {
+            picLogo = new PictureBox
+            {
+                Image = logoImage,
+                SizeMode = PictureBoxSizeMode.Zoom,
+                Size = new Size(contentWidth, logoHeight),
+                Location = new Point(leftMargin, 10)
+            };
+        }
+
         // Title
         var lblTitle = new Label
         {
@@ -525,7 +558,7 @@ public class StartupValidator : IDisposable
             Font = new Font("Malgun Gothic", 14, FontStyle.Bold),
             ForeColor = clrLink,
             AutoSize = true,
-            Location = new Point(leftMargin, 18)
+            Location = new Point(leftMargin, 18 + logoOffset)
         };
 
         // Description
@@ -535,7 +568,7 @@ public class StartupValidator : IDisposable
             Font = new Font("Malgun Gothic", 9),
             ForeColor = clrTextMuted,
             AutoSize = true,
-            Location = new Point(leftMargin, 45)
+            Location = new Point(leftMargin, 45 + logoOffset)
         };
 
         // Data source section
@@ -547,7 +580,7 @@ public class StartupValidator : IDisposable
             Font = new Font("Malgun Gothic", 9),
             ForeColor = clrText,
             AutoSize = true,
-            Location = new Point(leftMargin, 72)
+            Location = new Point(leftMargin, 72 + logoOffset)
         };
 
         // Creator
@@ -557,7 +590,7 @@ public class StartupValidator : IDisposable
             Font = new Font("Malgun Gothic", 9),
             ForeColor = clrText,
             AutoSize = true,
-            Location = new Point(leftMargin, 130)
+            Location = new Point(leftMargin, 130 + logoOffset)
         };
 
         // Contact
@@ -567,7 +600,7 @@ public class StartupValidator : IDisposable
             Font = new Font("Malgun Gothic", 9),
             ForeColor = clrText,
             AutoSize = true,
-            Location = new Point(leftMargin, 150)
+            Location = new Point(leftMargin, 150 + logoOffset)
         };
 
         // Privacy notice (emphasized)
@@ -577,7 +610,7 @@ public class StartupValidator : IDisposable
             Font = new Font("Malgun Gothic", 9, FontStyle.Bold),
             ForeColor = Color.FromArgb(0, 120, 60),  // Green for trust
             AutoSize = true,
-            Location = new Point(leftMargin, 175)
+            Location = new Point(leftMargin, 175 + logoOffset)
         };
 
         // Legal notice (scrollable)
@@ -592,7 +625,7 @@ public class StartupValidator : IDisposable
             Multiline = true,
             WordWrap = true,
             ScrollBars = ScrollBars.Vertical,
-            Location = new Point(leftMargin, 200),
+            Location = new Point(leftMargin, 200 + logoOffset),
             Size = new Size(contentWidth, 220)
         };
 
@@ -603,7 +636,7 @@ public class StartupValidator : IDisposable
             Font = new Font("Malgun Gothic", 9),
             ForeColor = clrText,
             AutoSize = true,
-            Location = new Point(leftMargin, 430)
+            Location = new Point(leftMargin, 430 + logoOffset)
         };
 
         // Button dimensions for centering calculation
@@ -621,7 +654,7 @@ public class StartupValidator : IDisposable
             Text = "동의",
             Width = btnAgreeWidth,
             Height = 30,
-            Location = new Point(btnStartX, 455),
+            Location = new Point(btnStartX, 455 + logoOffset),
             FlatStyle = FlatStyle.Flat,
             BackColor = clrButtonBg,
             ForeColor = clrButtonText,
@@ -636,7 +669,7 @@ public class StartupValidator : IDisposable
             Text = "동의하지 않음",
             Width = btnDisagreeWidth,
             Height = 30,
-            Location = new Point(btnStartX + btnAgreeWidth + btnGap, 455),
+            Location = new Point(btnStartX + btnAgreeWidth + btnGap, 455 + logoOffset),
             FlatStyle = FlatStyle.Flat,
             BackColor = clrButtonDisagreeBg,
             ForeColor = clrButtonText,
@@ -645,6 +678,11 @@ public class StartupValidator : IDisposable
         };
         btnDisagree.FlatAppearance.BorderSize = 0;
 
+        // Add controls to form
+        if (picLogo != null)
+        {
+            consentForm.Controls.Add(picLogo);
+        }
         consentForm.Controls.AddRange(new Control[] {
             lblTitle, lblDesc, lblSource, lblCreator, lblContact, lblPrivacy,
             txtLegalNotice, lblConfirm, btnAgree, btnDisagree
