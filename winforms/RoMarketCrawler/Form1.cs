@@ -458,9 +458,9 @@ public partial class Form1 : Form
 
         if (emptyAreaHeight <= 0) return;
 
-        // Calculate watermark size (scale to fit 60% of grid width, max 300px)
-        var maxWidth = Math.Min(dgv.ClientSize.Width * 0.6, 300);
-        var scale = (float)maxWidth / _watermarkFaded.Width;
+        // Calculate watermark size (scale to fit 80% of grid height)
+        var targetHeight = dgv.ClientSize.Height * 0.8;
+        var scale = (float)targetHeight / _watermarkFaded.Height;
         var watermarkWidth = (int)(_watermarkFaded.Width * scale);
         var watermarkHeight = (int)(_watermarkFaded.Height * scale);
 
