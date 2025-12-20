@@ -31,7 +31,7 @@ public partial class Form1
         mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));   // Row 0: Toolbar
         mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));    // Row 1: Search history (dynamic)
         mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));   // Row 2: Results grid
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));   // Row 3: Pagination
+        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));   // Row 3: Pagination
         mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 25));   // Row 4: Status
         ApplyTableLayoutPanelStyle(mainPanel);
 
@@ -130,7 +130,7 @@ public partial class Form1
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = false,
             AutoSize = false,
-            Padding = new Padding(0, 3, 0, 0)
+            Padding = new Padding(0, 10, 0, 0)
         };
 
         // Pagination buttons (using RoundedButton for modern look)
@@ -171,7 +171,7 @@ public partial class Form1
         paginationPanel.Resize += (s, e) =>
         {
             var totalWidth = _btnDealPrev.Width + _lblDealPage.Width + _btnDealNext.Width + 20;
-            paginationPanel.Padding = new Padding((paginationPanel.Width - totalWidth) / 2, 3, 0, 0);
+            paginationPanel.Padding = new Padding((paginationPanel.Width - totalWidth) / 2, 10, 0, 0);
         };
 
         // Search history panel (horizontal flow of clickable labels)
