@@ -36,12 +36,27 @@ jobs:
         echo "HASH=$hash" >> $env:GITHUB_OUTPUT
       shell: pwsh
 
+    - name: Get expiration date from code
+      id: expiration
+      run: |
+        $content = Get-Content -Path "winforms/RoMarketCrawler/Services/StartupValidator.cs" -Raw
+        if ($content -match 'ExpirationDateKST\s*=\s*"([^"]+)"') {
+          $date = $matches[1].Substring(0, 10)
+          echo "DATE=$date" >> $env:GITHUB_OUTPUT
+        } else {
+          echo "DATE=무제한" >> $env:GITHUB_OUTPUT
+        }
+      shell: pwsh
+
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
         name: Release ${{ steps.get_version.outputs.VERSION }}
         body: |
           ## RO Market Crawler ${{ steps.get_version.outputs.VERSION }}
+
+          ### 사용 가능 기간
+          **~${{ steps.expiration.outputs.DATE }}** 까지 사용 가능합니다.
 
           ### 다운로드
           아래 `RoMarketCrawler.exe` 파일을 다운로드하세요.
