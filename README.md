@@ -60,21 +60,6 @@ Get-FileHash RoMarketCrawler.exe -Algorithm SHA256
 - Windows 10/11 (64비트)
 - .NET 8.0 Runtime 내장 (별도 설치 불필요)
 
-## 빌드
-
-```bash
-cd winforms/RoMarketCrawler
-dotnet build
-dotnet run
-```
-
-### 배포용 빌드
-
-```bash
-cd winforms/RoMarketCrawler
-dotnet publish -c Release
-```
-
 ## 프로젝트 구조
 
 ```
