@@ -605,13 +605,16 @@ namespace RoMarketCrawler.Services
                 // (e.g., "포링 선글래스" search returns both base item and enhanced "+" version)
                 var priceServerId = capturedServerId == -1 ? 1 : capturedServerId;
 
-                // Group deals by actual item name + card slots for processing
-                // This ensures slotted items (e.g., "아이템[1]") get separate price lookups from base items
+                // Group deals by actual item name + refine + card slots for processing
+                // This ensures refined/slotted items get separate price lookups
+                // Format: "{refine}{itemName}[{slots}]" e.g., "10베어러즈 웨폰 쉐도우[1]"
                 var dealsByItemName = deals.GroupBy(d =>
-                    string.IsNullOrEmpty(d.CardSlots)
-                        ? d.ItemName ?? ""
-                        : $"{d.ItemName ?? ""}[{d.CardSlots}]"
-                ).ToList();
+                {
+                    var baseName = d.ItemName ?? "";
+                    var refinePrefix = (d.Refine.HasValue && d.Refine.Value > 0) ? $"{d.Refine}" : "";
+                    var slotSuffix = string.IsNullOrEmpty(d.CardSlots) ? "" : $"[{d.CardSlots}]";
+                    return $"{refinePrefix}{baseName}{slotSuffix}";
+                }).ToList();
 
                 // Cache for statistics to avoid duplicate lookups
                 var statsCache = new Dictionary<string, PriceStatistics?>(StringComparer.OrdinalIgnoreCase);
@@ -623,16 +626,17 @@ namespace RoMarketCrawler.Services
                     var itemId = sampleDeal.GetEffectiveItemId();
                     var baseItemName = GetBaseSearchName(dealItemName);
 
-                    // Check if this item has any grade at all
+                    // Check if this item has grade or refine
                     var hasGrade = !string.IsNullOrEmpty(sampleDeal.Grade);
+                    var hasRefine = sampleDeal.Refine.HasValue && sampleDeal.Refine.Value > 0;
 
-                    Debug.WriteLine($"[MonitoringService] Processing deal item: '{dealItemName}' (Grade: '{sampleDeal.Grade ?? "none"}')");
+                    Debug.WriteLine($"[MonitoringService] Processing deal item: '{dealItemName}' (Grade: '{sampleDeal.Grade ?? "none"}', Refine: {sampleDeal.Refine ?? 0})");
 
-                    // Skip stats for items with ANY grade (GNJOY API doesn't provide grade-specific prices)
-                    // Grade items have unreliable price history due to grade-specific pricing
-                    if (hasGrade)
+                    // Skip stats for items with grade OR refine (GNJOY API doesn't provide grade/refine-specific prices)
+                    // These items have unreliable price history due to grade/refine-specific pricing
+                    if (hasGrade || hasRefine)
                     {
-                        Debug.WriteLine($"[MonitoringService] Skipping stats - item has grade '{sampleDeal.Grade}'");
+                        Debug.WriteLine($"[MonitoringService] Skipping stats - item has grade '{sampleDeal.Grade}' or refine +{sampleDeal.Refine}");
                         continue;
                     }
 
@@ -651,27 +655,31 @@ namespace RoMarketCrawler.Services
                     string searchName;
                     var dealRefine = sampleDeal.Refine;
 
-                    // Check if dealItemName already has a refine prefix (e.g., "10매드니스 브레스 슈즈")
-                    // This happens when items are grouped by Form1.cs GetBaseItemName with refine prefix
-                    var refinePatternMatch = System.Text.RegularExpressions.Regex.Match(dealItemName, @"^(\d+)([가-힣].*)$");
+                    // Strip slot suffix for search (e.g., "아이템[1]" -> "아이템")
+                    // Keep original dealItemName for caching key
+                    var searchBaseName = System.Text.RegularExpressions.Regex.Replace(dealItemName, @"\[\d+\]$", "");
+
+                    // Check if searchBaseName already has a refine prefix (e.g., "10매드니스 브레스 슈즈")
+                    // This happens when items are grouped with refine prefix
+                    var refinePatternMatch = System.Text.RegularExpressions.Regex.Match(searchBaseName, @"^(\d+)([가-힣].*)$");
                     bool alreadyHasRefinePrefix = refinePatternMatch.Success;
 
                     if (alreadyHasRefinePrefix)
                     {
-                        // dealItemName already contains refine prefix (e.g., "10매드니스 브레스 슈즈 쉐도우")
+                        // searchBaseName already contains refine prefix (e.g., "10매드니스 브레스 슈즈 쉐도우")
                         // Use it as-is for the search
-                        searchName = dealItemName;
+                        searchName = searchBaseName;
                     }
                     else if (dealRefine.HasValue && dealRefine.Value > 0)
                     {
                         // Item doesn't have refine prefix but has refine value
                         // Add refine level to search name for more accurate price statistics
-                        searchName = $"{dealRefine.Value}{dealItemName}";
+                        searchName = $"{dealRefine.Value}{searchBaseName}";
                     }
                     else
                     {
                         // No refine or zero, use base item name
-                        searchName = GetBaseSearchName(dealItemName);
+                        searchName = GetBaseSearchName(searchBaseName);
                     }
 
                     Debug.WriteLine($"[MonitoringService] Search name: '{searchName}' for '{dealItemName}'");
