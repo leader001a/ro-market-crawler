@@ -41,6 +41,9 @@
     <EmbeddedResource Include="Data\logo.png">
       <LogicalName>RoMarketCrawler.Data.logo.png</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="app.ico">
+      <LogicalName>RoMarketCrawler.app.ico</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
 </Project>
