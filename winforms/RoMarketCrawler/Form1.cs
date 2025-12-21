@@ -140,6 +140,10 @@ public partial class Form1 : Form
     private NumericUpDown _nudAlarmInterval = null!;
     private int _alarmIntervalSeconds = 5;
 
+    // Rate Limit UI Timer (checks and updates UI when rate limited)
+    private System.Windows.Forms.Timer _rateLimitTimer = null!;
+    private bool _isRateLimitUIActive = false;
+
     // Status Bar
     private StatusStrip _statusStrip = null!;
     private ToolStripStatusLabel _lblCreator = null!;
@@ -379,6 +383,14 @@ public partial class Form1 : Form
 
         // Load watermark image for DataGridView backgrounds
         LoadWatermarkImage();
+
+        // Initialize rate limit UI timer (checks every second when rate limited)
+        _rateLimitTimer = new System.Windows.Forms.Timer
+        {
+            Interval = 1000  // Check every second
+        };
+        _rateLimitTimer.Tick += RateLimitTimer_Tick;
+        _rateLimitTimer.Start();
     }
 
     /// <summary>
@@ -1195,6 +1207,8 @@ public partial class Form1 : Form
         _monitorTimer?.Dispose();
         _alarmTimer?.Stop();
         _alarmTimer?.Dispose();
+        _rateLimitTimer?.Stop();
+        _rateLimitTimer?.Dispose();
         _gnjoyClient.Dispose();
         _kafraClient.Dispose();
         _itemIndexService.Dispose();
@@ -1205,6 +1219,136 @@ public partial class Form1 : Form
         _watermarkImage?.Dispose();
         _watermarkFaded?.Dispose();
         base.OnFormClosed(e);
+    }
+
+    /// <summary>
+    /// Timer tick handler for rate limit UI updates.
+    /// Checks if rate limited and updates UI accordingly.
+    /// </summary>
+    private void RateLimitTimer_Tick(object? sender, EventArgs e)
+    {
+        var isRateLimited = GnjoyClient.IsRateLimited;
+
+        if (isRateLimited && !_isRateLimitUIActive)
+        {
+            // Just became rate limited - disable UI and show message
+            _isRateLimitUIActive = true;
+            SetRateLimitUIState(true);
+            Debug.WriteLine("[Form1] Rate limit UI activated");
+        }
+        else if (isRateLimited && _isRateLimitUIActive)
+        {
+            // Still rate limited - update remaining time display
+            UpdateRateLimitStatusDisplay();
+        }
+        else if (!isRateLimited && _isRateLimitUIActive)
+        {
+            // Rate limit expired - re-enable UI
+            _isRateLimitUIActive = false;
+            SetRateLimitUIState(false);
+            Debug.WriteLine("[Form1] Rate limit UI deactivated");
+        }
+    }
+
+    // Track if auto-refresh was running before rate limit
+    private bool _wasAutoRefreshRunningBeforeRateLimit = false;
+
+    /// <summary>
+    /// Enable or disable UI controls based on rate limit state.
+    /// </summary>
+    private void SetRateLimitUIState(bool isRateLimited)
+    {
+        // Deal Tab controls
+        _btnDealSearchToolStrip.Enabled = !isRateLimited;
+        _txtDealSearch.Enabled = !isRateLimited;
+        _cboDealServer.Enabled = !isRateLimited;
+        _btnDealPrev.Enabled = !isRateLimited && _dealCurrentPage > 1;
+        _btnDealNext.Enabled = !isRateLimited && _hasMorePages;
+
+        // Monitor Tab controls
+        _btnMonitorRefresh.Enabled = !isRateLimited;
+        _btnAutoRefresh.Enabled = !isRateLimited;
+        _btnMonitorAdd.Enabled = !isRateLimited;
+
+        // Pause/Resume auto-refresh timer based on rate limit
+        if (isRateLimited)
+        {
+            if (_monitorTimer != null && _monitorTimer.Enabled)
+            {
+                _wasAutoRefreshRunningBeforeRateLimit = true;
+                _monitorTimer.Stop();
+                _lblAutoRefreshStatus.Text = "[일시정지]";
+                _lblAutoRefreshStatus.ForeColor = ThemeSaleColor;
+                Debug.WriteLine("[Form1] Auto-refresh paused due to rate limit");
+            }
+        }
+        else
+        {
+            // Resume auto-refresh if it was running before rate limit
+            if (_wasAutoRefreshRunningBeforeRateLimit && _monitorTimer != null)
+            {
+                _wasAutoRefreshRunningBeforeRateLimit = false;
+                _monitorTimer.Start();
+                _lblAutoRefreshStatus.Text = "[동작중]";
+                _lblAutoRefreshStatus.ForeColor = Color.FromArgb(100, 200, 100);
+                Debug.WriteLine("[Form1] Auto-refresh resumed after rate limit expired");
+            }
+        }
+
+        // Disable search history links in Deal tab
+        if (_pnlSearchHistory != null)
+        {
+            foreach (Control ctrl in _pnlSearchHistory.Controls)
+            {
+                if (ctrl is Label lbl && lbl.Tag is ValueTuple<string, string> tag && tag.Item1 == "SearchHistoryLink")
+                {
+                    lbl.Enabled = !isRateLimited;
+                    lbl.ForeColor = isRateLimited ? ThemeTextMuted : ThemeAccent;
+                    lbl.Cursor = isRateLimited ? Cursors.Default : Cursors.Hand;
+                }
+            }
+        }
+
+        // Update status messages
+        if (isRateLimited)
+        {
+            UpdateRateLimitStatusDisplay();
+        }
+        else
+        {
+            // Restore normal status messages
+            _lblDealStatus.Text = "검색어를 입력하고 [검색] 버튼을 클릭하세요.";
+            _lblDealStatus.ForeColor = ThemeText;
+            _lblMonitorStatus.Text = "자동 갱신 설정 또는 [수동조회] 버튼으로 시세를 확인하세요.";
+        }
+    }
+
+    /// <summary>
+    /// Update the rate limit status display with remaining time.
+    /// </summary>
+    private void UpdateRateLimitStatusDisplay()
+    {
+        var remainingSeconds = GnjoyClient.RemainingRateLimitSeconds;
+        var minutes = remainingSeconds / 60;
+        var seconds = remainingSeconds % 60;
+
+        string timeText;
+        if (minutes > 0)
+        {
+            timeText = $"{minutes}분 {seconds}초";
+        }
+        else
+        {
+            timeText = $"{seconds}초";
+        }
+
+        var statusMessage = $"⚠ API 요청 제한 중 - {timeText} 후 재시도 가능";
+
+        // Update both tabs' status labels
+        _lblDealStatus.Text = statusMessage;
+        _lblDealStatus.ForeColor = ThemeSaleColor;  // Red color for warning
+
+        _lblMonitorStatus.Text = statusMessage;
     }
 }
 
