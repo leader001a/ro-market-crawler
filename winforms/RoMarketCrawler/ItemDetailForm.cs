@@ -152,7 +152,7 @@ public class ItemDetailForm : Form
     {
         Text = "아이템 상세정보";
         Size = new Size(1050, 650);
-        StartPosition = FormStartPosition.CenterParent;
+        StartPosition = FormStartPosition.Manual;
         FormBorderStyle = FormBorderStyle.Sizable;
         MaximizeBox = true;
         MinimizeBox = false;
@@ -161,6 +161,9 @@ public class ItemDetailForm : Form
         ForeColor = ThemeText;
         ShowIcon = true;
         LoadTitleBarIcon();
+
+        // Center on current monitor
+        Load += (s, e) => CenterOnCurrentScreen();
 
         // Main layout: Header | Content | Random Options
         var mainPanel = new TableLayoutPanel
@@ -695,6 +698,16 @@ public class ItemDetailForm : Form
         {
             Debug.WriteLine($"[ItemDetailForm] Failed to load icon: {ex.Message}");
         }
+    }
+
+    private void CenterOnCurrentScreen()
+    {
+        var screen = Screen.FromPoint(Cursor.Position);
+        var workingArea = screen.WorkingArea;
+        Location = new Point(
+            workingArea.Left + (workingArea.Width - Width) / 2,
+            workingArea.Top + (workingArea.Height - Height) / 2
+        );
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)

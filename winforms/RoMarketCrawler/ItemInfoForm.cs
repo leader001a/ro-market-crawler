@@ -95,7 +95,7 @@ public class ItemInfoForm : Form
         // Initial size - will be adjusted after load
         var baseWidth = 390;
         Size = new Size(baseWidth, 400); // Initial height, will be adjusted
-        StartPosition = FormStartPosition.CenterParent;
+        StartPosition = FormStartPosition.Manual;
         FormBorderStyle = FormBorderStyle.Sizable;
         MaximizeBox = false;
         MinimizeBox = false;
@@ -105,6 +105,9 @@ public class ItemInfoForm : Form
         ForeColor = ThemeText;
         ShowIcon = true;
         LoadTitleBarIcon();
+
+        // Center on current monitor
+        Load += (s, e) => CenterOnCurrentScreen();
 
         var mainPanel = new TableLayoutPanel
         {
@@ -364,6 +367,16 @@ public class ItemInfoForm : Form
         {
             Debug.WriteLine($"[ItemInfoForm] Failed to load icon: {ex.Message}");
         }
+    }
+
+    private void CenterOnCurrentScreen()
+    {
+        var screen = Screen.FromPoint(Cursor.Position);
+        var workingArea = screen.WorkingArea;
+        Location = new Point(
+            workingArea.Left + (workingArea.Width - Width) / 2,
+            workingArea.Top + (workingArea.Height - Height) / 2
+        );
     }
 
     protected override void Dispose(bool disposing)
