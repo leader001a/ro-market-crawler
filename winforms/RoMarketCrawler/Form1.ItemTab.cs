@@ -819,10 +819,11 @@ public partial class Form1
         }
 
         // Open new ItemInfoForm (non-modal, allows multiple popups)
+        // Set owner to ensure popup stays on top of main form
         var infoForm = new ItemInfoForm(item, _itemIndexService, _currentTheme);
         infoForm.FormClosed += (s, args) => _openItemInfoForms.Remove(infoForm);
         _openItemInfoForms.Add(infoForm);
-        infoForm.Show();
+        infoForm.Show(this);
     }
 
     private void CloseAllItemInfoForms()

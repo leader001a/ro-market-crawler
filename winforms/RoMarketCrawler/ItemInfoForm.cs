@@ -15,6 +15,11 @@ public class ItemInfoForm : Form
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
     private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
 
+    // Static counter for staggered popup positioning
+    private static int _popupOffsetCounter = 0;
+    private const int OffsetStep = 30;
+    private const int MaxOffsetSteps = 8;
+
     private readonly KafraItem _item;
     private readonly ItemIndexService? _itemIndexService;
     private readonly HttpClient _imageClient;
@@ -373,10 +378,19 @@ public class ItemInfoForm : Form
     {
         var screen = Screen.FromPoint(Cursor.Position);
         var workingArea = screen.WorkingArea;
-        Location = new Point(
-            workingArea.Left + (workingArea.Width - Width) / 2,
-            workingArea.Top + (workingArea.Height - Height) / 2
-        );
+
+        // Apply staggered offset for multiple popups
+        var offset = (_popupOffsetCounter % MaxOffsetSteps) * OffsetStep;
+        _popupOffsetCounter++;
+
+        var x = workingArea.Left + (workingArea.Width - Width) / 2 + offset;
+        var y = workingArea.Top + (workingArea.Height - Height) / 2 + offset;
+
+        // Ensure popup stays within screen bounds
+        x = Math.Min(x, workingArea.Right - Width);
+        y = Math.Min(y, workingArea.Bottom - Height);
+
+        Location = new Point(x, y);
     }
 
     protected override void Dispose(bool disposing)
