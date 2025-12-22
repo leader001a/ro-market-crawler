@@ -27,6 +27,7 @@ public partial class Form1 : Form
     private readonly GnjoyClient _gnjoyClient;
     private readonly KafraClient _kafraClient;
     private readonly ItemIndexService _itemIndexService;
+    private readonly UpdateService _updateService;
     private readonly List<DealItem> _searchResults;
     private readonly BindingSource _dealBindingSource;
     private readonly BindingSource _itemBindingSource;
@@ -161,6 +162,7 @@ public partial class Form1 : Form
         _gnjoyClient = new GnjoyClient();  // Deal tab only
         _kafraClient = new KafraClient();
         _itemIndexService = new ItemIndexService();
+        _updateService = new UpdateService();
         _monitoringService = new MonitoringService();  // Uses its own GnjoyClient for isolation
         _searchResults = new List<DealItem>();
         _itemResults = new List<KafraItem>();
@@ -183,6 +185,9 @@ public partial class Form1 : Form
         InitializeCustomComponents();
         _ = LoadItemIndexAsync(); // Load index in background
         _ = LoadMonitoringAsync(); // Load monitoring config
+
+        // Check for updates after form is shown
+        Shown += async (s, e) => await CheckForUpdatesAsync();
     }
 
     private async Task LoadItemIndexAsync()
@@ -199,6 +204,36 @@ public partial class Form1 : Form
         catch (Exception ex)
         {
             Debug.WriteLine($"[Form1] Index load error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Check for application updates from GitHub Releases
+    /// </summary>
+    private async Task CheckForUpdatesAsync()
+    {
+        try
+        {
+            // Small delay to let the form fully render
+            await Task.Delay(1000);
+
+            var updateInfo = await _updateService.CheckForUpdateAsync();
+            if (updateInfo == null)
+            {
+                Debug.WriteLine("[Form1] No updates available");
+                return;
+            }
+
+            Debug.WriteLine($"[Form1] Update available: {updateInfo.TagName}");
+
+            // Show update dialog
+            using var dialog = new UpdateDialog(_updateService, updateInfo, _currentTheme);
+            dialog.ShowDialog(this);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Form1] Update check error: {ex.Message}");
+            // Silently fail - don't interrupt user experience
         }
     }
 
@@ -1227,6 +1262,7 @@ public partial class Form1 : Form
         _gnjoyClient.Dispose();
         _kafraClient.Dispose();
         _itemIndexService.Dispose();
+        _updateService.Dispose();
         _monitoringService.Dispose();
         _imageHttpClient.Dispose();
         _picItemImage?.Image?.Dispose();
