@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using RoMarketCrawler.Models;
+using RoMarketCrawler.Services;
 
 namespace RoMarketCrawler;
 
@@ -125,7 +127,7 @@ public partial class StartupSplashForm : Form
         }
 
         // 2. Network check
-        UpdateProgress("네트워크 연결 확인 중...", 25);
+        UpdateProgress("네트워크 연결 확인 중...", 20);
         if (!await validator.CheckNetworkPublicAsync())
         {
             ShowError("네트워크 연결이 없습니다.\n인터넷 연결을 확인한 후 다시 시도해주세요.", "네트워크 오류");
@@ -133,8 +135,17 @@ public partial class StartupSplashForm : Form
             return;
         }
 
-        // 3. Expiration check
-        UpdateProgress("사용 기간 확인 중...", 40);
+        // 3. Update check (before expiration check so expired users can still update)
+        UpdateProgress("업데이트 확인 중...", 30);
+        var shouldExit = await CheckForUpdatesAsync();
+        if (shouldExit)
+        {
+            // User chose to update and app will restart
+            return;
+        }
+
+        // 4. Expiration check
+        UpdateProgress("사용 기간 확인 중...", 45);
         var expirationResult = await validator.CheckExpirationPublicAsync();
         if (!expirationResult.IsValid)
         {
@@ -151,8 +162,8 @@ public partial class StartupSplashForm : Form
             return;
         }
 
-        // 4. Consent dialog
-        UpdateProgress("이용 동의 확인 중...", 55);
+        // 5. Consent dialog
+        UpdateProgress("이용 동의 확인 중...", 60);
         Hide(); // Hide splash while showing consent dialog
         if (!validator.ShowConsentDialogPublic())
         {
@@ -161,8 +172,8 @@ public partial class StartupSplashForm : Form
         }
         Show(); // Show splash again
 
-        // 5. Item index check
-        UpdateProgress("아이템 인덱스 확인 중...", 70);
+        // 6. Item index check
+        UpdateProgress("아이템 인덱스 확인 중...", 75);
         var indexResult = await CheckAndBuildItemIndexAsync();
         if (!indexResult)
         {
@@ -243,6 +254,50 @@ public partial class StartupSplashForm : Form
         {
             Debug.WriteLine($"[StartupSplashForm] Item index check failed: {ex.Message}");
             ShowError($"아이템 인덱스 확인 중 오류가 발생했습니다.\n\n{ex.Message}", "인덱스 오류");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Check for updates before expiration check.
+    /// Returns true if app should exit (user chose to update).
+    /// </summary>
+    private async Task<bool> CheckForUpdatesAsync()
+    {
+        try
+        {
+            using var updateService = new UpdateService();
+            var updateInfo = await updateService.CheckForUpdateAsync();
+
+            if (updateInfo == null)
+            {
+                Debug.WriteLine("[StartupSplashForm] No updates available");
+                return false;
+            }
+
+            Debug.WriteLine($"[StartupSplashForm] Update available: {updateInfo.TagName}");
+
+            // Hide splash and show update dialog
+            Hide();
+
+            using var dialog = new UpdateDialog(updateService, updateInfo, ThemeType.Dark);
+            var result = dialog.ShowDialog();
+
+            if (result == DialogResult.OK)
+            {
+                // User chose to update - app will restart via batch script
+                _appContext?.ExitApplication();
+                return true;
+            }
+
+            // User skipped update - continue with startup
+            Show();
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[StartupSplashForm] Update check error: {ex.Message}");
+            // Silently fail - continue with startup
             return false;
         }
     }
