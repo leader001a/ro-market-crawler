@@ -550,10 +550,12 @@ public class StartupValidator : IDisposable
             };
         }
 
-        // Title
+        // Title with dynamic version
+        var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+        var versionStr = version != null ? $"v{version.Major}.{version.Minor}.{version.Build}" : "v1.0.0";
         var lblTitle = new Label
         {
-            Text = "RO Market Crawler v1.0.0",
+            Text = $"RO Market Crawler {versionStr}",
             Font = new Font("Malgun Gothic", 14, FontStyle.Bold),
             ForeColor = clrLink,
             AutoSize = true,

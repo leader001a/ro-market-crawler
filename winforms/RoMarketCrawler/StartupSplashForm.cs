@@ -280,7 +280,7 @@ public partial class StartupSplashForm : Form
             // Hide splash and show update dialog
             Hide();
 
-            using var dialog = new UpdateDialog(updateService, updateInfo, ThemeType.Dark);
+            using var dialog = new UpdateDialog(updateService, updateInfo);
             var result = dialog.ShowDialog();
 
             if (result == DialogResult.OK)

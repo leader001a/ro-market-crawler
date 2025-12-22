@@ -678,10 +678,12 @@ public partial class Form1 : Form
         var normalFontSize = _baseFontSize - 2;     // Same as TextBox/ComboBox
         var smallFontSize = _baseFontSize - 3;      // Same as Label
 
-        // Title
+        // Title with dynamic version
+        var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+        var versionStr = version != null ? $"v{version.Major}.{version.Minor}.{version.Build}" : "v1.0.0";
         var lblTitle = new Label
         {
-            Text = "RO Market Crawler v1.0.0",
+            Text = $"RO Market Crawler {versionStr}",
             Font = new Font("Malgun Gothic", titleFontSize, FontStyle.Bold),
             ForeColor = clrLink,
             AutoSize = true,

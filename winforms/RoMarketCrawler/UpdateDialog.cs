@@ -11,8 +11,8 @@ public class UpdateDialog : Form
 {
     private readonly UpdateService _updateService;
     private readonly UpdateInfo _updateInfo;
-    private readonly ThemeType _theme;
 
+    private PictureBox _picLogo = null!;
     private Label _lblTitle = null!;
     private Label _lblVersion = null!;
     private Label _lblSize = null!;
@@ -26,11 +26,10 @@ public class UpdateDialog : Form
     private CancellationTokenSource? _downloadCts;
     private bool _isDownloading;
 
-    public UpdateDialog(UpdateService updateService, UpdateInfo updateInfo, ThemeType theme)
+    public UpdateDialog(UpdateService updateService, UpdateInfo updateInfo)
     {
         _updateService = updateService;
         _updateInfo = updateInfo;
-        _theme = theme;
 
         InitializeComponents();
         ApplyTheme();
@@ -39,16 +38,39 @@ public class UpdateDialog : Form
     private void InitializeComponents()
     {
         Text = "업데이트 확인";
-        Size = new Size(480, 380);
+        Size = new Size(480, 520);  // Width original, Height 1.5x (380 -> 520 approx)
         FormBorderStyle = FormBorderStyle.FixedDialog;
-        StartPosition = FormStartPosition.CenterParent;
+        StartPosition = FormStartPosition.Manual;  // We'll center on the correct screen
         MaximizeBox = false;
         MinimizeBox = false;
-        ShowIcon = false;
+        ShowIcon = true;  // Show icon in title bar
         ShowInTaskbar = false;
+
+        // Load icon for title bar
+        LoadTitleBarIcon();
+
+        // Center on the screen where the cursor is (same monitor as the app)
+        // Also deselect textbox on load
+        Load += (s, e) =>
+        {
+            CenterOnCurrentScreen();
+            // Remove focus from textbox to prevent blue selection
+            ActiveControl = _btnUpdate;
+        };
 
         var padding = 20;
         var currentY = padding;
+        var logoSize = 128;  // 2x larger
+
+        // Logo image (top right)
+        _picLogo = new PictureBox
+        {
+            Size = new Size(logoSize, logoSize),
+            Location = new Point(ClientSize.Width - padding - logoSize, padding),
+            SizeMode = PictureBoxSizeMode.Zoom,
+            BackColor = Color.Transparent
+        };
+        LoadLogoImage();
 
         // Title
         _lblTitle = new Label
@@ -58,7 +80,7 @@ public class UpdateDialog : Form
             AutoSize = true,
             Location = new Point(padding, currentY)
         };
-        currentY += 35;
+        currentY += 45;
 
         // Version info
         _lblVersion = new Label
@@ -68,7 +90,7 @@ public class UpdateDialog : Form
             AutoSize = true,
             Location = new Point(padding, currentY)
         };
-        currentY += 25;
+        currentY += 35;
 
         // File size
         _lblSize = new Label
@@ -78,7 +100,7 @@ public class UpdateDialog : Form
             AutoSize = true,
             Location = new Point(padding, currentY)
         };
-        currentY += 30;
+        currentY += 40;
 
         // Release notes label
         var lblNotesTitle = new Label
@@ -88,20 +110,20 @@ public class UpdateDialog : Form
             AutoSize = true,
             Location = new Point(padding, currentY)
         };
-        currentY += 20;
+        currentY += 25;
 
-        // Release notes
+        // Release notes (convert markdown to plain text) - Height increased for more content
         _txtReleaseNotes = new TextBox
         {
-            Text = _updateInfo.ReleaseNotes,
+            Text = FormatReleaseNotes(_updateInfo.ReleaseNotes),
             Multiline = true,
             ReadOnly = true,
             ScrollBars = ScrollBars.Vertical,
             Location = new Point(padding, currentY),
-            Size = new Size(ClientSize.Width - padding * 2, 120),
+            Size = new Size(ClientSize.Width - padding * 2, 220),  // Taller (120 -> 220)
             Font = new Font("Malgun Gothic", 9)
         };
-        currentY += 130;
+        currentY += 235;
 
         // Progress bar (hidden initially)
         _progressBar = new ProgressBar
@@ -121,13 +143,13 @@ public class UpdateDialog : Form
             Location = new Point(padding, currentY + 5),
             Visible = false
         };
-        currentY += 35;
+        currentY += 40;
 
-        // Buttons
+        // Buttons - center 2 visible buttons (업데이트, 나중에)
         var buttonWidth = 100;
         var buttonHeight = 32;
         var buttonSpacing = 10;
-        var totalButtonWidth = buttonWidth * 3 + buttonSpacing * 2;
+        var totalButtonWidth = buttonWidth * 2 + buttonSpacing;  // 2 buttons only
         var buttonStartX = (ClientSize.Width - totalButtonWidth) / 2;
 
         _btnUpdate = new Button
@@ -148,11 +170,13 @@ public class UpdateDialog : Form
         };
         _btnSkip.Click += (s, e) => DialogResult = DialogResult.Cancel;
 
+        // Cancel button - centered alone (shown during download)
+        var cancelButtonX = (ClientSize.Width - buttonWidth) / 2;
         _btnCancel = new Button
         {
             Text = "취소",
             Size = new Size(buttonWidth, buttonHeight),
-            Location = new Point(buttonStartX + (buttonWidth + buttonSpacing) * 2, currentY),
+            Location = new Point(cancelButtonX, currentY),
             Font = new Font("Malgun Gothic", 9),
             Visible = false
         };
@@ -160,62 +184,118 @@ public class UpdateDialog : Form
 
         Controls.AddRange(new Control[]
         {
-            _lblTitle, _lblVersion, _lblSize, lblNotesTitle,
+            _picLogo, _lblTitle, _lblVersion, _lblSize, lblNotesTitle,
             _txtReleaseNotes, _progressBar, _lblProgress,
             _btnUpdate, _btnSkip, _btnCancel
         });
     }
 
+    /// <summary>
+    /// Load icon for title bar from embedded resource
+    /// </summary>
+    private void LoadTitleBarIcon()
+    {
+        try
+        {
+            var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+            using var stream = assembly.GetManifestResourceStream("RoMarketCrawler.app.ico");
+            if (stream != null)
+            {
+                Icon = new Icon(stream);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[UpdateDialog] Failed to load icon: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Load logo image from embedded resource
+    /// </summary>
+    private void LoadLogoImage()
+    {
+        try
+        {
+            var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+            using var stream = assembly.GetManifestResourceStream("RoMarketCrawler.Data.logo.png");
+            if (stream != null)
+            {
+                _picLogo.Image = Image.FromStream(stream);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[UpdateDialog] Failed to load logo: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Center the dialog on the screen where the cursor currently is
+    /// </summary>
+    private void CenterOnCurrentScreen()
+    {
+        var screen = Screen.FromPoint(Cursor.Position);
+        var workingArea = screen.WorkingArea;
+        Location = new Point(
+            workingArea.Left + (workingArea.Width - Width) / 2,
+            workingArea.Top + (workingArea.Height - Height) / 2
+        );
+    }
+
+    /// <summary>
+    /// Convert markdown release notes to plain text with proper line breaks
+    /// </summary>
+    private static string FormatReleaseNotes(string markdown)
+    {
+        if (string.IsNullOrEmpty(markdown))
+            return string.Empty;
+
+        var text = markdown;
+
+        // Remove markdown headers (## ### etc) but keep the text with line break
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"^#{1,6}\s*", "", System.Text.RegularExpressions.RegexOptions.Multiline);
+
+        // Remove bold/italic markers
+        text = text.Replace("**", "");
+        text = text.Replace("__", "");
+        text = text.Replace("*", "");
+        text = text.Replace("_", "");
+
+        // Remove inline code markers
+        text = text.Replace("`", "");
+
+        // Convert markdown links [text](url) to just text
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"\[([^\]]+)\]\([^)]+\)", "$1");
+
+        // Normalize line endings
+        text = text.Replace("\r\n", "\n").Replace("\r", "\n");
+
+        // Remove excessive blank lines (more than 2 consecutive)
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"\n{3,}", "\n\n");
+
+        // Convert back to Windows line endings for TextBox
+        text = text.Replace("\n", "\r\n");
+
+        return text.Trim();
+    }
+
     private void ApplyTheme()
     {
-        if (_theme == ThemeType.Dark)
-        {
-            BackColor = Color.FromArgb(30, 30, 30);
-            ForeColor = Color.FromArgb(220, 220, 220);
+        // Always use Classic (Light) theme for update dialog
+        BackColor = Color.FromArgb(250, 250, 250);
+        ForeColor = Color.FromArgb(51, 51, 51);
 
-            _lblTitle.ForeColor = Color.FromArgb(100, 180, 255);
-            _txtReleaseNotes.BackColor = Color.FromArgb(45, 45, 45);
-            _txtReleaseNotes.ForeColor = Color.FromArgb(200, 200, 200);
+        _lblTitle.ForeColor = Color.FromArgb(70, 130, 180);
+        _txtReleaseNotes.BackColor = Color.FromArgb(255, 255, 255);
+        _txtReleaseNotes.ForeColor = Color.FromArgb(51, 51, 51);
 
-            ApplyDarkButtonStyle(_btnUpdate, true);
-            ApplyDarkButtonStyle(_btnSkip, false);
-            ApplyDarkButtonStyle(_btnCancel, false);
-        }
-        else
-        {
-            BackColor = Color.FromArgb(250, 250, 250);
-            ForeColor = Color.FromArgb(51, 51, 51);
-
-            _lblTitle.ForeColor = Color.FromArgb(70, 130, 180);
-            _txtReleaseNotes.BackColor = Color.FromArgb(255, 255, 255);
-            _txtReleaseNotes.ForeColor = Color.FromArgb(51, 51, 51);
-
-            ApplyLightButtonStyle(_btnUpdate, true);
-            ApplyLightButtonStyle(_btnSkip, false);
-            ApplyLightButtonStyle(_btnCancel, false);
-        }
+        ApplyButtonStyle(_btnUpdate, true);
+        ApplyButtonStyle(_btnSkip, false);
+        ApplyButtonStyle(_btnCancel, false);
     }
 
-    private void ApplyDarkButtonStyle(Button btn, bool isPrimary)
-    {
-        btn.FlatStyle = FlatStyle.Flat;
-        btn.FlatAppearance.BorderSize = 1;
-
-        if (isPrimary)
-        {
-            btn.BackColor = Color.FromArgb(70, 130, 180);
-            btn.ForeColor = Color.White;
-            btn.FlatAppearance.BorderColor = Color.FromArgb(70, 130, 180);
-        }
-        else
-        {
-            btn.BackColor = Color.FromArgb(60, 60, 60);
-            btn.ForeColor = Color.FromArgb(200, 200, 200);
-            btn.FlatAppearance.BorderColor = Color.FromArgb(80, 80, 80);
-        }
-    }
-
-    private void ApplyLightButtonStyle(Button btn, bool isPrimary)
+    private void ApplyButtonStyle(Button btn, bool isPrimary)
     {
         btn.FlatStyle = FlatStyle.Flat;
         btn.FlatAppearance.BorderSize = 1;
@@ -249,6 +329,7 @@ public class UpdateDialog : Form
         _lblProgress.Visible = true;
         _progressBar.Value = 0;
         _lblProgress.Text = "다운로드 준비 중...";
+        ActiveControl = _btnCancel;  // Prevent textbox from getting focus
 
         try
         {
@@ -328,6 +409,7 @@ public class UpdateDialog : Form
         _progressBar.Visible = false;
         _lblProgress.Visible = false;
         _btnCancel.Enabled = true;
+        ActiveControl = _btnUpdate;  // Prevent textbox from getting focus
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
