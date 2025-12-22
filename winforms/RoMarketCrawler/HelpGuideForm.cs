@@ -192,6 +192,8 @@ public class HelpGuideForm : Form
         MaximizeBox = true;
         MinimizeBox = false;
         ShowInTaskbar = false;
+        ShowIcon = true;
+        LoadTitleBarIcon();
         KeyPreview = true;
         KeyDown += (s, e) => { if (e.KeyCode == Keys.Escape) Close(); };
 
@@ -919,6 +921,23 @@ ESC               현재 창 닫기
 - 음소거: 알림음 켜기/끄기";
     }
 
+    private void LoadTitleBarIcon()
+    {
+        try
+        {
+            var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+            using var stream = assembly.GetManifestResourceStream("RoMarketCrawler.app.ico");
+            if (stream != null)
+            {
+                Icon = new Icon(stream);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[HelpGuideForm] Failed to load icon: {ex.Message}");
+        }
+    }
+
     private static void ShowQuickHelpDialog(IWin32Window owner, ThemeType theme, float fontSize, string title, string content)
     {
         Color bgColor, textColor, accentColor, panelColor;
@@ -949,8 +968,21 @@ ESC               현재 창 닫기
             MaximizeBox = false,
             MinimizeBox = false,
             ShowInTaskbar = false,
+            ShowIcon = true,
             KeyPreview = true
         };
+
+        // Load icon
+        try
+        {
+            var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+            using var stream = assembly.GetManifestResourceStream("RoMarketCrawler.app.ico");
+            if (stream != null)
+            {
+                form.Icon = new Icon(stream);
+            }
+        }
+        catch { }
 
         form.KeyDown += (s, e) => { if (e.KeyCode == Keys.Escape) form.Close(); };
 

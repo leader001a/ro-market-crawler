@@ -534,8 +534,20 @@ public class StartupValidator : IDisposable
             MaximizeBox = false,
             MinimizeBox = false,
             BackColor = clrBackground,
-            ShowIcon = false
+            ShowIcon = true
         };
+
+        // Load icon
+        try
+        {
+            var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+            using var iconStream = assembly.GetManifestResourceStream("RoMarketCrawler.app.ico");
+            if (iconStream != null)
+            {
+                consentForm.Icon = new Icon(iconStream);
+            }
+        }
+        catch { }
 
         // Logo image
         PictureBox? picLogo = null;

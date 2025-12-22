@@ -103,6 +103,8 @@ public class ItemInfoForm : Form
         MaximumSize = new Size(500, 750); // Limit max size
         BackColor = ThemeBackground;
         ForeColor = ThemeText;
+        ShowIcon = true;
+        LoadTitleBarIcon();
 
         var mainPanel = new TableLayoutPanel
         {
@@ -345,6 +347,23 @@ public class ItemInfoForm : Form
             }
         }
         catch { }
+    }
+
+    private void LoadTitleBarIcon()
+    {
+        try
+        {
+            var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+            using var stream = assembly.GetManifestResourceStream("RoMarketCrawler.app.ico");
+            if (stream != null)
+            {
+                Icon = new Icon(stream);
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[ItemInfoForm] Failed to load icon: {ex.Message}");
+        }
     }
 
     protected override void Dispose(bool disposing)

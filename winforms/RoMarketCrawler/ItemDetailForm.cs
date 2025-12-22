@@ -159,6 +159,8 @@ public class ItemDetailForm : Form
         MinimumSize = new Size(900, 550);
         BackColor = ThemeBackground;
         ForeColor = ThemeText;
+        ShowIcon = true;
+        LoadTitleBarIcon();
 
         // Main layout: Header | Content | Random Options
         var mainPanel = new TableLayoutPanel
@@ -676,6 +678,23 @@ public class ItemDetailForm : Form
         // Scroll to top
         _rtbRandomOptions.SelectionStart = 0;
         _rtbRandomOptions.ScrollToCaret();
+    }
+
+    private void LoadTitleBarIcon()
+    {
+        try
+        {
+            var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+            using var stream = assembly.GetManifestResourceStream("RoMarketCrawler.app.ico");
+            if (stream != null)
+            {
+                Icon = new Icon(stream);
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[ItemDetailForm] Failed to load icon: {ex.Message}");
+        }
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)
