@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Web;
+using RoMarketCrawler.Interfaces;
 using RoMarketCrawler.Models;
 
 namespace RoMarketCrawler.Services;
@@ -16,7 +17,7 @@ namespace RoMarketCrawler.Services;
 /// Data transmitted includes only public game item information (no sensitive user data).
 /// If kafra.kr adds HTTPS support in the future, update BaseUrl accordingly.
 /// </remarks>
-public class KafraClient : IDisposable
+public class KafraClient : IKafraClient
 {
     private readonly HttpClient _httpClient;
     private readonly Dictionary<string, KafraItem> _cache = new();

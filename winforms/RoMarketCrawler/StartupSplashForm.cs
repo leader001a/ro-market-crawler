@@ -192,8 +192,12 @@ public partial class StartupSplashForm : Form
     {
         try
         {
-            var indexService = new Services.ItemIndexService();
-            await indexService.LoadFromCacheAsync();
+            // Use DI container's ItemIndexService (same instance used by Form1)
+            // This ensures consistent cache path: %APPDATA%/RoMarketCrawler/ItemIndex.json
+            var indexService = (Services.ItemIndexService)Program.Services.GetService(typeof(Interfaces.IItemIndexService))!;
+
+            // Load cache asynchronously (DI only creates the service, doesn't load cache)
+            await indexService.LoadFromCacheAsync().ConfigureAwait(false);
 
             if (indexService.TotalCount > 0)
             {
@@ -212,30 +216,16 @@ public partial class StartupSplashForm : Form
             // Create progress handler
             var progress = new Progress<Services.IndexProgress>(p =>
             {
-                if (!IsDisposed)
+                if (!IsDisposed && IsHandleCreated)
                 {
-                    _lblProgress.Text = !string.IsNullOrEmpty(p.CurrentCategory)
-                        ? $"{p.Phase} - {p.CurrentCategory} ({p.ItemsCollected:N0}개)"
-                        : p.Phase;
-
-                    // Calculate progress based on ItemsCollected
-                    // TotalCategories > 0 means we have category-based progress (ID scan)
-                    // Otherwise estimate from ItemsCollected (typical total ~22,000 items)
-                    int percent;
-                    if (p.TotalCategories > 0)
+                    try
                     {
-                        percent = (int)Math.Min(95, Math.Max(0, p.ProgressPercent));
+                        if (InvokeRequired)
+                            BeginInvoke(() => UpdateIndexProgress(p));
+                        else
+                            UpdateIndexProgress(p);
                     }
-                    else if (p.ItemsCollected > 0)
-                    {
-                        const int estimatedTotal = 22000;
-                        percent = (int)Math.Min(95, (p.ItemsCollected * 100.0) / estimatedTotal);
-                    }
-                    else
-                    {
-                        percent = 0;
-                    }
-                    _progressBar.Value = percent;
+                    catch { }
                 }
             });
 
@@ -255,6 +245,37 @@ public partial class StartupSplashForm : Form
             Debug.WriteLine($"[StartupSplashForm] Item index check failed: {ex.Message}");
             ShowError($"아이템 인덱스 확인 중 오류가 발생했습니다.\n\n{ex.Message}", "인덱스 오류");
             return false;
+        }
+    }
+
+    private void UpdateIndexProgress(Services.IndexProgress p)
+    {
+        if (p.IsComplete)
+        {
+            _lblProgress.Text = $"완료: {p.ItemsCollected:N0}개 아이템";
+            _progressBar.Value = 100;
+        }
+        else
+        {
+            _lblProgress.Text = !string.IsNullOrEmpty(p.CurrentCategory)
+                ? $"{p.Phase} - {p.CurrentCategory} ({p.ItemsCollected:N0}개)"
+                : p.Phase;
+
+            int percent;
+            if (p.TotalCategories > 0)
+            {
+                percent = (int)Math.Min(95, Math.Max(0, p.ProgressPercent));
+            }
+            else if (p.ItemsCollected > 0)
+            {
+                const int estimatedTotal = 22000;
+                percent = (int)Math.Min(95, (p.ItemsCollected * 100.0) / estimatedTotal);
+            }
+            else
+            {
+                percent = 0;
+            }
+            _progressBar.Value = percent;
         }
     }
 

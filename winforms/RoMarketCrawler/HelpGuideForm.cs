@@ -213,9 +213,9 @@ public class HelpGuideForm : Form
         _tabControl = new BorderlessTabControl
         {
             Dock = DockStyle.Fill,
-            Font = new Font("Malgun Gothic", _fontSize - 2),
+            Font = new Font("Malgun Gothic", _fontSize),  // Uniform font size
             Padding = new Point(12, 5),  // Same as main form
-            ItemSize = new Size(120, 30) // Adjusted for 5 tabs (main form uses 180 for 3 tabs)
+            ItemSize = new Size(120, (int)(_fontSize * 2.5)) // Adjust for font
         };
 
         // Apply owner-draw styling (same as main form's ApplyTabControlStyle)
@@ -246,7 +246,7 @@ public class HelpGuideForm : Form
             FlatStyle = FlatStyle.Flat,
             BackColor = _panelColor,
             ForeColor = _textColor,
-            Font = new Font("Malgun Gothic", _fontSize - 3, FontStyle.Bold),
+            Font = new Font("Malgun Gothic", _fontSize, FontStyle.Bold),
             Cursor = Cursors.Hand
         };
         btnClose.FlatAppearance.BorderColor = _accentColor;
@@ -548,7 +548,7 @@ ESC               현재 창 닫기
             Dock = DockStyle.Fill,
             BackColor = _bgColor,
             ForeColor = _textColor,
-            Font = new Font("Malgun Gothic", _fontSize - 2),
+            Font = new Font("Malgun Gothic", _fontSize),
             BorderStyle = BorderStyle.None,
             ReadOnly = true,
             ScrollBars = RichTextBoxScrollBars.Vertical,
@@ -569,9 +569,9 @@ ESC               현재 창 닫기
 
         rtb.Clear();
 
-        // Font sizes consistent with Form1 (base - 2 for text, base for headers)
-        using var normalFont = new Font("Malgun Gothic", _fontSize - 2);
-        using var boldFont = new Font("Malgun Gothic", _fontSize - 2, FontStyle.Bold);
+        // Uniform font sizes
+        using var normalFont = new Font("Malgun Gothic", _fontSize);
+        using var boldFont = new Font("Malgun Gothic", _fontSize, FontStyle.Bold);
         using var headerFont = new Font("Malgun Gothic", _fontSize, FontStyle.Bold);
 
         for (int i = 0; i < lines.Length; i++)
@@ -991,7 +991,7 @@ ESC               현재 창 닫기
             Dock = DockStyle.Fill,
             BackColor = bgColor,
             ForeColor = textColor,
-            Font = new Font("Malgun Gothic", fontSize - 2),
+            Font = new Font("Malgun Gothic", fontSize),
             BorderStyle = BorderStyle.None,
             ReadOnly = true,
             Padding = new Padding(10)
@@ -1000,9 +1000,9 @@ ESC               현재 창 닫기
         // Use AppendText approach - more reliable than Select() for positioning
         var lines = content.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
 
-        // Font sizes consistent with Form1 (base - 2 for text, base for headers)
-        using var normalFont = new Font("Malgun Gothic", fontSize - 2);
-        using var boldFont = new Font("Malgun Gothic", fontSize - 2, FontStyle.Bold);
+        // Uniform font sizes
+        using var normalFont = new Font("Malgun Gothic", fontSize);
+        using var boldFont = new Font("Malgun Gothic", fontSize, FontStyle.Bold);
         using var headerFont = new Font("Malgun Gothic", fontSize, FontStyle.Bold);
 
         for (int i = 0; i < lines.Length; i++)

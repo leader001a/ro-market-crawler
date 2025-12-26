@@ -1,9 +1,18 @@
 using System.Net;
+using Microsoft.Extensions.DependencyInjection;
+using RoMarketCrawler.Interfaces;
+using RoMarketCrawler.Startup;
 
 namespace RoMarketCrawler;
 
 static class Program
 {
+    /// <summary>
+    /// Global service provider for dependency injection.
+    /// Use this for gradual migration from direct instantiation to DI.
+    /// </summary>
+    public static IServiceProvider Services { get; private set; } = null!;
+
     /// <summary>
     ///  The main entry point for the application.
     /// </summary>
@@ -13,6 +22,11 @@ static class Program
         // Increase HTTP connection limit to allow concurrent API requests from Deal/Monitor tabs
         // Default is 2 connections per host, which causes blocking when both tabs query simultaneously
         ServicePointManager.DefaultConnectionLimit = 20;
+
+        // Configure DI container
+        var services = new ServiceCollection();
+        services.AddRoMarketCrawlerServices();
+        Services = services.BuildServiceProvider();
 
         // To customize application configuration such as set high DPI settings or default font,
         // see https://aka.ms/applicationconfiguration.

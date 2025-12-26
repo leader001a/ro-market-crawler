@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using RoMarketCrawler.Exceptions;
+using RoMarketCrawler.Interfaces;
 using RoMarketCrawler.Models;
 
 namespace RoMarketCrawler.Services
@@ -16,12 +17,15 @@ namespace RoMarketCrawler.Services
     /// Service for managing item monitoring with persistent storage and auto-refresh.
     /// Can operate with its own GnjoyClient for complete isolation from other tabs.
     /// </summary>
-    public class MonitoringService : IDisposable
+    public class MonitoringService : IMonitoringService
     {
         /// <summary>
         /// Maximum number of items that can be monitored (safety limit to prevent API abuse)
         /// </summary>
-        public const int MaxItemCount = 20;
+        public const int MaxItemCountLimit = 20;
+
+        /// <inheritdoc/>
+        public int MaxItemCount => MaxItemCountLimit;
 
         private readonly GnjoyClient _gnjoyClient;
         private readonly bool _ownsGnjoyClient;
@@ -165,9 +169,9 @@ namespace RoMarketCrawler.Services
             itemName = itemName.Trim();
 
             // Check for max item limit
-            if (_config.Items.Count >= MaxItemCount)
+            if (_config.Items.Count >= MaxItemCountLimit)
             {
-                Debug.WriteLine($"[MonitoringService] Cannot add '{itemName}' - max item limit ({MaxItemCount}) reached");
+                Debug.WriteLine($"[MonitoringService] Cannot add '{itemName}' - max item limit ({MaxItemCountLimit}) reached");
                 return (false, "limit");
             }
 

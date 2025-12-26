@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using RoMarketCrawler.Exceptions;
+using RoMarketCrawler.Interfaces;
 using RoMarketCrawler.Models;
 
 namespace RoMarketCrawler.Services;
@@ -10,7 +11,7 @@ namespace RoMarketCrawler.Services;
 /// <summary>
 /// HTTP client for GNJOY Ragnarok Online API
 /// </summary>
-public class GnjoyClient : IDisposable
+public class GnjoyClient : IGnjoyClient
 {
     private const string BaseUrl = "https://ro.gnjoy.com/itemDeal";
     private const string DealListEndpoint = "itemDealList.asp";
@@ -28,92 +29,44 @@ public class GnjoyClient : IDisposable
     private const int MaxRetries = 4;
     private const int BaseRetryDelayMs = 1000;  // 1s -> 2s -> 4s -> 8s
 
+    // Singleton RateLimitManager for backward compatibility
+    // Form1 and other code can still use static properties, but rate limiting is centralized
+    private static readonly Lazy<RateLimitManager> _sharedRateLimitManager = new(() => new RateLimitManager());
+
+    /// <summary>
+    /// Shared RateLimitManager instance (singleton)
+    /// </summary>
+    public static IRateLimitManager SharedRateLimitManager => _sharedRateLimitManager.Value;
+
     /// <summary>
     /// Current rate limit status - null if not rate limited
     /// </summary>
-    public static DateTime? RateLimitedUntil { get; private set; }
+    public static DateTime? RateLimitedUntil => _sharedRateLimitManager.Value.RateLimitedUntil;
 
     /// <summary>
     /// Check if currently rate limited
     /// </summary>
-    public static bool IsRateLimited => RateLimitedUntil.HasValue && DateTime.Now < RateLimitedUntil.Value;
+    public static bool IsRateLimited => _sharedRateLimitManager.Value.IsRateLimited;
 
     /// <summary>
     /// Get remaining rate limit time in seconds
     /// </summary>
-    public static int RemainingRateLimitSeconds =>
-        IsRateLimited ? (int)(RateLimitedUntil!.Value - DateTime.Now).TotalSeconds : 0;
+    public static int RemainingRateLimitSeconds => _sharedRateLimitManager.Value.RemainingRateLimitSeconds;
 
     /// <summary>
     /// Clear rate limit status (call when rate limit is lifted)
     /// </summary>
-    public static void ClearRateLimit()
-    {
-        RateLimitedUntil = null;
-        Debug.WriteLine("[GnjoyClient] Rate limit cleared");
-    }
-
-    // Request counter for rate limit monitoring
-    private static readonly object _counterLock = new();
-    private static int _requestCount = 0;
-    private static DateTime _counterStartTime = DateTime.Now;
+    public static void ClearRateLimit() => _sharedRateLimitManager.Value.ClearRateLimit();
 
     /// <summary>
     /// Get current request count in the monitoring window
     /// </summary>
-    public static int RequestCount
-    {
-        get
-        {
-            lock (_counterLock)
-            {
-                ResetCounterIfNeeded();
-                return _requestCount;
-            }
-        }
-    }
+    public static int RequestCount => _sharedRateLimitManager.Value.RequestCount;
 
     /// <summary>
     /// Get requests per minute rate
     /// </summary>
-    public static double RequestsPerMinute
-    {
-        get
-        {
-            lock (_counterLock)
-            {
-                ResetCounterIfNeeded();
-                var elapsed = (DateTime.Now - _counterStartTime).TotalMinutes;
-                return elapsed > 0 ? _requestCount / elapsed : 0;
-            }
-        }
-    }
-
-    /// <summary>
-    /// Increment request counter
-    /// </summary>
-    private static void IncrementRequestCounter()
-    {
-        lock (_counterLock)
-        {
-            ResetCounterIfNeeded();
-            _requestCount++;
-            Debug.WriteLine($"[GnjoyClient] Request #{_requestCount} (Rate: {RequestsPerMinute:F1}/min)");
-        }
-    }
-
-    /// <summary>
-    /// Reset counter if more than 1 minute has passed
-    /// </summary>
-    private static void ResetCounterIfNeeded()
-    {
-        if ((DateTime.Now - _counterStartTime).TotalMinutes >= 1)
-        {
-            Debug.WriteLine($"[GnjoyClient] Counter reset - Previous: {_requestCount} requests in 1 minute");
-            _requestCount = 0;
-            _counterStartTime = DateTime.Now;
-        }
-    }
+    public static double RequestsPerMinute => _sharedRateLimitManager.Value.RequestsPerMinute;
 
     public GnjoyClient()
     {
@@ -224,7 +177,7 @@ public class GnjoyClient : IDisposable
                 }
 
                 // Increment request counter for rate limit monitoring
-                IncrementRequestCounter();
+                _sharedRateLimitManager.Value.IncrementRequestCounter();
 
                 response = await _client.GetAsync(url, cancellationToken);
 
@@ -232,7 +185,7 @@ public class GnjoyClient : IDisposable
                 if (response.StatusCode == HttpStatusCode.TooManyRequests)
                 {
                     var retryAfterSeconds = ParseRetryAfterHeader(response);
-                    RateLimitedUntil = DateTime.Now.AddSeconds(retryAfterSeconds);
+                    _sharedRateLimitManager.Value.SetRateLimit(retryAfterSeconds);
 
                     Debug.WriteLine($"[GnjoyClient] HTTP 429 - Rate limited for {retryAfterSeconds}s (until {RateLimitedUntil})");
                     response.Dispose();

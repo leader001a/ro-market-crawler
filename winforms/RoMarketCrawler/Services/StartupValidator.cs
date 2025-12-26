@@ -731,7 +731,11 @@ public class StartupValidator : IDisposable
     {
         try
         {
-            var indexService = new ItemIndexService();
+            // Use the same data directory as DI container
+            var dataDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "RoMarketCrawler");
+            var indexService = new ItemIndexService(dataDir);
             await indexService.LoadFromCacheAsync();
 
             // Check if index exists and has items

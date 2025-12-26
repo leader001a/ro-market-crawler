@@ -1,122 +1,17 @@
-using System.Runtime.InteropServices;
+using RoMarketCrawler.Controls;
+using RoMarketCrawler.Models;
+using RoMarketCrawler.Services;
 
 namespace RoMarketCrawler;
 
 /// <summary>
 /// Form1 partial class - Theme and styling methods
+/// Uses ThemeManager for Windows dark mode APIs.
 /// </summary>
-using RoMarketCrawler.Models;
 
 public partial class Form1
 {
-    #region Dark Mode Scrollbar API
-
-    [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)]
-    private static extern int SetWindowTheme(IntPtr hWnd, string pszSubAppName, string? pszSubIdList);
-
-    [DllImport("uxtheme.dll", EntryPoint = "#135", SetLastError = true, CharSet = CharSet.Unicode)]
-    private static extern int SetPreferredAppMode(int preferredAppMode);
-
-    [DllImport("uxtheme.dll", EntryPoint = "#136", SetLastError = true, CharSet = CharSet.Unicode)]
-    private static extern void FlushMenuThemes();
-
-    [DllImport("dwmapi.dll")]
-    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
-
-    private const int DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19;
-    private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
-
-    private static bool _darkModeInitialized = false;
     private readonly HashSet<Control> _scrollBarHandlerInitialized = new();
-
-    /// <summary>
-    /// Initialize dark mode support for the application (call once at startup)
-    /// </summary>
-    private static void InitializeDarkModeSupport()
-    {
-        if (_darkModeInitialized) return;
-
-        try
-        {
-            // SetPreferredAppMode: 0=Default, 1=AllowDark, 2=ForceDark, 3=ForceLight
-            SetPreferredAppMode(1); // AllowDark
-            _darkModeInitialized = true;
-        }
-        catch
-        {
-            // Ignore errors on older Windows versions
-        }
-    }
-
-    /// <summary>
-    /// Apply dark mode to the window title bar
-    /// </summary>
-    private void ApplyDarkModeToTitleBar(bool isDark)
-    {
-        try
-        {
-            int useImmersiveDarkMode = isDark ? 1 : 0;
-
-            // Try Windows 10 20H1+ attribute first
-            if (DwmSetWindowAttribute(Handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref useImmersiveDarkMode, sizeof(int)) != 0)
-            {
-                // Fall back to pre-20H1 attribute
-                DwmSetWindowAttribute(Handle, DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1, ref useImmersiveDarkMode, sizeof(int));
-            }
-        }
-        catch
-        {
-            // Ignore errors on older Windows versions
-        }
-    }
-
-    /// <summary>
-    /// Apply dark or light scrollbar theme to a control and all its children recursively
-    /// </summary>
-    private void ApplyScrollBarTheme(Control control, bool isDark)
-    {
-        string themeName = isDark ? "DarkMode_Explorer" : "Explorer";
-
-        // Apply to the control itself
-        ApplyThemeToControlHandle(control, themeName);
-
-        // Recursively apply to all existing child controls
-        foreach (Control child in control.Controls)
-        {
-            ApplyScrollBarTheme(child, isDark);
-        }
-
-        // Invalidate the control and all children to force redraw
-        if (control.IsHandleCreated)
-        {
-            control.Invalidate(true);
-        }
-    }
-
-    /// <summary>
-    /// Apply theme to a single control's handle
-    /// </summary>
-    private void ApplyThemeToControlHandle(Control control, string themeName)
-    {
-        if (control.IsHandleCreated)
-        {
-            SetWindowTheme(control.Handle, themeName, null);
-        }
-        else
-        {
-            // Capture themeName for the closure
-            string capturedTheme = themeName;
-            control.HandleCreated += (s, e) =>
-            {
-                if (s is Control c)
-                {
-                    SetWindowTheme(c.Handle, capturedTheme, null);
-                }
-            };
-        }
-    }
-
-    #endregion
 
     #region Theme Application
 
@@ -164,10 +59,17 @@ public partial class Form1
 
         _currentTheme = theme;
         ApplyThemeColors();
-        ApplyDarkModeToTitleBar(_currentTheme == ThemeType.Dark);
+        ThemeManager.ApplyDarkModeToTitleBar(Handle, _currentTheme == ThemeType.Dark);
         ApplyThemeToAllControls(this);
         UpdateThemeMenuChecks();
         _autoCompleteDropdown?.UpdateTheme(ThemeGrid, ThemeText, ThemeAccent, ThemeBorder);
+
+        // Update controllers with new theme
+        var colors = ThemeColors.ForTheme(theme);
+        _dealTabController.ApplyTheme(colors);
+        _itemTabController.ApplyTheme(colors);
+        _monitorTabController.ApplyTheme(colors);
+
         SaveSettings();
     }
 
@@ -217,7 +119,7 @@ public partial class Form1
                     }
 
                     // Flush Windows menu theme cache to force refresh
-                    try { FlushMenuThemes(); } catch { }
+                    ThemeManager.FlushMenuThemeCache();
                 }
                 // Update menu item colors
                 foreach (ToolStripItem item in menu.Items)
@@ -259,7 +161,7 @@ public partial class Form1
                     // Use FixedSingle for better visibility on modern Windows
                     txt.BorderStyle = BorderStyle.FixedSingle;
                 }
-                ApplyScrollBarTheme(txt, _currentTheme == ThemeType.Dark);
+                ThemeManager.ApplyScrollBarTheme(txt, _currentTheme == ThemeType.Dark);
             }
             else if (control is ComboBox combo)
             {
@@ -319,11 +221,6 @@ public partial class Form1
                 {
                     lbl.ForeColor = ThemeAccent;  // Keep accent color for clickable links
                 }
-                else if (control == _lblItemName)
-                {
-                    lbl.ForeColor = ThemeLinkColor;
-                    lbl.BackColor = ThemeGrid;
-                }
                 // Update status labels (those with non-transparent background)
                 else if (lbl.BackColor != Color.Transparent && lbl.BackColor != lbl.Parent?.BackColor)
                 {
@@ -368,28 +265,28 @@ public partial class Form1
                 listBox.BackColor = _currentTheme == ThemeType.Dark ? ThemeGrid : SystemColors.Window;
                 listBox.ForeColor = _currentTheme == ThemeType.Dark ? ThemeText : SystemColors.WindowText;
                 listBox.BorderStyle = _currentTheme == ThemeType.Dark ? BorderStyle.FixedSingle : BorderStyle.Fixed3D;
-                ApplyScrollBarTheme(listBox, _currentTheme == ThemeType.Dark);
+                ThemeManager.ApplyScrollBarTheme(listBox, _currentTheme == ThemeType.Dark);
             }
             else if (control is TreeView treeView)
             {
                 treeView.BackColor = _currentTheme == ThemeType.Dark ? ThemeGrid : SystemColors.Window;
                 treeView.ForeColor = _currentTheme == ThemeType.Dark ? ThemeText : SystemColors.WindowText;
                 treeView.BorderStyle = _currentTheme == ThemeType.Dark ? BorderStyle.FixedSingle : BorderStyle.Fixed3D;
-                ApplyScrollBarTheme(treeView, _currentTheme == ThemeType.Dark);
+                ThemeManager.ApplyScrollBarTheme(treeView, _currentTheme == ThemeType.Dark);
             }
             else if (control is ListView listView)
             {
                 listView.BackColor = _currentTheme == ThemeType.Dark ? ThemeGrid : SystemColors.Window;
                 listView.ForeColor = _currentTheme == ThemeType.Dark ? ThemeText : SystemColors.WindowText;
                 listView.BorderStyle = _currentTheme == ThemeType.Dark ? BorderStyle.FixedSingle : BorderStyle.Fixed3D;
-                ApplyScrollBarTheme(listView, _currentTheme == ThemeType.Dark);
+                ThemeManager.ApplyScrollBarTheme(listView, _currentTheme == ThemeType.Dark);
             }
             else if (control is RichTextBox richTextBox)
             {
                 richTextBox.BackColor = _currentTheme == ThemeType.Dark ? ThemeGrid : SystemColors.Window;
                 richTextBox.ForeColor = _currentTheme == ThemeType.Dark ? ThemeText : SystemColors.WindowText;
                 richTextBox.BorderStyle = _currentTheme == ThemeType.Dark ? BorderStyle.FixedSingle : BorderStyle.Fixed3D;
-                ApplyScrollBarTheme(richTextBox, _currentTheme == ThemeType.Dark);
+                ThemeManager.ApplyScrollBarTheme(richTextBox, _currentTheme == ThemeType.Dark);
             }
             else if (control is StatusStrip statusStrip)
             {
@@ -397,7 +294,7 @@ public partial class Form1
                 var statusTextColor = _currentTheme == ThemeType.Dark
                     ? Color.FromArgb(200, 200, 200)  // Brighter for dark theme
                     : Color.FromArgb(60, 60, 60);     // Darker for light theme
-                var statusFont = new Font("Malgun Gothic", _baseFontSize - 2, FontStyle.Bold);
+                var statusFont = new Font("Malgun Gothic", _baseFontSize, FontStyle.Bold);
 
                 statusStrip.BackColor = _currentTheme == ThemeType.Dark ? ThemePanel : SystemColors.Control;
                 statusStrip.ForeColor = statusTextColor;
@@ -415,7 +312,7 @@ public partial class Form1
             else if (control is HScrollBar || control is VScrollBar)
             {
                 // Apply scrollbar theme to standalone scrollbars
-                ApplyScrollBarTheme(control, _currentTheme == ThemeType.Dark);
+                ThemeManager.ApplyScrollBarTheme(control, _currentTheme == ThemeType.Dark);
             }
 
             // Recurse
@@ -707,6 +604,57 @@ public partial class Form1
 
     #endregion
 
+    #region Font Size
+
+    /// <summary>
+    /// Apply font size to form-level controls (menu, status bar, tab control)
+    /// Controllers handle their own font sizing
+    /// </summary>
+    private void ApplyFontSizeToAllControls(Control parent)
+    {
+        var uniformFont = new Font("Malgun Gothic", _baseFontSize);
+
+        foreach (Control control in parent.Controls)
+        {
+            if (control is MenuStrip menuStrip)
+            {
+                menuStrip.Font = uniformFont;
+                ApplyFontToMenuItems(menuStrip.Items, uniformFont);
+            }
+            else if (control is StatusStrip statusStrip)
+            {
+                statusStrip.Font = uniformFont;
+                foreach (ToolStripItem item in statusStrip.Items)
+                {
+                    item.Font = uniformFont;
+                }
+            }
+            else if (control is TabControl tabControl)
+            {
+                tabControl.Font = uniformFont;
+                // Adjust tab item size for font
+                tabControl.ItemSize = new Size(180, (int)(_baseFontSize * 2.5));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Recursively apply font to all menu items
+    /// </summary>
+    private void ApplyFontToMenuItems(ToolStripItemCollection items, Font font)
+    {
+        foreach (ToolStripItem item in items)
+        {
+            item.Font = font;
+            if (item is ToolStripMenuItem menuItem && menuItem.HasDropDownItems)
+            {
+                ApplyFontToMenuItems(menuItem.DropDownItems, font);
+            }
+        }
+    }
+
+    #endregion
+
     #region Menu Renderer
 
     // Custom menu renderer for dark theme
@@ -729,6 +677,8 @@ public partial class Form1
         public override Color SeparatorDark => Color.FromArgb(55, 55, 65);
         public override Color SeparatorLight => Color.FromArgb(55, 55, 65);
     }
+
+    // DarkToolStripRenderer is now in Controls/DarkToolStripRenderer.cs
 
     #endregion
 
@@ -902,7 +852,7 @@ public partial class Form1
     private void ApplyButtonStyle(Button button, bool isPrimary = true)
     {
         button.Cursor = Cursors.Hand;
-        button.Font = new Font("Malgun Gothic", _baseFontSize - 3, FontStyle.Bold);
+        button.Font = new Font("Malgun Gothic", _baseFontSize, FontStyle.Bold);
         button.Height = 30;
         button.Tag = isPrimary ? "Primary" : "Secondary";
 
@@ -950,7 +900,7 @@ public partial class Form1
             textBox.ForeColor = SystemColors.WindowText;
             textBox.BorderStyle = BorderStyle.Fixed3D;
         }
-        textBox.Font = new Font("Malgun Gothic", _baseFontSize - 2);
+        textBox.Font = new Font("Malgun Gothic", _baseFontSize);
     }
 
     private void ApplyComboBoxStyle(ComboBox comboBox)
@@ -967,7 +917,7 @@ public partial class Form1
             comboBox.ForeColor = SystemColors.WindowText;
             comboBox.FlatStyle = FlatStyle.Standard;
         }
-        comboBox.Font = new Font("Malgun Gothic", _baseFontSize - 3);
+        comboBox.Font = new Font("Malgun Gothic", _baseFontSize);
     }
 
     private void ApplyLabelStyle(Label label, bool isHeader = false)
@@ -980,7 +930,7 @@ public partial class Form1
         {
             label.ForeColor = isHeader ? SystemColors.ControlText : SystemColors.GrayText;
         }
-        label.Font = new Font("Malgun Gothic", isHeader ? _baseFontSize - 2 : _baseFontSize - 3, isHeader ? FontStyle.Bold : FontStyle.Regular);
+        label.Font = new Font("Malgun Gothic", isHeader ? _baseFontSize : _baseFontSize, isHeader ? FontStyle.Bold : FontStyle.Regular);
     }
 
     private void ApplyDataGridViewStyle(DataGridView dgv)
@@ -1038,15 +988,15 @@ public partial class Form1
         }
 
         // Common styles
-        dgv.ColumnHeadersDefaultCellStyle.Font = new Font("Malgun Gothic", _baseFontSize - 3, FontStyle.Bold);
+        dgv.ColumnHeadersDefaultCellStyle.Font = new Font("Malgun Gothic", _baseFontSize, FontStyle.Bold);
         dgv.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
         dgv.ColumnHeadersHeight = 35;
-        dgv.DefaultCellStyle.Font = new Font("Malgun Gothic", _baseFontSize - 3);
+        dgv.DefaultCellStyle.Font = new Font("Malgun Gothic", _baseFontSize);
         dgv.DefaultCellStyle.Padding = new Padding(5, 3, 5, 3);
         dgv.RowTemplate.Height = 28;
 
         // Apply dark scrollbar theme (recursive - includes child controls)
-        ApplyScrollBarTheme(dgv, _currentTheme == ThemeType.Dark);
+        ThemeManager.ApplyScrollBarTheme(dgv, _currentTheme == ThemeType.Dark);
 
         // Set up handler for lazily-created scrollbars (only once per DataGridView)
         if (!_scrollBarHandlerInitialized.Contains(dgv))
@@ -1056,7 +1006,7 @@ public partial class Form1
             {
                 if (e.Control is HScrollBar || e.Control is VScrollBar)
                 {
-                    ApplyScrollBarTheme(e.Control, _currentTheme == ThemeType.Dark);
+                    ThemeManager.ApplyScrollBarTheme(e.Control, _currentTheme == ThemeType.Dark);
                 }
             };
         }
@@ -1086,10 +1036,10 @@ public partial class Form1
             textBox.ForeColor = SystemColors.WindowText;
             textBox.BorderStyle = BorderStyle.Fixed3D;
         }
-        textBox.Font = new Font("Consolas", _baseFontSize - 2);
+        textBox.Font = new Font("Consolas", _baseFontSize);
 
         // Apply dark scrollbar theme
-        ApplyScrollBarTheme(textBox, _currentTheme == ThemeType.Dark);
+        ThemeManager.ApplyScrollBarTheme(textBox, _currentTheme == ThemeType.Dark);
     }
 
     private void ApplyStatusLabelStyle(Label label)
@@ -1104,7 +1054,7 @@ public partial class Form1
             label.ForeColor = SystemColors.ControlText;
             label.BackColor = SystemColors.Control;
         }
-        label.Font = new Font("Malgun Gothic", _baseFontSize - 3);
+        label.Font = new Font("Malgun Gothic", _baseFontSize);
         label.Padding = new Padding(10, 0, 0, 0);
     }
 
@@ -1120,7 +1070,7 @@ public partial class Form1
             numericUpDown.BackColor = SystemColors.Window;
             numericUpDown.ForeColor = SystemColors.WindowText;
         }
-        numericUpDown.Font = new Font("Malgun Gothic", _baseFontSize - 3);
+        numericUpDown.Font = new Font("Malgun Gothic", _baseFontSize);
     }
 
     #endregion
@@ -1132,7 +1082,7 @@ public partial class Form1
     /// </summary>
     private void ApplyRoundedButtonStyle(RoMarketCrawler.Controls.RoundedButton button, bool isPrimary = true)
     {
-        button.Font = new Font("Malgun Gothic", _baseFontSize - 3, FontStyle.Bold);
+        button.Font = new Font("Malgun Gothic", _baseFontSize, FontStyle.Bold);
         button.CornerRadius = 8;
         button.UseGradient = true;
 
@@ -1174,7 +1124,7 @@ public partial class Form1
     /// </summary>
     private void ApplyRoundedTextBoxStyle(RoMarketCrawler.Controls.RoundedTextBox textBox)
     {
-        textBox.Font = new Font("Malgun Gothic", _baseFontSize - 2);
+        textBox.Font = new Font("Malgun Gothic", _baseFontSize);
         textBox.CornerRadius = 8;
 
         if (_currentTheme == ThemeType.Dark)
@@ -1204,7 +1154,7 @@ public partial class Form1
     /// </summary>
     private void ApplyRoundedComboBoxStyle(RoMarketCrawler.Controls.RoundedComboBox comboBox)
     {
-        comboBox.Font = new Font("Malgun Gothic", _baseFontSize - 3);
+        comboBox.Font = new Font("Malgun Gothic", _baseFontSize);
         comboBox.CornerRadius = 8;
 
         if (_currentTheme == ThemeType.Dark)

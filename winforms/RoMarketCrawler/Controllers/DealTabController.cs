@@ -1,25 +1,175 @@
 using System.Diagnostics;
+using RoMarketCrawler.Controls;
 using RoMarketCrawler.Exceptions;
+using RoMarketCrawler.Interfaces;
 using RoMarketCrawler.Models;
 using RoMarketCrawler.Services;
 
-namespace RoMarketCrawler;
+namespace RoMarketCrawler.Controllers;
 
 /// <summary>
-/// Form1 partial class - Deal Search Tab (GNJOY)
+/// Controller for the Deal Search Tab (GNJOY API)
 /// Server-side pagination: API returns 10 items per page
 /// </summary>
-public partial class Form1
+public class DealTabController : BaseTabController
 {
-    #region Tab 1: Deal Search (GNJOY)
+    #region Constants
 
-    // Server-side pagination state
-    private bool _hasMorePages = false;
+    private const int MaxSearchHistoryCount = 10;
+    private const int DetailRequestDelayMs = 500;
 
     // Item types that have enchant/card/random options (무기, 방어구, 쉐도우, 의상)
     private static readonly HashSet<int> EquipmentItemTypes = new() { 4, 5, 19, 20 };
 
-    private void SetupDealTab(TabPage tab)
+    #endregion
+
+    #region Services
+
+    private readonly IGnjoyClient _gnjoyClient;
+    private readonly IItemIndexService _itemIndexService;
+    private readonly IMonitoringService _monitoringService;
+    private readonly ISettingsService _settingsService;
+
+    #endregion
+
+    #region UI Controls
+
+    private TextBox _txtDealSearch = null!;
+    private ComboBox _cboDealServer = null!;
+    private ToolStripButton _btnDealSearchToolStrip = null!;
+    private ToolStripButton _btnDealCancelToolStrip = null!;
+    private ToolStripProgressBar _progressDealSearch = null!;
+    private DataGridView _dgvDeals = null!;
+    private Label _lblDealStatus = null!;
+    private FlowLayoutPanel _pnlSearchHistory = null!;
+    private RoundedButton _btnDealPrev = null!;
+    private RoundedButton _btnDealNext = null!;
+    private Label _lblDealPage = null!;
+
+    #endregion
+
+    #region State
+
+    private readonly List<DealItem> _searchResults = new();
+    private readonly BindingSource _dealBindingSource;
+    private CancellationTokenSource? _cts;
+    private string _lastSearchTerm = string.Empty;
+    private int _currentSearchId = 0;
+    private List<string> _dealSearchHistory = new();
+    private int _dealCurrentPage = 1;
+    private bool _hasMorePages = false;
+
+    // AutoComplete support (set from parent form)
+    private AutoCompleteDropdown? _autoCompleteDropdown;
+    private List<string>? _autoCompleteItems;
+
+    #endregion
+
+    #region Events
+
+    /// <summary>
+    /// Raised when search history is modified
+    /// </summary>
+    public event EventHandler<List<string>>? SearchHistoryChanged;
+
+    /// <summary>
+    /// Raised when an item detail form needs to be shown
+    /// </summary>
+    public event EventHandler<DealItem>? ShowItemDetail;
+
+    #endregion
+
+    /// <inheritdoc/>
+    public override string TabName => "노점조회";
+
+    public DealTabController(IServiceProvider serviceProvider) : base(serviceProvider)
+    {
+        _gnjoyClient = GetService<IGnjoyClient>();
+        _itemIndexService = GetService<IItemIndexService>();
+        _monitoringService = GetService<IMonitoringService>();
+        _settingsService = GetService<ISettingsService>();
+        _dealBindingSource = new BindingSource { DataSource = _searchResults };
+    }
+
+    /// <summary>
+    /// Set autocomplete support from parent form
+    /// </summary>
+    public void SetAutoComplete(AutoCompleteDropdown dropdown, List<string> items)
+    {
+        _autoCompleteDropdown = dropdown;
+        _autoCompleteItems = items;
+    }
+
+    /// <summary>
+    /// Set search history (loaded from settings)
+    /// </summary>
+    public void SetSearchHistory(List<string> history)
+    {
+        _dealSearchHistory = history ?? new List<string>();
+        if (_pnlSearchHistory != null)
+        {
+            UpdateSearchHistoryPanel();
+        }
+    }
+
+    /// <summary>
+    /// Load search history from settings (alias for SetSearchHistory)
+    /// </summary>
+    public void LoadSearchHistory(List<string> history) => SetSearchHistory(history);
+
+    /// <summary>
+    /// Set watermark image for the DataGridView
+    /// </summary>
+    public void SetWatermark(Image watermark) => ApplyWatermark(_dgvDeals, watermark);
+
+    /// <summary>
+    /// Set rate limit UI state (enable/disable controls)
+    /// </summary>
+    public void SetRateLimitState(bool isRateLimited)
+    {
+        _btnDealSearchToolStrip.Enabled = !isRateLimited;
+        _txtDealSearch.Enabled = !isRateLimited;
+        _cboDealServer.Enabled = !isRateLimited;
+        _btnDealPrev.Enabled = !isRateLimited && _dealCurrentPage > 1;
+        _btnDealNext.Enabled = !isRateLimited && _hasMorePages;
+
+        // Disable search history links
+        if (_pnlSearchHistory != null)
+        {
+            foreach (Control ctrl in _pnlSearchHistory.Controls)
+            {
+                if (ctrl is Label lbl && lbl.Tag is ValueTuple<string, string> tag && tag.Item1 == "SearchHistoryLink")
+                {
+                    lbl.Enabled = !isRateLimited;
+                    lbl.ForeColor = isRateLimited ? _colors.TextMuted : _colors.Accent;
+                    lbl.Cursor = isRateLimited ? Cursors.Default : Cursors.Hand;
+                }
+            }
+        }
+
+        if (!isRateLimited)
+        {
+            ClearRateLimitStatus();
+        }
+    }
+
+    /// <summary>
+    /// Update rate limit status message
+    /// </summary>
+    public void UpdateRateLimitStatus(string message) => ShowRateLimitStatus(message);
+
+    /// <summary>
+    /// Get current search history
+    /// </summary>
+    public List<string> GetSearchHistory() => _dealSearchHistory;
+
+    /// <summary>
+    /// Get the search textbox for autocomplete attachment
+    /// </summary>
+    public TextBox GetSearchTextBox() => _txtDealSearch;
+
+    /// <inheritdoc/>
+    public override void Initialize()
     {
         var mainPanel = new TableLayoutPanel
         {
@@ -35,21 +185,51 @@ public partial class Form1
         mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 25));   // Row 4: Status
         ApplyTableLayoutPanelStyle(mainPanel);
 
-        // ToolStrip-based toolbar with modern renderer
+        // ToolStrip-based toolbar
+        var toolStrip = CreateToolStrip();
+
+        // Search history panel
+        _pnlSearchHistory = CreateSearchHistoryPanel();
+
+        // Results grid
+        _dgvDeals = CreateResultsGrid();
+
+        // Pagination panel
+        var paginationPanel = CreatePaginationPanel();
+
+        // Status bar
+        _lblDealStatus = CreateStatusLabel();
+        _lblDealStatus.Text = "GNJOY에서 현재 노점 거래를 검색합니다.";
+
+        mainPanel.Controls.Add(toolStrip, 0, 0);
+        mainPanel.Controls.Add(_pnlSearchHistory, 0, 1);
+        mainPanel.Controls.Add(_dgvDeals, 0, 2);
+        mainPanel.Controls.Add(paginationPanel, 0, 3);
+        mainPanel.Controls.Add(_lblDealStatus, 0, 4);
+
+        _tabPage.Controls.Add(mainPanel);
+
+        // Initial update of search history UI
+        UpdateSearchHistoryPanel();
+    }
+
+    #region UI Creation
+
+    private ToolStrip CreateToolStrip()
+    {
         var toolStrip = new ToolStrip
         {
             GripStyle = ToolStripGripStyle.Hidden,
-            BackColor = ThemePanel
+            BackColor = _colors.Panel
         };
-        ApplyModernToolStripRenderer(toolStrip);
 
         // Server combo
         var cboServer = new ToolStripComboBox
         {
             DropDownStyle = ComboBoxStyle.DropDownList,
             Width = 100,
-            BackColor = ThemeGrid,
-            ForeColor = ThemeText,
+            BackColor = _colors.Grid,
+            ForeColor = _colors.Text,
             ToolTipText = "서버 선택"
         };
         foreach (var server in Server.GetAllServers())
@@ -63,18 +243,18 @@ public partial class Form1
         {
             AutoSize = false,
             Width = 250,
-            BackColor = ThemeGrid,
-            ForeColor = ThemeText,
+            BackColor = _colors.Grid,
+            ForeColor = _colors.Text,
             ToolTipText = "검색할 아이템명 입력"
         };
         txtSearch.KeyDown += (s, e) =>
         {
-            if (e.KeyCode == Keys.Enter && !_autoCompleteDropdown.HasSelection)
+            if (e.KeyCode == Keys.Enter && _autoCompleteDropdown?.HasSelection != true)
             {
                 e.Handled = true;
                 e.SuppressKeyPress = true;
-                _autoCompleteDropdown.Hide();
-                BtnDealSearch_Click(s, e);
+                _autoCompleteDropdown?.Hide();
+                _ = SearchAsync();
             }
         };
         _txtDealSearch = txtSearch.TextBox;
@@ -83,12 +263,11 @@ public partial class Form1
         var btnSearch = new ToolStripButton
         {
             Text = "검색",
-            BackColor = ThemeAccent,
-            ForeColor = ThemeAccentText,
+            BackColor = _colors.Accent,
+            ForeColor = _colors.AccentText,
             ToolTipText = "검색 실행"
         };
-        btnSearch.Click += BtnDealSearch_Click;
-        _btnDealSearch = new Button(); // Dummy for state management
+        btnSearch.Click += async (s, e) => await SearchAsync();
         _btnDealSearchToolStrip = btnSearch;
 
         // Cancel button
@@ -98,11 +277,10 @@ public partial class Form1
             Enabled = false,
             ToolTipText = "검색 취소"
         };
-        btnCancel.Click += BtnDealCancel_Click;
-        _btnDealCancel = new Button(); // Dummy for state management
+        btnCancel.Click += (s, e) => _cts?.Cancel();
         _btnDealCancelToolStrip = btnCancel;
 
-        // Progress bar (right-aligned, hidden by default)
+        // Progress bar
         _progressDealSearch = new ToolStripProgressBar
         {
             Minimum = 0,
@@ -113,7 +291,6 @@ public partial class Form1
             Size = new Size(120, 16)
         };
 
-        // Add items to toolbar
         toolStrip.Items.Add(cboServer);
         toolStrip.Items.Add(new ToolStripSeparator());
         toolStrip.Items.Add(txtSearch);
@@ -122,81 +299,37 @@ public partial class Form1
         toolStrip.Items.Add(btnCancel);
         toolStrip.Items.Add(_progressDealSearch);
 
-        // Pagination panel (bottom, centered)
-        var paginationPanel = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            BackColor = ThemePanel,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false,
-            AutoSize = false,
-            Padding = new Padding(0, 10, 0, 0)
-        };
+        return toolStrip;
+    }
 
-        // Pagination buttons (using RoundedButton for modern look)
-        _btnDealPrev = new RoMarketCrawler.Controls.RoundedButton
-        {
-            Text = "<",
-            Size = new Size(36, 28),
-            CornerRadius = 6,
-            Enabled = false
-        };
-        ApplyRoundedButtonStyle(_btnDealPrev, false);
-        _btnDealPrev.Click += BtnDealPrev_Click;
-
-        _lblDealPage = new Label
-        {
-            Text = "0페이지",
-            AutoSize = true,
-            ForeColor = ThemeText,
-            TextAlign = ContentAlignment.MiddleCenter,
-            Padding = new Padding(10, 5, 10, 0)
-        };
-
-        _btnDealNext = new RoMarketCrawler.Controls.RoundedButton
-        {
-            Text = ">",
-            Size = new Size(36, 28),
-            CornerRadius = 6,
-            Enabled = false
-        };
-        ApplyRoundedButtonStyle(_btnDealNext, false);
-        _btnDealNext.Click += BtnDealNext_Click;
-
-        paginationPanel.Controls.Add(_btnDealPrev);
-        paginationPanel.Controls.Add(_lblDealPage);
-        paginationPanel.Controls.Add(_btnDealNext);
-
-        // Center alignment by handling resize
-        paginationPanel.Resize += (s, e) =>
-        {
-            var totalWidth = _btnDealPrev.Width + _lblDealPage.Width + _btnDealNext.Width + 20;
-            paginationPanel.Padding = new Padding((paginationPanel.Width - totalWidth) / 2, 10, 0, 0);
-        };
-
-        // Search history panel (horizontal flow of clickable labels)
-        _pnlSearchHistory = new FlowLayoutPanel
+    private FlowLayoutPanel CreateSearchHistoryPanel()
+    {
+        var panel = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill,
             AutoSize = true,
             WrapContents = true,
-            BackColor = ThemePanel,
+            BackColor = _colors.Panel,
             Padding = new Padding(5, 2, 5, 2),
             Margin = new Padding(0)
         };
+
         // Add "최근검색:" label
         var lblHistoryTitle = new Label
         {
             Text = "최근검색:",
             AutoSize = true,
-            ForeColor = ThemeTextMuted,
+            ForeColor = _colors.TextMuted,
             Margin = new Padding(0, 3, 5, 0)
         };
-        _pnlSearchHistory.Controls.Add(lblHistoryTitle);
-        UpdateSearchHistoryPanel();
+        panel.Controls.Add(lblHistoryTitle);
 
-        // Results grid
-        _dgvDeals = new DataGridView
+        return panel;
+    }
+
+    private DataGridView CreateResultsGrid()
+    {
+        var dgv = new DataGridView
         {
             Dock = DockStyle.Fill,
             AutoGenerateColumns = false,
@@ -209,10 +342,10 @@ public partial class Form1
             AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None,
             AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCells
         };
-        ApplyDataGridViewStyle(_dgvDeals);
+        ApplyDataGridViewStyle(dgv);
 
         // Force header center alignment by custom painting
-        _dgvDeals.CellPainting += (s, e) =>
+        dgv.CellPainting += (s, e) =>
         {
             if (e.RowIndex == -1 && e.ColumnIndex >= 0 && e.Graphics != null)
             {
@@ -220,57 +353,44 @@ public partial class Form1
                 TextRenderer.DrawText(
                     e.Graphics,
                     e.FormattedValue?.ToString() ?? "",
-                    e.CellStyle?.Font ?? _dgvDeals.Font,
+                    e.CellStyle?.Font ?? dgv.Font,
                     e.CellBounds,
-                    e.CellStyle?.ForeColor ?? ThemeText,
+                    e.CellStyle?.ForeColor ?? _colors.Text,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter
                 );
                 e.Handled = true;
             }
         };
 
-        _dgvDeals.CellFormatting += DgvDeals_CellFormatting;
-        SetupDealGridColumns();
-        _dgvDeals.DataSource = _dealBindingSource;
+        dgv.CellFormatting += DgvDeals_CellFormatting;
+        SetupDealGridColumns(dgv);
+        dgv.DataSource = _dealBindingSource;
 
         // Context menu for deals grid
         var dealContextMenu = new ContextMenuStrip();
         var addToMonitorItem = new ToolStripMenuItem("모니터링 추가");
         addToMonitorItem.Click += DealContextMenu_AddToMonitor;
         dealContextMenu.Items.Add(addToMonitorItem);
-        _dgvDeals.ContextMenuStrip = dealContextMenu;
+        dgv.ContextMenuStrip = dealContextMenu;
 
         // Handle right-click to select row before showing context menu
-        _dgvDeals.CellMouseDown += (s, e) =>
+        dgv.CellMouseDown += (s, e) =>
         {
             if (e.Button == MouseButtons.Right && e.RowIndex >= 0)
             {
-                _dgvDeals.ClearSelection();
-                _dgvDeals.Rows[e.RowIndex].Selected = true;
+                dgv.ClearSelection();
+                dgv.Rows[e.RowIndex].Selected = true;
             }
         };
 
-        // Status bar
-        _lblDealStatus = new Label
-        {
-            Dock = DockStyle.Fill,
-            TextAlign = ContentAlignment.MiddleLeft,
-            Text = "GNJOY에서 현재 노점 거래를 검색합니다."
-        };
-        ApplyStatusLabelStyle(_lblDealStatus);
+        dgv.CellDoubleClick += DgvDeals_CellDoubleClick;
 
-        mainPanel.Controls.Add(toolStrip, 0, 0);
-        mainPanel.Controls.Add(_pnlSearchHistory, 0, 1);
-        mainPanel.Controls.Add(_dgvDeals, 0, 2);
-        mainPanel.Controls.Add(paginationPanel, 0, 3);
-        mainPanel.Controls.Add(_lblDealStatus, 0, 4);
-
-        tab.Controls.Add(mainPanel);
+        return dgv;
     }
 
-    private void SetupDealGridColumns()
+    private void SetupDealGridColumns(DataGridView dgv)
     {
-        _dgvDeals.Columns.AddRange(new DataGridViewColumn[]
+        dgv.Columns.AddRange(new DataGridViewColumn[]
         {
             new DataGridViewTextBoxColumn
             {
@@ -344,16 +464,107 @@ public partial class Form1
                 FillWeight = 80
             }
         });
-
-        _dgvDeals.CellDoubleClick += DgvDeals_CellDoubleClick;
     }
 
-    /// <summary>
-    /// Search button click - fetch first page from API
-    /// </summary>
-    private async void BtnDealSearch_Click(object? sender, EventArgs e)
+    private FlowLayoutPanel CreatePaginationPanel()
     {
-        _dealCurrentPage = 1;  // API uses 1-based page numbers
+        var paginationPanel = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = _colors.Panel,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            AutoSize = false,
+            Padding = new Padding(0, 10, 0, 0)
+        };
+
+        _btnDealPrev = new RoundedButton
+        {
+            Text = "<",
+            Size = new Size(36, 28),
+            CornerRadius = 6,
+            Enabled = false
+        };
+        ApplyRoundedButtonStyle(_btnDealPrev, false);
+        _btnDealPrev.Click += async (s, e) => await PreviousPageAsync();
+
+        _lblDealPage = new Label
+        {
+            Text = "0페이지",
+            AutoSize = true,
+            ForeColor = _colors.Text,
+            TextAlign = ContentAlignment.MiddleCenter,
+            Padding = new Padding(10, 5, 10, 0)
+        };
+
+        _btnDealNext = new RoundedButton
+        {
+            Text = ">",
+            Size = new Size(36, 28),
+            CornerRadius = 6,
+            Enabled = false
+        };
+        ApplyRoundedButtonStyle(_btnDealNext, false);
+        _btnDealNext.Click += async (s, e) => await NextPageAsync();
+
+        paginationPanel.Controls.Add(_btnDealPrev);
+        paginationPanel.Controls.Add(_lblDealPage);
+        paginationPanel.Controls.Add(_btnDealNext);
+
+        // Center alignment by handling resize
+        paginationPanel.Resize += (s, e) =>
+        {
+            var totalWidth = _btnDealPrev.Width + _lblDealPage.Width + _btnDealNext.Width + 20;
+            paginationPanel.Padding = new Padding((paginationPanel.Width - totalWidth) / 2, 10, 0, 0);
+        };
+
+        return paginationPanel;
+    }
+
+    private void ApplyRoundedButtonStyle(RoundedButton button, bool isPrimary)
+    {
+        if (_currentTheme == ThemeType.Dark)
+        {
+            if (isPrimary)
+            {
+                button.ApplyPrimaryStyle(
+                    _colors.Accent,
+                    _colors.AccentHover,
+                    ControlPaint.Dark(_colors.Accent, 0.1f),
+                    _colors.AccentText);
+            }
+            else
+            {
+                button.ApplySecondaryStyle(
+                    _colors.Panel,
+                    _colors.GridAlt,
+                    ControlPaint.Dark(_colors.Panel, 0.1f),
+                    _colors.Text,
+                    _colors.Border);
+            }
+        }
+        else
+        {
+            // Classic theme styling
+            button.ApplySecondaryStyle(
+                SystemColors.Control,
+                SystemColors.ControlLight,
+                SystemColors.ControlDark,
+                SystemColors.ControlText,
+                SystemColors.ControlDark);
+        }
+    }
+
+    #endregion
+
+    #region Search Logic
+
+    /// <summary>
+    /// Execute search for first page
+    /// </summary>
+    public async Task SearchAsync()
+    {
+        _dealCurrentPage = 1;
         await FetchDealPageAsync();
     }
 
@@ -398,10 +609,10 @@ public partial class Form1
 
         try
         {
-            // Fetch single page from API (API uses 1-based page numbers)
+            // Fetch single page from API
             var items = await _gnjoyClient.SearchItemDealsAsync(searchText, serverId, _dealCurrentPage, _cts.Token);
 
-            Debug.WriteLine($"[Form1] Page {_dealCurrentPage}: Got {items.Count} items");
+            Debug.WriteLine($"[DealTabController] Page {_dealCurrentPage}: Got {items.Count} items");
 
             // Determine if there are more pages (API returns 10 items per page)
             _hasMorePages = items.Count >= 10;
@@ -412,7 +623,7 @@ public partial class Form1
                 item.ComputeFields();
             }
 
-            // Load details sequentially BEFORE showing results (prevents rate limiting)
+            // Load details sequentially BEFORE showing results
             var equipmentItems = items.Where(i => i.HasDetailParams && IsEquipmentItem(i)).ToList();
             if (equipmentItems.Count > 0)
             {
@@ -439,12 +650,11 @@ public partial class Form1
         }
         catch (RateLimitException rateLimitEx)
         {
-            // Show rate limit status to user
             var remainingTime = rateLimitEx.RemainingTimeText;
             _lblDealStatus.Text = $"API 요청 제한됨: {remainingTime}";
-            _lblDealStatus.ForeColor = ThemeSaleColor;  // Red color for warning
+            _lblDealStatus.ForeColor = _colors.SaleColor;
 
-            Debug.WriteLine($"[Form1] Rate limited: {rateLimitEx.RetryAfterSeconds}s, until {rateLimitEx.RetryAfterTime}");
+            Debug.WriteLine($"[DealTabController] Rate limited: {rateLimitEx.RetryAfterSeconds}s, until {rateLimitEx.RetryAfterTime}");
 
             MessageBox.Show(
                 $"GNJOY API 요청 제한이 적용되었습니다.\n\n" +
@@ -457,7 +667,7 @@ public partial class Form1
         catch (Exception ex)
         {
             _lblDealStatus.Text = "오류: " + ex.Message;
-            Debug.WriteLine("[Form1] Search error: " + ex.ToString());
+            Debug.WriteLine("[DealTabController] Search error: " + ex.ToString());
             MessageBox.Show("검색 중 오류가 발생했습니다.\n\n" + ex.Message, "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -467,15 +677,6 @@ public partial class Form1
         }
     }
 
-    /// <summary>
-    /// Delay between detail requests to prevent rate limiting (in milliseconds)
-    /// </summary>
-    private const int DetailRequestDelayMs = 500;
-
-    /// <summary>
-    /// Load item details sequentially with delay to prevent rate limiting.
-    /// Shows progress in status label and progress bar.
-    /// </summary>
     private async Task LoadDetailsSequentiallyAsync(
         List<DealItem> allItems,
         List<DealItem> equipmentItems,
@@ -507,10 +708,10 @@ public partial class Form1
                 loaded++;
 
                 // Update progress
-                if (!IsDisposed && IsCurrentSearch())
+                if (IsCurrentSearch() && _tabPage.IsHandleCreated)
                 {
                     var progress = (loaded * 100) / total;
-                    Invoke(() =>
+                    _tabPage.Invoke(() =>
                     {
                         if (IsCurrentSearch())
                         {
@@ -528,44 +729,36 @@ public partial class Form1
             }
             catch (RateLimitException)
             {
-                // Re-throw rate limit exceptions to be handled by caller
                 throw;
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[Form1] Failed to load detail for {item.ItemName}: {ex.Message}");
+                Debug.WriteLine($"[DealTabController] Failed to load detail for {item.ItemName}: {ex.Message}");
                 loaded++;
             }
         }
 
-        Debug.WriteLine($"[Form1] Loaded {loaded}/{total} item details sequentially");
+        Debug.WriteLine($"[DealTabController] Loaded {loaded}/{total} item details sequentially");
     }
 
-    /// <summary>
-    /// Check if an item is equipment type that can have enchant/card info
-    /// Types: 4=무기, 5=방어구, 19=쉐도우, 20=의상
-    /// </summary>
     private bool IsEquipmentItem(DealItem item)
     {
         var effectiveItemId = item.GetEffectiveItemId();
-        if (!effectiveItemId.HasValue) return true; // If can't determine, assume it's equipment
+        if (!effectiveItemId.HasValue) return true;
 
-        if (!_itemIndexService.IsLoaded) return true; // If index not loaded, assume it's equipment
+        if (!_itemIndexService.IsLoaded) return true;
 
         var cachedItem = _itemIndexService.GetItemById(effectiveItemId.Value);
-        if (cachedItem == null) return true; // If not in index, assume it's equipment
+        if (cachedItem == null) return true;
 
         var itemType = cachedItem.Type;
         var isEquipment = EquipmentItemTypes.Contains(itemType);
 
-        Debug.WriteLine($"[Form1] Item '{item.ItemName}' (ID:{effectiveItemId}) Type:{itemType} IsEquipment:{isEquipment}");
+        Debug.WriteLine($"[DealTabController] Item '{item.ItemName}' (ID:{effectiveItemId}) Type:{itemType} IsEquipment:{isEquipment}");
         return isEquipment;
     }
 
-    /// <summary>
-    /// Previous page button - fetch previous page from API
-    /// </summary>
-    private async void BtnDealPrev_Click(object? sender, EventArgs e)
+    private async Task PreviousPageAsync()
     {
         if (_dealCurrentPage > 1)
         {
@@ -574,10 +767,7 @@ public partial class Form1
         }
     }
 
-    /// <summary>
-    /// Next page button - fetch next page from API
-    /// </summary>
-    private async void BtnDealNext_Click(object? sender, EventArgs e)
+    private async Task NextPageAsync()
     {
         if (_hasMorePages)
         {
@@ -593,11 +783,6 @@ public partial class Form1
         _btnDealNext.Enabled = _hasMorePages;
     }
 
-    private void BtnDealCancel_Click(object? sender, EventArgs e)
-    {
-        _cts?.Cancel();
-    }
-
     private void SetDealSearchingState(bool searching)
     {
         _btnDealSearchToolStrip.Enabled = !searching;
@@ -610,7 +795,7 @@ public partial class Form1
         // Reset status label color when starting a new search
         if (searching)
         {
-            _lblDealStatus.ForeColor = ThemeText;
+            _lblDealStatus.ForeColor = _colors.Text;
         }
 
         // Disable search history links during search
@@ -621,47 +806,20 @@ public partial class Form1
                 if (ctrl is Label lbl && lbl.Tag is ValueTuple<string, string> tag && tag.Item1 == "SearchHistoryLink")
                 {
                     lbl.Enabled = !searching;
-                    lbl.ForeColor = searching ? ThemeTextMuted : ThemeAccent;
+                    lbl.ForeColor = searching ? _colors.TextMuted : _colors.Accent;
                     lbl.Cursor = searching ? Cursors.Default : Cursors.Hand;
                 }
             }
         }
     }
 
-    private void DgvDeals_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
-    {
-        if (e.CellStyle == null || e.RowIndex < 0) return;
+    #endregion
 
-        var columnName = _dgvDeals.Columns[e.ColumnIndex].Name;
-
-        // Deal type color
-        if (columnName == "DealTypeDisplay" && e.Value != null)
-        {
-            var value = e.Value.ToString();
-            if (value == "판매")
-                e.CellStyle.ForeColor = ThemeSaleColor;
-            else if (value == "구매")
-                e.CellStyle.ForeColor = ThemeBuyColor;
-        }
-    }
-
-    private void DgvDeals_CellDoubleClick(object? sender, DataGridViewCellEventArgs e)
-    {
-        if (e.RowIndex < 0) return;
-
-        var dataSource = _dealBindingSource.DataSource as List<DealItem>;
-        if (dataSource == null || e.RowIndex >= dataSource.Count) return;
-
-        var selectedItem = dataSource[e.RowIndex];
-        Debug.WriteLine($"[Form1] Opening detail for: {selectedItem.DisplayName}");
-
-        using var detailForm = new ItemDetailForm(selectedItem, _itemIndexService, _currentTheme);
-        detailForm.ShowDialog(this);
-    }
+    #region Search History
 
     private void UpdateSearchHistoryPanel()
     {
-        Debug.WriteLine($"[Form1] UpdateSearchHistoryPanel: _dealSearchHistory count = {_dealSearchHistory?.Count ?? -1}");
+        Debug.WriteLine($"[DealTabController] UpdateSearchHistoryPanel: _dealSearchHistory count = {_dealSearchHistory?.Count ?? -1}");
         if (_pnlSearchHistory == null) return;
 
         // Keep only the title label, remove all history buttons
@@ -679,19 +837,19 @@ public partial class Form1
             {
                 Text = term,
                 AutoSize = true,
-                ForeColor = ThemeAccent,
+                ForeColor = _colors.Accent,
                 Cursor = Cursors.Hand,
                 Margin = new Padding(0, 3, 10, 0),
-                Tag = ("SearchHistoryLink", term)  // Tuple tag to identify as search history link
+                Tag = ("SearchHistoryLink", term)
             };
-            btn.Click += (s, e) =>
+            btn.Click += async (s, e) =>
             {
                 if (s is Label lbl && lbl.Tag is (string _, string searchTerm))
                 {
-                    _autoCompleteDropdown?.Hide();  // Hide dropdown BEFORE setting text
+                    _autoCompleteDropdown?.Hide();
                     _txtDealSearch.Text = searchTerm;
-                    _autoCompleteDropdown?.Hide();  // Hide again AFTER to stop any triggered timer
-                    BtnDealSearch_Click(s, e);
+                    _autoCompleteDropdown?.Hide();
+                    await SearchAsync();
                 }
             };
             // Hover effect
@@ -727,21 +885,54 @@ public partial class Form1
             _dealSearchHistory.RemoveAt(_dealSearchHistory.Count - 1);
         }
 
-        // Update UI and save
+        // Update UI
         UpdateSearchHistoryPanel();
-        SaveSettings();
+
+        // Notify parent to save settings
+        SearchHistoryChanged?.Invoke(this, _dealSearchHistory);
 
         // Add to autocomplete source if not already present
-        if (!_autoCompleteItems.Contains(searchTerm))
+        if (_autoCompleteItems != null && !_autoCompleteItems.Contains(searchTerm))
         {
             _autoCompleteItems.Insert(0, searchTerm);
             _autoCompleteDropdown?.SetDataSource(_autoCompleteItems);
         }
     }
 
-    /// <summary>
-    /// Context menu handler: Add selected deal item to monitoring list
-    /// </summary>
+    #endregion
+
+    #region Grid Events
+
+    private void DgvDeals_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
+    {
+        if (e.CellStyle == null || e.RowIndex < 0) return;
+
+        var columnName = _dgvDeals.Columns[e.ColumnIndex].Name;
+
+        // Deal type color
+        if (columnName == "DealTypeDisplay" && e.Value != null)
+        {
+            var value = e.Value.ToString();
+            if (value == "판매")
+                e.CellStyle.ForeColor = _colors.SaleColor;
+            else if (value == "구매")
+                e.CellStyle.ForeColor = _colors.BuyColor;
+        }
+    }
+
+    private void DgvDeals_CellDoubleClick(object? sender, DataGridViewCellEventArgs e)
+    {
+        if (e.RowIndex < 0) return;
+
+        var dataSource = _dealBindingSource.DataSource as List<DealItem>;
+        if (dataSource == null || e.RowIndex >= dataSource.Count) return;
+
+        var selectedItem = dataSource[e.RowIndex];
+        Debug.WriteLine($"[DealTabController] Opening detail for: {selectedItem.DisplayName}");
+
+        ShowItemDetail?.Invoke(this, selectedItem);
+    }
+
     private async void DealContextMenu_AddToMonitor(object? sender, EventArgs e)
     {
         var selectedRow = _dgvDeals.CurrentRow;
@@ -751,22 +942,19 @@ public partial class Form1
         if (dataSource == null || selectedRow.Index >= dataSource.Count) return;
 
         var selectedItem = dataSource[selectedRow.Index];
-        // Use DisplayName which includes Grade, Refine, CardSlots (e.g., "[UNIQUE]+11딤반다나[4]")
         var itemName = selectedItem.DisplayName ?? selectedItem.ItemName;
         var serverId = selectedItem.ServerId;
 
-        Debug.WriteLine($"[DealTab] AddToMonitor: DisplayName='{selectedItem.DisplayName}', ItemName='{selectedItem.ItemName}'");
-        Debug.WriteLine($"[DealTab] AddToMonitor: Grade='{selectedItem.Grade}', Refine={selectedItem.Refine}, CardSlots='{selectedItem.CardSlots}'");
-        Debug.WriteLine($"[DealTab] AddToMonitor: Using itemName='{itemName}', serverId={serverId}");
+        Debug.WriteLine($"[DealTabController] AddToMonitor: DisplayName='{selectedItem.DisplayName}', ItemName='{selectedItem.ItemName}'");
+        Debug.WriteLine($"[DealTabController] AddToMonitor: Grade='{selectedItem.Grade}', Refine={selectedItem.Refine}, CardSlots='{selectedItem.CardSlots}'");
+        Debug.WriteLine($"[DealTabController] AddToMonitor: Using itemName='{itemName}', serverId={serverId}");
 
-        // Add to monitoring
         var (success, errorReason) = await _monitoringService.AddItemAsync(itemName, serverId);
 
         if (success)
         {
             _lblDealStatus.Text = $"'{itemName}' 모니터링 목록에 추가됨";
 
-            // If auto-refresh is running on monitor tab, schedule immediate refresh
             if (_monitoringService.Config.RefreshIntervalSeconds > 0)
             {
                 var newItem = _monitoringService.Config.Items
@@ -781,12 +969,152 @@ public partial class Form1
         {
             var message = errorReason switch
             {
-                "limit" => $"모니터링 목록은 최대 {Services.MonitoringService.MaxItemCount}개까지만 등록할 수 있습니다.",
+                "limit" => $"모니터링 목록은 최대 {MonitoringService.MaxItemCountLimit}개까지만 등록할 수 있습니다.",
                 "duplicate" => "이미 등록된 아이템입니다.",
                 _ => "아이템을 추가할 수 없습니다."
             };
             MessageBox.Show(message, "모니터링 추가", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
+    }
+
+    #endregion
+
+    #region Theme & Font
+
+    /// <inheritdoc/>
+    public override void ApplyTheme(ThemeColors colors)
+    {
+        base.ApplyTheme(colors);
+
+        // Update status label
+        if (_lblDealStatus != null)
+        {
+            _lblDealStatus.BackColor = colors.Panel;
+            _lblDealStatus.ForeColor = colors.Text;
+        }
+
+        // Update DataGridView
+        if (_dgvDeals != null)
+        {
+            ApplyDataGridViewStyle(_dgvDeals);
+        }
+
+        // Update pagination buttons
+        if (_btnDealPrev != null) ApplyRoundedButtonStyle(_btnDealPrev, false);
+        if (_btnDealNext != null) ApplyRoundedButtonStyle(_btnDealNext, false);
+        if (_lblDealPage != null) _lblDealPage.ForeColor = colors.Text;
+
+        // Update search history panel
+        if (_pnlSearchHistory != null)
+        {
+            _pnlSearchHistory.BackColor = colors.Panel;
+            foreach (Control ctrl in _pnlSearchHistory.Controls)
+            {
+                if (ctrl is Label lbl)
+                {
+                    if (lbl.Tag is ValueTuple<string, string> tag && tag.Item1 == "SearchHistoryLink")
+                    {
+                        lbl.ForeColor = colors.Accent;
+                    }
+                    else
+                    {
+                        lbl.ForeColor = colors.TextMuted;
+                    }
+                }
+            }
+        }
+    }
+
+    /// <inheritdoc/>
+    public override void UpdateFontSize(float baseFontSize)
+    {
+        base.UpdateFontSize(baseFontSize);
+
+        // Update DataGridView fonts
+        if (_dgvDeals != null)
+        {
+            _dgvDeals.DefaultCellStyle.Font = new Font("Malgun Gothic", baseFontSize);
+            _dgvDeals.ColumnHeadersDefaultCellStyle.Font = new Font("Malgun Gothic", baseFontSize, FontStyle.Bold);
+        }
+
+        // Update status label
+        if (_lblDealStatus != null)
+        {
+            _lblDealStatus.Font = new Font("Malgun Gothic", baseFontSize);
+        }
+
+        // Update page label
+        if (_lblDealPage != null)
+        {
+            _lblDealPage.Font = new Font("Malgun Gothic", baseFontSize);
+        }
+    }
+
+    #endregion
+
+    #region Rate Limit UI
+
+    /// <summary>
+    /// Update UI based on rate limit state
+    /// </summary>
+    public void UpdateRateLimitUI(bool isRateLimited)
+    {
+        _btnDealSearchToolStrip.Enabled = !isRateLimited;
+        _txtDealSearch.Enabled = !isRateLimited;
+        _cboDealServer.Enabled = !isRateLimited;
+        _btnDealPrev.Enabled = !isRateLimited && _dealCurrentPage > 1;
+        _btnDealNext.Enabled = !isRateLimited && _hasMorePages;
+
+        // Update search history links
+        if (_pnlSearchHistory != null)
+        {
+            foreach (Control ctrl in _pnlSearchHistory.Controls)
+            {
+                if (ctrl is Label lbl && lbl.Tag is ValueTuple<string, string> tag && tag.Item1 == "SearchHistoryLink")
+                {
+                    lbl.Enabled = !isRateLimited;
+                    lbl.ForeColor = isRateLimited ? _colors.TextMuted : _colors.Accent;
+                    lbl.Cursor = isRateLimited ? Cursors.Default : Cursors.Hand;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Show rate limit message in status bar
+    /// </summary>
+    public void ShowRateLimitStatus(string message)
+    {
+        _lblDealStatus.Text = message;
+        _lblDealStatus.ForeColor = _colors.SaleColor;
+    }
+
+    /// <summary>
+    /// Clear rate limit status message
+    /// </summary>
+    public void ClearRateLimitStatus()
+    {
+        _lblDealStatus.Text = "검색어를 입력하고 [검색] 버튼을 클릭하세요.";
+        _lblDealStatus.ForeColor = _colors.Text;
+    }
+
+    #endregion
+
+    #region Dispose
+
+    protected override void Dispose(bool disposing)
+    {
+        if (_disposed) return;
+
+        if (disposing)
+        {
+            _cts?.Cancel();
+            _cts?.Dispose();
+            _dealBindingSource?.Dispose();
+            _dgvDeals?.Dispose();
+        }
+
+        base.Dispose(disposing);
     }
 
     #endregion

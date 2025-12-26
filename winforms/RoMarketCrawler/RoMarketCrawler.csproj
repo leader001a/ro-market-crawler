@@ -23,6 +23,7 @@
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <PublishDir>bin\publish\</PublishDir>
 
     <!-- Application Icon -->
     <ApplicationIcon>app.ico</ApplicationIcon>
@@ -30,6 +31,8 @@
 
   <ItemGroup>
     <PackageReference Include="HtmlAgilityPack" Version="1.12.4" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.1" />
     <PackageReference Include="NAudio" Version="2.2.1" />
   </ItemGroup>
 

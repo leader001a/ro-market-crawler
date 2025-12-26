@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using RoMarketCrawler.Interfaces;
 using RoMarketCrawler.Models;
 
 namespace RoMarketCrawler.Services;
@@ -8,7 +9,7 @@ namespace RoMarketCrawler.Services;
 /// Service for managing the complete item index from kafra.kr API
 /// Provides efficient name-to-ID lookup and data integrity management
 /// </summary>
-public class ItemIndexService : IDisposable
+public class ItemIndexService : IItemIndexService
 {
     private readonly HttpClient _httpClient;
     private readonly string _cacheFilePath;
@@ -180,25 +181,37 @@ public class ItemIndexService : IDisposable
                 return false;
             }
 
-            // Apply to in-memory index
-            lock (_indexLock)
+            progress?.Report(new IndexProgress
             {
-                _itemsById = newItems;
-                _metadata = newMetadata;
-                _idByScreenName.Clear();
+                Phase = "인덱스 저장 중...",
+                ItemsCollected = newItems.Count
+            });
 
-                foreach (var item in _itemsById.Values)
+            // Run index building and saving on background thread to avoid UI freezing
+            await Task.Run(async () =>
+            {
+                // Build name lookup dictionary
+                var newIdByScreenName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                foreach (var item in newItems.Values)
                 {
                     if (!string.IsNullOrEmpty(item.ScreenName))
                     {
-                        _idByScreenName[item.ScreenName] = item.Id;
+                        newIdByScreenName[item.ScreenName] = item.Id;
                     }
                 }
 
-                _isLoaded = true;
-            }
+                // Apply to in-memory index
+                lock (_indexLock)
+                {
+                    _itemsById = newItems;
+                    _metadata = newMetadata;
+                    _idByScreenName = newIdByScreenName;
+                    _isLoaded = true;
+                }
 
-            await SaveToCacheAsync();
+                // Save to cache file
+                await SaveToCacheAsync().ConfigureAwait(false);
+            }).ConfigureAwait(false);
 
             stopwatch.Stop();
             Debug.WriteLine($"[ItemIndexService] Index rebuilt: {newItems.Count} items in {stopwatch.Elapsed.TotalSeconds:F1}s");
@@ -524,6 +537,7 @@ public class ItemIndexService : IDisposable
         try
         {
             // Convert int keys to string keys for JSON serialization
+            // Note: This runs on background thread when called from RebuildIndexAsync's Task.Run
             var stringKeyItems = new Dictionary<string, KafraItemDto>();
             foreach (var kvp in _itemsById)
             {
@@ -542,7 +556,7 @@ public class ItemIndexService : IDisposable
                 Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
             });
 
-            await File.WriteAllTextAsync(_cacheFilePath, json);
+            await File.WriteAllTextAsync(_cacheFilePath, json).ConfigureAwait(false);
             Debug.WriteLine($"[ItemIndexService] Saved cache: {_cacheFilePath}");
         }
         catch (Exception ex)

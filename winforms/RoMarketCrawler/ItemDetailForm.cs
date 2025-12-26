@@ -22,16 +22,12 @@ public class ItemDetailForm : Form
 
     private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
 
-    // Static counter for staggered popup positioning
-    private static int _popupOffsetCounter = 0;
-    private const int OffsetStep = 30;
-    private const int MaxOffsetSteps = 8;
-
     private readonly DealItem _item;
     private readonly ItemIndexService? _itemIndexService;
     private readonly HttpClient _imageClient;
     private readonly string _imageCacheDir;
     private readonly ThemeType _theme;
+    private readonly float _baseFontSize;
 
     // Theme colors (set dynamically based on theme)
     private Color ThemeBackground;
@@ -54,11 +50,12 @@ public class ItemDetailForm : Form
     private RichTextBox _rtbSlotInfo = null!;
     private RichTextBox _rtbRandomOptions = null!;
 
-    public ItemDetailForm(DealItem item, ItemIndexService? itemIndexService = null, ThemeType theme = ThemeType.Dark)
+    public ItemDetailForm(DealItem item, ItemIndexService? itemIndexService = null, ThemeType theme = ThemeType.Dark, float baseFontSize = 12f)
     {
         _item = item;
         _itemIndexService = itemIndexService;
         _theme = theme;
+        _baseFontSize = baseFontSize;
         _imageClient = new HttpClient();
         _imageClient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0");
         _imageClient.DefaultRequestHeaders.Referrer = new Uri("https://ro.gnjoy.com/");
@@ -157,7 +154,7 @@ public class ItemDetailForm : Form
     {
         Text = "아이템 상세정보";
         Size = new Size(1050, 650);
-        StartPosition = FormStartPosition.Manual;
+        StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.Sizable;
         MaximizeBox = true;
         MinimizeBox = false;
@@ -166,9 +163,6 @@ public class ItemDetailForm : Form
         ForeColor = ThemeText;
         ShowIcon = true;
         LoadTitleBarIcon();
-
-        // Center on current monitor
-        Load += (s, e) => CenterOnCurrentScreen();
 
         // Main layout: Header | Content | Random Options
         var mainPanel = new TableLayoutPanel
@@ -222,7 +216,7 @@ public class ItemDetailForm : Form
         _lblItemName = new Label
         {
             Text = _item.DisplayName ?? _item.ItemName,
-            Font = new Font("Malgun Gothic", 14, FontStyle.Bold),
+            Font = new Font("Malgun Gothic", _baseFontSize + 2, FontStyle.Bold),
             ForeColor = ThemeTextHighlight,
             AutoSize = false,
             Location = new Point(0, 0),
@@ -234,7 +228,7 @@ public class ItemDetailForm : Form
         _lblBasicInfo = new Label
         {
             Text = BuildBasicInfoText(),
-            Font = new Font("Malgun Gothic", 9),
+            Font = new Font("Malgun Gothic", _baseFontSize),
             ForeColor = ThemeTextMuted,
             AutoSize = false,
             Location = new Point(0, 32),
@@ -268,7 +262,7 @@ public class ItemDetailForm : Form
         var descTitle = new Label
         {
             Text = "아이템 설명",
-            Font = new Font("Malgun Gothic", 10, FontStyle.Bold),
+            Font = new Font("Malgun Gothic", _baseFontSize, FontStyle.Bold),
             ForeColor = ThemeText,
             Location = new Point(15, 12),
             AutoSize = true
@@ -292,7 +286,7 @@ public class ItemDetailForm : Form
         var slotTitle = new Label
         {
             Text = "인챈트/카드 효과",
-            Font = new Font("Malgun Gothic", 10, FontStyle.Bold),
+            Font = new Font("Malgun Gothic", _baseFontSize, FontStyle.Bold),
             ForeColor = ThemeText,
             Location = new Point(15, 12),
             AutoSize = true
@@ -318,7 +312,7 @@ public class ItemDetailForm : Form
         var optionsTitle = new Label
         {
             Text = "랜덤 옵션",
-            Font = new Font("Malgun Gothic", 10, FontStyle.Bold),
+            Font = new Font("Malgun Gothic", _baseFontSize, FontStyle.Bold),
             ForeColor = ThemeText,
             Location = new Point(15, 12),
             AutoSize = true
@@ -355,7 +349,7 @@ public class ItemDetailForm : Form
         {
             BackColor = ThemeCard,
             ForeColor = ThemeText,
-            Font = new Font("Malgun Gothic", 9.5f),
+            Font = new Font("Malgun Gothic", _baseFontSize),
             BorderStyle = BorderStyle.None,
             ReadOnly = true,
             ScrollBars = RichTextBoxScrollBars.Vertical
@@ -703,25 +697,6 @@ public class ItemDetailForm : Form
         {
             Debug.WriteLine($"[ItemDetailForm] Failed to load icon: {ex.Message}");
         }
-    }
-
-    private void CenterOnCurrentScreen()
-    {
-        var screen = Screen.FromPoint(Cursor.Position);
-        var workingArea = screen.WorkingArea;
-
-        // Apply staggered offset for multiple popups
-        var offset = (_popupOffsetCounter % MaxOffsetSteps) * OffsetStep;
-        _popupOffsetCounter++;
-
-        var x = workingArea.Left + (workingArea.Width - Width) / 2 + offset;
-        var y = workingArea.Top + (workingArea.Height - Height) / 2 + offset;
-
-        // Ensure popup stays within screen bounds
-        x = Math.Min(x, workingArea.Right - Width);
-        y = Math.Min(y, workingArea.Bottom - Height);
-
-        Location = new Point(x, y);
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)

@@ -25,6 +25,7 @@ public class ItemInfoForm : Form
     private readonly HttpClient _imageClient;
     private readonly string _imageCacheDir;
     private readonly ThemeType _theme;
+    private readonly float _baseFontSize;
 
     /// <summary>
     /// Item ID for this popup (used to detect duplicate popups)
@@ -44,11 +45,12 @@ public class ItemInfoForm : Form
     private Label _lblBasicInfo = null!;
     private RichTextBox _rtbItemDesc = null!;
 
-    public ItemInfoForm(KafraItem item, ItemIndexService? itemIndexService = null, ThemeType theme = ThemeType.Dark)
+    public ItemInfoForm(KafraItem item, ItemIndexService? itemIndexService = null, ThemeType theme = ThemeType.Dark, float baseFontSize = 12f)
     {
         _item = item;
         _itemIndexService = itemIndexService;
         _theme = theme;
+        _baseFontSize = baseFontSize;
         _imageClient = new HttpClient();
         _imageClient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0");
 
@@ -102,10 +104,9 @@ public class ItemInfoForm : Form
         Size = new Size(baseWidth, 400); // Initial height, will be adjusted
         StartPosition = FormStartPosition.Manual;
         FormBorderStyle = FormBorderStyle.Sizable;
-        MaximizeBox = false;
-        MinimizeBox = false;
+        MaximizeBox = true;
+        MinimizeBox = true;
         MinimumSize = new Size(330, 300);
-        MaximumSize = new Size(500, 750); // Limit max size
         BackColor = ThemeBackground;
         ForeColor = ThemeText;
         ShowIcon = true;
@@ -162,7 +163,7 @@ public class ItemInfoForm : Form
         _lblItemName = new Label
         {
             Text = _item.ScreenName ?? _item.Name ?? $"Item {_item.ItemConst}",
-            Font = new Font("Malgun Gothic", 12, FontStyle.Bold),
+            Font = new Font("Malgun Gothic", _baseFontSize, FontStyle.Bold),
             ForeColor = ThemeTextHighlight,
             AutoSize = false,
             Dock = DockStyle.Top,
@@ -173,7 +174,7 @@ public class ItemInfoForm : Form
         _lblBasicInfo = new Label
         {
             Text = BuildBasicInfoText(),
-            Font = new Font("Malgun Gothic", 9),
+            Font = new Font("Malgun Gothic", _baseFontSize),
             ForeColor = ThemeTextMuted,
             AutoSize = false,
             Dock = DockStyle.Fill
@@ -197,7 +198,7 @@ public class ItemInfoForm : Form
         var descTitle = new Label
         {
             Text = "아이템 설명",
-            Font = new Font("Malgun Gothic", 10, FontStyle.Bold),
+            Font = new Font("Malgun Gothic", _baseFontSize, FontStyle.Bold),
             ForeColor = ThemeText,
             Dock = DockStyle.Top,
             Height = 25
@@ -208,7 +209,7 @@ public class ItemInfoForm : Form
         {
             BackColor = ThemeCard,
             ForeColor = ThemeText,
-            Font = new Font("Malgun Gothic", 9.5f),
+            Font = new Font("Malgun Gothic", _baseFontSize),
             BorderStyle = BorderStyle.None,
             ReadOnly = true,
             Dock = DockStyle.Fill,

@@ -186,26 +186,32 @@ public class IndexProgressDialog : Form
         // Show the dialog non-blocking
         Show(owner);
 
+        bool success = false;
         try
         {
             var progress = new Progress<IndexProgress>(p =>
             {
-                if (!IsDisposed)
+                if (!IsDisposed && IsHandleCreated)
                 {
-                    UpdateProgressUI(p);
+                    try
+                    {
+                        if (InvokeRequired)
+                            BeginInvoke(() => UpdateProgressUI(p));
+                        else
+                            UpdateProgressUI(p);
+                    }
+                    catch { }
                 }
             });
 
-            var success = await indexService.RebuildIndexAsync(progress, _cts.Token);
+            success = await indexService.RebuildIndexAsync(progress, _cts.Token).ConfigureAwait(false);
 
             if (success)
             {
                 _totalCount = indexService.TotalCount;
-                _isComplete = true;
-                return true;
             }
 
-            return false;
+            return success;
         }
         catch (OperationCanceledException)
         {
@@ -216,18 +222,39 @@ public class IndexProgressDialog : Form
         catch (Exception ex)
         {
             Debug.WriteLine($"[IndexProgressDialog] Error: {ex.Message}");
-            MessageBox.Show(
-                $"인덱스 생성 중 오류가 발생했습니다.\n\n{ex.Message}",
-                "오류",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Error);
+            if (IsHandleCreated && !IsDisposed)
+            {
+                BeginInvoke(() =>
+                {
+                    MessageBox.Show(
+                        $"인덱스 생성 중 오류가 발생했습니다.\n\n{ex.Message}",
+                        "오류",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+                });
+            }
             return false;
         }
         finally
         {
             _cts?.Dispose();
             _cts = null;
-            Close();
+
+            // Mark as complete to allow FormClosing
+            _isComplete = success;
+            if (!_isCancelled && !success)
+            {
+                _isComplete = true; // Allow closing even on failure
+            }
+
+            // Close on UI thread
+            if (IsHandleCreated && !IsDisposed)
+            {
+                if (InvokeRequired)
+                    BeginInvoke(() => { if (!IsDisposed) Close(); });
+                else
+                    Close();
+            }
         }
     }
 

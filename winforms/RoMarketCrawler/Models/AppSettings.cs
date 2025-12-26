@@ -1,6 +1,9 @@
 namespace RoMarketCrawler.Models;
 
-internal class AppSettings
+/// <summary>
+/// Application settings model for JSON serialization
+/// </summary>
+public class AppSettings
 {
     public float FontSize { get; set; } = 12f;
     public ThemeType Theme { get; set; } = ThemeType.Dark;
