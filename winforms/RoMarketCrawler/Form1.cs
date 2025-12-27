@@ -183,7 +183,11 @@ public partial class Form1 : Form
         var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
         Text = $"RO Market Crawler - v{version?.Major}.{version?.Minor}.{version?.Build}";
         Size = new Size(1400, 800);
-        StartPosition = FormStartPosition.CenterScreen;
+        StartPosition = FormStartPosition.Manual;
+        // Start maximized on the screen where the mouse cursor is
+        var currentScreen = Screen.FromPoint(Cursor.Position);
+        Location = currentScreen.WorkingArea.Location;
+        WindowState = FormWindowState.Maximized;
         BackColor = ThemeBackground;
         ForeColor = ThemeText;
 
@@ -910,7 +914,7 @@ public partial class Form1 : Form
     private void ChangeFontSize(float delta)
     {
         var newSize = _baseFontSize + delta;
-        if (newSize >= 8f && newSize <= 16f)
+        if (newSize >= 8f && newSize <= 14f)
         {
             SetFontSize(newSize);
         }

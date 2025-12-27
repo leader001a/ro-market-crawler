@@ -53,6 +53,7 @@ public class ItemInfoForm : Form
         _baseFontSize = baseFontSize;
         _imageClient = new HttpClient();
         _imageClient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0");
+        _imageClient.DefaultRequestHeaders.Referrer = new Uri("https://ro.gnjoy.com/");
 
         var dataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RoMarketCrawler");
         _imageCacheDir = Path.Combine(dataDir, "ItemImages");
@@ -115,6 +116,12 @@ public class ItemInfoForm : Form
         // Center on current monitor
         Load += (s, e) => CenterOnCurrentScreen();
 
+        var scale = _baseFontSize / 12f;
+        // Header needs: name (30) + 4 lines of basicInfo (~90) + padding (30) = ~150 base, increase for safety
+        var headerHeight = (int)(180 * scale);
+        var nameHeight = (int)(30 * scale);
+        var imageHeight = (int)(100 * scale);
+
         var mainPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -123,7 +130,7 @@ public class ItemInfoForm : Form
             Padding = new Padding(15),
             BackColor = ThemeBackground
         };
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 130)); // Header
+        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, headerHeight)); // Header
         mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));  // Description
 
         // Header card
@@ -141,15 +148,18 @@ public class ItemInfoForm : Form
             RowCount = 1,
             BackColor = Color.Transparent
         };
-        headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
+        headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, (int)(100 * scale)));
         headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        // Force row to take full available height
+        headerLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
         _picItem = new PictureBox
         {
-            Size = new Size(80, 100),
+            Size = new Size((int)(80 * scale), imageHeight),
             SizeMode = PictureBoxSizeMode.Zoom,
             BackColor = ThemeCard,
-            Margin = new Padding(5)
+            Margin = new Padding(5),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left
         };
         headerLayout.Controls.Add(_picItem, 0, 0);
 
@@ -157,7 +167,7 @@ public class ItemInfoForm : Form
         {
             Dock = DockStyle.Fill,
             BackColor = Color.Transparent,
-            Padding = new Padding(5)
+            Padding = new Padding(0)
         };
 
         _lblItemName = new Label
@@ -167,14 +177,14 @@ public class ItemInfoForm : Form
             ForeColor = ThemeTextHighlight,
             AutoSize = false,
             Dock = DockStyle.Top,
-            Height = 28
+            Height = nameHeight
         };
         infoPanel.Controls.Add(_lblItemName);
 
         _lblBasicInfo = new Label
         {
             Text = BuildBasicInfoText(),
-            Font = new Font("Malgun Gothic", _baseFontSize),
+            Font = new Font("Malgun Gothic", _baseFontSize - 1),  // Slightly smaller for basic info
             ForeColor = ThemeTextMuted,
             AutoSize = false,
             Dock = DockStyle.Fill
@@ -242,8 +252,9 @@ public class ItemInfoForm : Form
     /// </summary>
     private void AdjustFormHeightToContent()
     {
-        const int minHeight = 350;
-        const int maxHeight = 750;
+        var scale = _baseFontSize / 12f;
+        var minHeight = (int)(350 * scale);
+        var maxHeight = (int)(750 * scale);
 
         try
         {
@@ -256,17 +267,19 @@ public class ItemInfoForm : Form
                 // Get position of last character
                 var lastCharPos = _rtbItemDesc.GetPositionFromCharIndex(textLength - 1);
                 // Add extra line height for safety margin
-                contentHeight = lastCharPos.Y + 60;
+                contentHeight = lastCharPos.Y + (int)(60 * scale);
             }
             else
             {
-                contentHeight = 50; // Minimum for empty text
+                contentHeight = (int)(50 * scale); // Minimum for empty text
             }
 
-            // Calculate total required height:
-            // Title bar (~35) + Padding top (15) + Header card (130) + Gap (10) +
+            // Calculate total required height (all values scaled):
+            // Title bar (~35) + Padding top (15) + Header card (180) + Gap (10) +
             // Desc card padding (10) + Desc title (25) + Content height + Padding bottom (15)
-            var requiredHeight = 35 + 15 + 130 + 10 + 10 + 25 + contentHeight + 25;
+            var headerHeight = (int)(180 * scale);
+            var requiredHeight = 35 + (int)(15 * scale) + headerHeight + (int)(10 * scale) +
+                                (int)(10 * scale) + (int)(25 * scale) + contentHeight + (int)(25 * scale);
 
             // Clamp to min/max
             var newHeight = Math.Clamp(requiredHeight, minHeight, maxHeight);
@@ -276,8 +289,8 @@ public class ItemInfoForm : Form
         }
         catch
         {
-            // Fallback: use reasonable default
-            Height = 450;
+            // Fallback: use reasonable default scaled
+            Height = (int)(500 * scale);
         }
     }
 
@@ -304,6 +317,11 @@ public class ItemInfoForm : Form
             var equipJobs = _item.EquipJobsText.Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", Environment.NewLine);
             _rtbItemDesc.AppendText(equipJobs);
         }
+
+        // Reset cursor to beginning and scroll to top
+        _rtbItemDesc.SelectionStart = 0;
+        _rtbItemDesc.SelectionLength = 0;
+        _rtbItemDesc.ScrollToCaret();
     }
 
     private async Task LoadImageAsync()
@@ -313,22 +331,21 @@ public class ItemInfoForm : Form
             byte[]? imageBytes = null;
             var cacheFilePath = Path.Combine(_imageCacheDir, $"{_item.ItemConst}_col.png");
 
-            // Check cache
+            // 1. Check local cache first
             if (File.Exists(cacheFilePath))
             {
                 imageBytes = await File.ReadAllBytesAsync(cacheFilePath);
             }
 
-            // Try kafra.kr
-            if (imageBytes == null && !string.IsNullOrEmpty(_item.Name))
+            // 2. Try GNJOY image URL (most reliable source)
+            if (imageBytes == null)
             {
                 try
                 {
-                    var encodedName = Uri.EscapeDataString(_item.Name);
-                    var kafraUrl = $"http://static.kafra.kr/kro/data/texture/%EC%9C%A0%EC%A0%80%EC%9D%B8%ED%84%B0%ED%8E%98%EC%9D%B4%EC%8A%A4/collection/png/{encodedName}.png";
-                    imageBytes = await _imageClient.GetByteArrayAsync(kafraUrl);
+                    var gnjoyUrl = $"https://imgc1.gnjoy.com/games/ro1/object/201306/{_item.ItemConst}.png";
+                    imageBytes = await _imageClient.GetByteArrayAsync(gnjoyUrl);
 
-                    // Cache it
+                    // Save to cache
                     _ = Task.Run(async () =>
                     {
                         try { await File.WriteAllBytesAsync(cacheFilePath, imageBytes); }
@@ -338,7 +355,36 @@ public class ItemInfoForm : Form
                 catch { }
             }
 
-            // Fallback: old cache
+            // 3. Fallback: Try kafra.kr with internal item name
+            if (imageBytes == null)
+            {
+                string? itemInternalName = _item.Name;
+                if (string.IsNullOrEmpty(itemInternalName) && _itemIndexService?.IsLoaded == true)
+                {
+                    var cachedItem = _itemIndexService.GetItemById(_item.ItemConst);
+                    itemInternalName = cachedItem?.Name;
+                }
+
+                if (!string.IsNullOrEmpty(itemInternalName))
+                {
+                    try
+                    {
+                        var encodedName = Uri.EscapeDataString(itemInternalName);
+                        var kafraUrl = $"http://static.kafra.kr/kro/data/texture/%EC%9C%A0%EC%A0%80%EC%9D%B8%ED%84%B0%ED%8E%98%EC%9D%B4%EC%8A%A4/collection/png/{encodedName}.png";
+                        imageBytes = await _imageClient.GetByteArrayAsync(kafraUrl);
+
+                        // Save to cache
+                        _ = Task.Run(async () =>
+                        {
+                            try { await File.WriteAllBytesAsync(cacheFilePath, imageBytes); }
+                            catch { }
+                        });
+                    }
+                    catch { }
+                }
+            }
+
+            // 4. Fallback: check old cache format
             if (imageBytes == null)
             {
                 var oldCachePath = Path.Combine(_imageCacheDir, $"{_item.ItemConst}.png");

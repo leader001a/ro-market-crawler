@@ -287,10 +287,11 @@ public abstract class BaseTabController : ITabController
     /// </summary>
     protected Label CreateStatusLabel()
     {
+        var scale = _baseFontSize / 12f;
         var label = new Label
         {
             AutoSize = false,
-            Height = 22,
+            Height = (int)(22 * scale),
             TextAlign = ContentAlignment.MiddleLeft,
             Dock = DockStyle.Bottom,
             BackColor = _colors.Panel,
@@ -300,6 +301,11 @@ public abstract class BaseTabController : ITabController
         };
         return label;
     }
+
+    /// <summary>
+    /// Calculate scaled dimension based on base font size
+    /// </summary>
+    protected int ScaleDimension(int baseDimension) => (int)(baseDimension * _baseFontSize / 12f);
 
     /// <summary>
     /// Apply watermark image to a DataGridView

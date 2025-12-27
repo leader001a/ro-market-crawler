@@ -31,6 +31,7 @@ public class MonitorTabController : BaseTabController
 
     private TextBox _txtMonitorItemName = null!;
     private ComboBox _cboMonitorServer = null!;
+    private ToolStripComboBox _cboServerToolStrip = null!;
     private ToolStripButton _btnMonitorAdd = null!;
     private ToolStripButton _btnMonitorRemove = null!;
     private ToolStripButton _btnMonitorRefresh = null!;
@@ -46,6 +47,10 @@ public class MonitorTabController : BaseTabController
     private ToolStripButton _btnSoundMute = null!;
     private ComboBox _cboAlarmSound = null!;
     private NumericUpDown _nudAlarmInterval = null!;
+    private TableLayoutPanel _mainLayout = null!;
+    private Label _lblWarning = null!;
+    private Label _lblWarning2 = null!;
+    private Label _lblItemListHeader = null!;
 
     #endregion
 
@@ -282,26 +287,28 @@ public class MonitorTabController : BaseTabController
     /// <inheritdoc/>
     public override void Initialize()
     {
-        var mainLayout = new TableLayoutPanel
+        var scale = _baseFontSize / 12f;
+
+        _mainLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
             RowCount = 2,
             Padding = new Padding(8)
         };
-        mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
-        mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        ApplyTableLayoutPanelStyle(mainLayout);
+        _mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, (int)(32 * scale)));
+        _mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        ApplyTableLayoutPanelStyle(_mainLayout);
 
         // Create ToolStrip
         var toolStrip = CreateToolStrip();
-        mainLayout.Controls.Add(toolStrip, 0, 0);
+        _mainLayout.Controls.Add(toolStrip, 0, 0);
 
         // Content layout
         var contentLayout = CreateContentLayout();
-        mainLayout.Controls.Add(contentLayout, 0, 1);
+        _mainLayout.Controls.Add(contentLayout, 0, 1);
 
-        _tabPage.Controls.Add(mainLayout);
+        _tabPage.Controls.Add(_mainLayout);
 
         // Initialize timers
         _monitorTimer = new System.Windows.Forms.Timer { Interval = 30000 };
@@ -318,6 +325,8 @@ public class MonitorTabController : BaseTabController
 
     private ToolStrip CreateToolStrip()
     {
+        var scale = _baseFontSize / 12f;
+
         var toolStrip = new ToolStrip
         {
             Dock = DockStyle.Fill,
@@ -328,19 +337,19 @@ public class MonitorTabController : BaseTabController
         };
         ApplyToolStripRenderer(toolStrip);
 
-        // Server selection
-        var cboServer = new ToolStripComboBox
+        // Server selection - width scales with font size
+        _cboServerToolStrip = new ToolStripComboBox
         {
-            Width = 80,
+            Width = (int)(80 * scale),
             DropDownStyle = ComboBoxStyle.DropDownList,
             BackColor = _colors.Grid,
             ForeColor = _colors.Text
         };
         foreach (var server in Server.GetAllServers())
-            cboServer.Items.Add(server);
-        cboServer.ComboBox.DisplayMember = "Name";
-        cboServer.SelectedIndex = 0;
-        _cboMonitorServer = cboServer.ComboBox;
+            _cboServerToolStrip.Items.Add(server);
+        _cboServerToolStrip.ComboBox.DisplayMember = "Name";
+        _cboServerToolStrip.SelectedIndex = 0;
+        _cboMonitorServer = _cboServerToolStrip.ComboBox;
 
         // Item name input
         var txtItemName = new ToolStripTextBox
@@ -434,7 +443,7 @@ public class MonitorTabController : BaseTabController
         _lblRefreshSetting = new Label { Text = "", Visible = false };
 
         // Add items to toolbar (left side)
-        toolStrip.Items.Add(cboServer);
+        toolStrip.Items.Add(_cboServerToolStrip);
         toolStrip.Items.Add(txtItemName);
         toolStrip.Items.Add(new ToolStripSeparator());
         toolStrip.Items.Add(_btnMonitorAdd);
@@ -478,8 +487,8 @@ public class MonitorTabController : BaseTabController
             RowCount = 1,
             Padding = new Padding(0)
         };
-        contentLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30));
-        contentLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 70));
+        contentLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35));
+        contentLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 65));
         ApplyTableLayoutPanelStyle(contentLayout);
 
         // Left panel: Item list
@@ -495,6 +504,9 @@ public class MonitorTabController : BaseTabController
 
     private Panel CreateLeftPanel()
     {
+        var scale = _baseFontSize / 12f;
+        var warningHeight = (int)(28 * scale);
+
         var leftPanel = new Panel
         {
             Dock = DockStyle.Fill,
@@ -503,13 +515,13 @@ public class MonitorTabController : BaseTabController
             Margin = new Padding(0, 0, 3, 0)
         };
 
-        var lblItemList = new Label
+        _lblItemListHeader = new Label
         {
             Text = $"모니터링 목록 (최대 {MonitoringService.MaxItemCountLimit}개)",
             Dock = DockStyle.Top,
-            Height = 22
+            Height = (int)(22 * scale)
         };
-        ApplyLabelStyle(lblItemList);
+        ApplyLabelStyle(_lblItemListHeader);
 
         _dgvMonitorItems = new DataGridView
         {
@@ -541,37 +553,37 @@ public class MonitorTabController : BaseTabController
         itemsContextMenu.Items.Add(resetItemsColumnsItem);
         _dgvMonitorItems.ContextMenuStrip = itemsContextMenu;
 
-        // Warning labels
+        // Warning labels - use same font size as configured
         var warningColor = _currentTheme == ThemeType.Dark
             ? Color.FromArgb(255, 100, 100)
             : Color.FromArgb(200, 50, 50);
 
-        var lblWarning2 = new Label
+        _lblWarning2 = new Label
         {
             Text = "  예: '빙화 마석' -> 매물이 많아 일부만 조회될 수 있음",
             Dock = DockStyle.Bottom,
-            Height = 16,
+            Height = warningHeight,
             ForeColor = warningColor,
-            Font = new Font("Malgun Gothic", 7.5f),
+            Font = new Font("Malgun Gothic", _baseFontSize),
             TextAlign = ContentAlignment.MiddleLeft,
             Padding = new Padding(2, 0, 0, 0)
         };
 
-        var lblWarning = new Label
+        _lblWarning = new Label
         {
             Text = "* 아이템 이름을 자세히 입력하세요 (최대 30개 노점만 검색)",
             Dock = DockStyle.Bottom,
-            Height = 16,
+            Height = warningHeight,
             ForeColor = warningColor,
-            Font = new Font("Malgun Gothic", 8f),
+            Font = new Font("Malgun Gothic", _baseFontSize),
             TextAlign = ContentAlignment.MiddleLeft,
             Padding = new Padding(2, 0, 0, 0)
         };
 
-        leftPanel.Controls.Add(lblWarning);
-        leftPanel.Controls.Add(lblWarning2);
+        leftPanel.Controls.Add(_lblWarning);
+        leftPanel.Controls.Add(_lblWarning2);
         leftPanel.Controls.Add(_dgvMonitorItems);
-        leftPanel.Controls.Add(lblItemList);
+        leftPanel.Controls.Add(_lblItemListHeader);
 
         return leftPanel;
     }
@@ -622,13 +634,15 @@ public class MonitorTabController : BaseTabController
     {
         _dgvMonitorItems.Columns.Clear();
 
+        // Column widths: 서버15%, 아이템40%, 감시가25%, 상태20%
         _dgvMonitorItems.Columns.Add(new DataGridViewComboBoxColumn
         {
             Name = "ServerId",
             HeaderText = "서버",
             DataPropertyName = "ServerId",
-            Width = 95,
-            MinimumWidth = 80,
+            MinimumWidth = 60,
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
+            FillWeight = 15,
             DataSource = Server.GetAllServers(),
             ValueMember = "Id",
             DisplayMember = "Name",
@@ -642,9 +656,9 @@ public class MonitorTabController : BaseTabController
             Name = "ItemName",
             HeaderText = "아이템",
             DataPropertyName = "ItemName",
-            Width = 150,
             MinimumWidth = 80,
-            AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
+            FillWeight = 40,
             ReadOnly = false
         });
 
@@ -653,8 +667,9 @@ public class MonitorTabController : BaseTabController
             Name = "WatchPrice",
             HeaderText = "감시가",
             DataPropertyName = "WatchPrice",
-            Width = 90,
-            MinimumWidth = 70,
+            MinimumWidth = 60,
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
+            FillWeight = 25,
             DefaultCellStyle = new DataGridViewCellStyle
             {
                 Alignment = DataGridViewContentAlignment.MiddleRight,
@@ -667,8 +682,9 @@ public class MonitorTabController : BaseTabController
         {
             Name = "RefreshStatus",
             HeaderText = "상태",
-            Width = 80,
-            MinimumWidth = 65,
+            MinimumWidth = 50,
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
+            FillWeight = 20,
             ReadOnly = true,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
         });
@@ -678,54 +694,64 @@ public class MonitorTabController : BaseTabController
     {
         _dgvMonitorResults.Columns.Clear();
 
+        // Column widths: 서버10%, 등급8%, 제련5%, 아이템25%, 수량5%, 최저가10%, 어제평균10%, 주간평균10%, %8%, 판정8%
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "ServerName", HeaderText = "서버", Width = 75, MinimumWidth = 60,
+            Name = "ServerName", HeaderText = "서버", MinimumWidth = 50,
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 10,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "Grade", HeaderText = "등급", Width = 65, MinimumWidth = 50,
+            Name = "Grade", HeaderText = "등급", MinimumWidth = 40,
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 8,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "Refine", HeaderText = "제련", Width = 50, MinimumWidth = 45,
+            Name = "Refine", HeaderText = "제련", MinimumWidth = 35,
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 5,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "ItemName", HeaderText = "아이템", Width = 200, MinimumWidth = 100,
-            AutoSizeMode = DataGridViewAutoSizeColumnMode.None
+            Name = "ItemName", HeaderText = "아이템", MinimumWidth = 100,
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 25
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "DealCount", HeaderText = "수량", Width = 50, MinimumWidth = 45,
+            Name = "DealCount", HeaderText = "수량", MinimumWidth = 35,
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 5,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "LowestPrice", HeaderText = "최저가", Width = 95, MinimumWidth = 80,
+            Name = "LowestPrice", HeaderText = "최저가", MinimumWidth = 60,
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 10,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleRight }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "YesterdayAvg", HeaderText = "어제평균", Width = 95, MinimumWidth = 80,
+            Name = "YesterdayAvg", HeaderText = "어제평균", MinimumWidth = 60,
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 10,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleRight }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "WeekAvg", HeaderText = "주간평균", Width = 95, MinimumWidth = 80,
+            Name = "WeekAvg", HeaderText = "주간평균", MinimumWidth = 60,
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 10,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleRight }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "PriceDiff", HeaderText = "%", Width = 55, MinimumWidth = 45,
+            Name = "PriceDiff", HeaderText = "%", MinimumWidth = 35,
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 8,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "Status", HeaderText = "판정", Width = 55, MinimumWidth = 45,
+            Name = "Status", HeaderText = "판정", MinimumWidth = 35,
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 8,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
         });
     }
@@ -737,9 +763,11 @@ public class MonitorTabController : BaseTabController
         var font = new Font("Malgun Gothic", _baseFontSize);
         var smallFont = new Font("Malgun Gothic", _baseFontSize - 1);
 
-        var panelWidth = (int)(260 * scale);
+        var panelWidth = (int)(280 * scale);
         var rowHeight = (int)(32 * scale);
-        var padding = (int)(10 * scale);
+        var padding = (int)(12 * scale);
+        // 2 lines of text need adequate height - base 50px scaled
+        var descriptionHeight = (int)(50 * scale);
 
         var panel = new Panel
         {
@@ -748,17 +776,17 @@ public class MonitorTabController : BaseTabController
 
         var yPos = padding;
 
-        // Description - 2 lines
+        // Description - 2 lines with adequate height
         var lblTitle = new Label
         {
             Text = "설정된 간격마다 모니터링 목록의\n아이템을 자동으로 조회합니다.",
             Location = new Point(padding, yPos),
             AutoSize = false,
-            Size = new Size(panelWidth - padding * 2, (int)(48 * scale)),
+            Size = new Size(panelWidth - padding * 2, descriptionHeight),
             ForeColor = _colors.TextMuted,
             Font = smallFont
         };
-        yPos += lblTitle.Height + (int)(8 * scale);
+        yPos += lblTitle.Height + (int)(10 * scale);
 
         var lblInterval = new Label
         {
@@ -777,7 +805,7 @@ public class MonitorTabController : BaseTabController
             Font = font
         };
         ApplyNumericUpDownStyle(_nudRefreshInterval);
-        yPos += rowHeight + (int)(8 * scale);
+        yPos += rowHeight + (int)(10 * scale);
 
         _btnApplyInterval = new Button
         {
@@ -802,10 +830,14 @@ public class MonitorTabController : BaseTabController
         var font = new Font("Malgun Gothic", _baseFontSize);
         var smallFont = new Font("Malgun Gothic", _baseFontSize - 1);
 
-        var panelWidth = (int)(310 * scale);
+        var panelWidth = (int)(340 * scale);
         var rowHeight = (int)(32 * scale);
-        var padding = (int)(10 * scale);
-        var labelWidth = (int)(80 * scale);
+        var padding = (int)(12 * scale);
+        var labelWidth = (int)(95 * scale);
+        // 2 lines of text need adequate height - base 50px scaled
+        var descriptionHeight = (int)(50 * scale);
+        // 1 line note needs adequate height - base 22px scaled
+        var noteHeight = (int)(22 * scale);
 
         var panel = new Panel
         {
@@ -814,17 +846,17 @@ public class MonitorTabController : BaseTabController
 
         var yPos = padding;
 
-        // Description - 2 lines
+        // Description - 2 lines with adequate height
         var lblTitle = new Label
         {
             Text = "감시가 이하 아이템(득템) 발견 시\n설정된 간격마다 알람을 재생합니다.",
             Location = new Point(padding, yPos),
             AutoSize = false,
-            Size = new Size(panelWidth - padding * 2, (int)(48 * scale)),
+            Size = new Size(panelWidth - padding * 2, descriptionHeight),
             ForeColor = _colors.TextMuted,
             Font = smallFont
         };
-        yPos += lblTitle.Height + (int)(8 * scale);
+        yPos += lblTitle.Height + (int)(10 * scale);
 
         // Sound selection row
         var lblSound = new Label
@@ -865,7 +897,7 @@ public class MonitorTabController : BaseTabController
         };
         ApplyButtonStyle(btnTest, false);
         btnTest.Click += (s, e) => PlayAlarmSound();
-        yPos += rowHeight + (int)(8 * scale);
+        yPos += rowHeight + (int)(10 * scale);
 
         // Interval row
         var lblInterval = new Label
@@ -895,15 +927,15 @@ public class MonitorTabController : BaseTabController
             ForeColor = _colors.Text,
             Font = font
         };
-        yPos += rowHeight + (int)(10 * scale);
+        yPos += rowHeight + (int)(12 * scale);
 
-        // Note
+        // Note with adequate height
         var lblNote = new Label
         {
             Text = "* 음소거 버튼으로 알람을 끌 수 있습니다.",
             Location = new Point(padding, yPos),
             AutoSize = false,
-            Size = new Size(panelWidth - padding * 2, (int)(24 * scale)),
+            Size = new Size(panelWidth - padding * 2, noteHeight),
             ForeColor = _colors.TextMuted,
             Font = smallFont
         };
@@ -1802,23 +1834,25 @@ public class MonitorTabController : BaseTabController
 
     private void ResetMonitorItemsColumnSizes()
     {
+        var scale = _baseFontSize / 12f;
         if (_dgvMonitorItems.Columns["ServerId"] != null)
-            _dgvMonitorItems.Columns["ServerId"].Width = 95;
+            _dgvMonitorItems.Columns["ServerId"].Width = (int)(95 * scale);
         if (_dgvMonitorItems.Columns["ItemName"] != null)
-            _dgvMonitorItems.Columns["ItemName"].Width = 150;
+            _dgvMonitorItems.Columns["ItemName"].Width = (int)(150 * scale);
         if (_dgvMonitorItems.Columns["WatchPrice"] != null)
-            _dgvMonitorItems.Columns["WatchPrice"].Width = 90;
+            _dgvMonitorItems.Columns["WatchPrice"].Width = (int)(90 * scale);
         if (_dgvMonitorItems.Columns["RefreshStatus"] != null)
-            _dgvMonitorItems.Columns["RefreshStatus"].Width = 80;
+            _dgvMonitorItems.Columns["RefreshStatus"].Width = (int)(80 * scale);
     }
 
     private void ResetMonitorResultsColumnSizes()
     {
+        var scale = _baseFontSize / 12f;
         foreach (var (name, width) in new[] { ("ServerName", 75), ("Grade", 65), ("Refine", 50), ("ItemName", 200),
             ("DealCount", 50), ("LowestPrice", 95), ("YesterdayAvg", 95), ("WeekAvg", 95), ("PriceDiff", 55), ("Status", 55) })
         {
             if (_dgvMonitorResults.Columns[name] != null)
-                _dgvMonitorResults.Columns[name].Width = width;
+                _dgvMonitorResults.Columns[name].Width = (int)(width * scale);
         }
     }
 
@@ -2153,6 +2187,9 @@ public class MonitorTabController : BaseTabController
     {
         base.UpdateFontSize(baseFontSize);
 
+        var scale = baseFontSize / 12f;
+        var warningHeight = (int)(28 * scale);
+
         if (_dgvMonitorItems != null)
         {
             _dgvMonitorItems.DefaultCellStyle.Font = new Font("Malgun Gothic", baseFontSize);
@@ -2163,6 +2200,36 @@ public class MonitorTabController : BaseTabController
         {
             _dgvMonitorResults.DefaultCellStyle.Font = new Font("Malgun Gothic", baseFontSize);
             _dgvMonitorResults.ColumnHeadersDefaultCellStyle.Font = new Font("Malgun Gothic", baseFontSize, FontStyle.Bold);
+        }
+
+        // Update server combobox width
+        if (_cboServerToolStrip != null)
+        {
+            _cboServerToolStrip.Width = (int)(80 * scale);
+        }
+
+        // Update main layout row heights
+        if (_mainLayout != null && _mainLayout.RowStyles.Count >= 2)
+        {
+            _mainLayout.RowStyles[0].Height = (int)(32 * scale);  // Toolbar
+        }
+
+        // Update warning labels - use same font size as configured
+        if (_lblWarning != null)
+        {
+            _lblWarning.Font = new Font("Malgun Gothic", baseFontSize);
+            _lblWarning.Height = warningHeight;
+        }
+        if (_lblWarning2 != null)
+        {
+            _lblWarning2.Font = new Font("Malgun Gothic", baseFontSize);
+            _lblWarning2.Height = warningHeight;
+        }
+
+        // Update item list header height
+        if (_lblItemListHeader != null)
+        {
+            _lblItemListHeader.Height = (int)(22 * scale);
         }
 
         // Recreate dropdown panels with new font size

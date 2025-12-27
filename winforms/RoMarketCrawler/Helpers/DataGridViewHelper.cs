@@ -103,7 +103,9 @@ public static class DataGridViewHelper
     /// </summary>
     public static void ApplyTheme(DataGridView dgv, ThemeColors colors)
     {
-        var theme = colors == ThemeColors.Dark ? ThemeType.Dark : ThemeType.Classic;
+        // Use background color comparison instead of reference comparison
+        // (ThemeColors.Dark returns new instance each time)
+        var theme = colors.Background == ThemeColors.Dark.Background ? ThemeType.Dark : ThemeType.Classic;
         ApplyTheme(dgv, theme, colors.Grid, colors.GridAlt, colors.Text, colors.Accent, colors.AccentText, colors.Border);
     }
 

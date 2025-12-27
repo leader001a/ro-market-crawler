@@ -36,6 +36,7 @@ public class DealTabController : BaseTabController
 
     private TextBox _txtDealSearch = null!;
     private ComboBox _cboDealServer = null!;
+    private ToolStripComboBox _cboServerToolStrip = null!;
     private ToolStripButton _btnDealSearchToolStrip = null!;
     private ToolStripButton _btnDealCancelToolStrip = null!;
     private ToolStripProgressBar _progressDealSearch = null!;
@@ -45,6 +46,7 @@ public class DealTabController : BaseTabController
     private RoundedButton _btnDealPrev = null!;
     private RoundedButton _btnDealNext = null!;
     private Label _lblDealPage = null!;
+    private TableLayoutPanel _mainPanel = null!;
 
     #endregion
 
@@ -171,19 +173,21 @@ public class DealTabController : BaseTabController
     /// <inheritdoc/>
     public override void Initialize()
     {
-        var mainPanel = new TableLayoutPanel
+        var scale = _baseFontSize / 12f;
+
+        _mainPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
             RowCount = 5,
             Padding = new Padding(10)
         };
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));   // Row 0: Toolbar
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));    // Row 1: Search history (dynamic)
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));   // Row 2: Results grid
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));   // Row 3: Pagination
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 25));   // Row 4: Status
-        ApplyTableLayoutPanelStyle(mainPanel);
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, (int)(38 * scale)));   // Row 0: Toolbar
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));    // Row 1: Search history (dynamic)
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));   // Row 2: Results grid
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, (int)(50 * scale)));   // Row 3: Pagination
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, (int)(28 * scale)));   // Row 4: Status
+        ApplyTableLayoutPanelStyle(_mainPanel);
 
         // ToolStrip-based toolbar
         var toolStrip = CreateToolStrip();
@@ -201,13 +205,13 @@ public class DealTabController : BaseTabController
         _lblDealStatus = CreateStatusLabel();
         _lblDealStatus.Text = "GNJOY에서 현재 노점 거래를 검색합니다.";
 
-        mainPanel.Controls.Add(toolStrip, 0, 0);
-        mainPanel.Controls.Add(_pnlSearchHistory, 0, 1);
-        mainPanel.Controls.Add(_dgvDeals, 0, 2);
-        mainPanel.Controls.Add(paginationPanel, 0, 3);
-        mainPanel.Controls.Add(_lblDealStatus, 0, 4);
+        _mainPanel.Controls.Add(toolStrip, 0, 0);
+        _mainPanel.Controls.Add(_pnlSearchHistory, 0, 1);
+        _mainPanel.Controls.Add(_dgvDeals, 0, 2);
+        _mainPanel.Controls.Add(paginationPanel, 0, 3);
+        _mainPanel.Controls.Add(_lblDealStatus, 0, 4);
 
-        _tabPage.Controls.Add(mainPanel);
+        _tabPage.Controls.Add(_mainPanel);
 
         // Initial update of search history UI
         UpdateSearchHistoryPanel();
@@ -217,26 +221,28 @@ public class DealTabController : BaseTabController
 
     private ToolStrip CreateToolStrip()
     {
+        var scale = _baseFontSize / 12f;
+
         var toolStrip = new ToolStrip
         {
             GripStyle = ToolStripGripStyle.Hidden,
             BackColor = _colors.Panel
         };
 
-        // Server combo
-        var cboServer = new ToolStripComboBox
+        // Server combo - width scales with font size
+        _cboServerToolStrip = new ToolStripComboBox
         {
             DropDownStyle = ComboBoxStyle.DropDownList,
-            Width = 100,
+            Width = (int)(100 * scale),
             BackColor = _colors.Grid,
             ForeColor = _colors.Text,
             ToolTipText = "서버 선택"
         };
         foreach (var server in Server.GetAllServers())
-            cboServer.Items.Add(server);
-        cboServer.ComboBox.DisplayMember = "Name";
-        cboServer.SelectedIndex = 0;
-        _cboDealServer = cboServer.ComboBox;
+            _cboServerToolStrip.Items.Add(server);
+        _cboServerToolStrip.ComboBox.DisplayMember = "Name";
+        _cboServerToolStrip.SelectedIndex = 0;
+        _cboDealServer = _cboServerToolStrip.ComboBox;
 
         // Search text
         var txtSearch = new ToolStripTextBox
@@ -291,7 +297,7 @@ public class DealTabController : BaseTabController
             Size = new Size(120, 16)
         };
 
-        toolStrip.Items.Add(cboServer);
+        toolStrip.Items.Add(_cboServerToolStrip);
         toolStrip.Items.Add(new ToolStripSeparator());
         toolStrip.Items.Add(txtSearch);
         toolStrip.Items.Add(new ToolStripSeparator());
@@ -390,6 +396,7 @@ public class DealTabController : BaseTabController
 
     private void SetupDealGridColumns(DataGridView dgv)
     {
+        // Column widths: 서버10%, 유형10%, 아이템30%, 카드/인챈트/랜덤옵션20%, 수량10%, 가격10%, 상점명10%
         dgv.Columns.AddRange(new DataGridViewColumn[]
         {
             new DataGridViewTextBoxColumn
@@ -397,9 +404,9 @@ public class DealTabController : BaseTabController
                 Name = "ServerName",
                 HeaderText = "서버",
                 DataPropertyName = "ServerName",
-                Width = 60,
                 MinimumWidth = 50,
-                AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
+                AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
+                FillWeight = 10,
                 DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
             },
             new DataGridViewTextBoxColumn
@@ -407,9 +414,9 @@ public class DealTabController : BaseTabController
                 Name = "DealTypeDisplay",
                 HeaderText = "유형",
                 DataPropertyName = "DealTypeDisplay",
-                Width = 45,
                 MinimumWidth = 40,
-                AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
+                AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
+                FillWeight = 10,
                 DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
             },
             new DataGridViewTextBoxColumn
@@ -417,20 +424,18 @@ public class DealTabController : BaseTabController
                 Name = "DisplayName",
                 HeaderText = "아이템",
                 DataPropertyName = "DisplayName",
-                Width = 200,
-                MinimumWidth = 120,
+                MinimumWidth = 100,
                 AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
-                FillWeight = 150
+                FillWeight = 30
             },
             new DataGridViewTextBoxColumn
             {
                 Name = "SlotAndOptionsDisplay",
                 HeaderText = "카드/인챈트/랜덤옵션",
                 DataPropertyName = "SlotAndOptionsDisplay",
-                Width = 200,
-                MinimumWidth = 120,
+                MinimumWidth = 100,
                 AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
-                FillWeight = 140,
+                FillWeight = 20,
                 DefaultCellStyle = new DataGridViewCellStyle { WrapMode = DataGridViewTriState.True }
             },
             new DataGridViewTextBoxColumn
@@ -438,9 +443,9 @@ public class DealTabController : BaseTabController
                 Name = "Quantity",
                 HeaderText = "수량",
                 DataPropertyName = "Quantity",
-                Width = 45,
                 MinimumWidth = 40,
-                AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
+                AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
+                FillWeight = 10,
                 DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
             },
             new DataGridViewTextBoxColumn
@@ -448,9 +453,9 @@ public class DealTabController : BaseTabController
                 Name = "PriceFormatted",
                 HeaderText = "가격",
                 DataPropertyName = "PriceFormatted",
-                Width = 90,
-                MinimumWidth = 75,
-                AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
+                MinimumWidth = 60,
+                AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
+                FillWeight = 10,
                 DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleRight }
             },
             new DataGridViewTextBoxColumn
@@ -458,10 +463,9 @@ public class DealTabController : BaseTabController
                 Name = "ShopName",
                 HeaderText = "상점명",
                 DataPropertyName = "ShopName",
-                Width = 140,
-                MinimumWidth = 80,
+                MinimumWidth = 60,
                 AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
-                FillWeight = 80
+                FillWeight = 10
             }
         });
     }
@@ -1030,6 +1034,8 @@ public class DealTabController : BaseTabController
     {
         base.UpdateFontSize(baseFontSize);
 
+        var scale = baseFontSize / 12f;
+
         // Update DataGridView fonts
         if (_dgvDeals != null)
         {
@@ -1037,16 +1043,31 @@ public class DealTabController : BaseTabController
             _dgvDeals.ColumnHeadersDefaultCellStyle.Font = new Font("Malgun Gothic", baseFontSize, FontStyle.Bold);
         }
 
-        // Update status label
+        // Update status label height
         if (_lblDealStatus != null)
         {
             _lblDealStatus.Font = new Font("Malgun Gothic", baseFontSize);
+            _lblDealStatus.Height = (int)(22 * scale);
         }
 
         // Update page label
         if (_lblDealPage != null)
         {
             _lblDealPage.Font = new Font("Malgun Gothic", baseFontSize);
+        }
+
+        // Update combobox width
+        if (_cboServerToolStrip != null)
+        {
+            _cboServerToolStrip.Width = (int)(100 * scale);
+        }
+
+        // Update row heights in main panel
+        if (_mainPanel != null && _mainPanel.RowStyles.Count >= 5)
+        {
+            _mainPanel.RowStyles[0].Height = (int)(38 * scale);  // Toolbar
+            _mainPanel.RowStyles[3].Height = (int)(50 * scale);  // Pagination
+            _mainPanel.RowStyles[4].Height = (int)(28 * scale);  // Status
         }
     }
 

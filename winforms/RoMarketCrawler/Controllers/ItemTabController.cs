@@ -29,6 +29,7 @@ public class ItemTabController : BaseTabController
 
     private TextBox _txtItemSearch = null!;
     private ComboBox _cboItemType = null!;
+    private ToolStripComboBox _cboCategoryToolStrip = null!;
     private ToolStripButton _btnItemSearch = null!;
     private CheckBox _chkSearchDescription = null!;
     private ToolStripProgressBar _progressIndex = null!;
@@ -44,6 +45,7 @@ public class ItemTabController : BaseTabController
     private RoundedButton _btnItemPrev = null!;
     private RoundedButton _btnItemNext = null!;
     private Label _lblItemPage = null!;
+    private TableLayoutPanel _mainPanel = null!;
 
     #endregion
 
@@ -55,7 +57,7 @@ public class ItemTabController : BaseTabController
     private readonly Dictionary<string, CheckBox> _subCategoryCheckBoxes = new();
     private readonly Dictionary<string, CheckBox> _jobFilterCheckBoxes = new();
     private readonly List<Form> _openItemInfoForms = new();
-    private readonly HttpClient _imageHttpClient = new();
+    private readonly HttpClient _imageHttpClient;
     private readonly string _imageCacheDir;
     private int _itemCurrentPage = 0;
     private int _itemTotalCount = 0;
@@ -88,8 +90,13 @@ public class ItemTabController : BaseTabController
         _itemIndexService = GetService<IItemIndexService>();
         _itemBindingSource = new BindingSource { DataSource = _itemResults };
 
-        // Initialize image cache directory
-        var dataDir = Path.Combine(AppContext.BaseDirectory, "Data");
+        // Initialize HttpClient with required headers (same as ItemDetailForm)
+        _imageHttpClient = new HttpClient();
+        _imageHttpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0");
+        _imageHttpClient.DefaultRequestHeaders.Referrer = new Uri("https://ro.gnjoy.com/");
+
+        // Initialize image cache directory (use AppData to match ItemInfoForm/ItemDetailForm)
+        var dataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RoMarketCrawler");
         Directory.CreateDirectory(dataDir);
         _imageCacheDir = Path.Combine(dataDir, "ItemImages");
         Directory.CreateDirectory(_imageCacheDir);
@@ -158,19 +165,21 @@ public class ItemTabController : BaseTabController
     /// <inheritdoc/>
     public override void Initialize()
     {
-        var mainPanel = new TableLayoutPanel
+        var scale = _baseFontSize / 12f;
+
+        _mainPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
             RowCount = 5,
             Padding = new Padding(10)
         };
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));   // Row 0: Dropdown + Search
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));        // Row 1: Sub-filters
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));        // Row 2: Job filters
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));    // Row 3: Content
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));    // Row 4: Status bar
-        ApplyTableLayoutPanelStyle(mainPanel);
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, (int)(32 * scale)));   // Row 0: Dropdown + Search
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));        // Row 1: Sub-filters
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));        // Row 2: Job filters
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));    // Row 3: Content
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, Math.Max(26, (int)(30 * scale))));    // Row 4: Status bar
+        ApplyTableLayoutPanelStyle(_mainPanel);
 
         // Row 0: Category dropdown + Search controls
         var row0Panel = CreateSearchToolbar();
@@ -187,30 +196,32 @@ public class ItemTabController : BaseTabController
         // Status bar
         var statusPanel = CreateStatusPanel();
 
-        mainPanel.Controls.Add(row0Panel, 0, 0);
-        mainPanel.Controls.Add(_pnlSubCategories, 0, 1);
-        mainPanel.Controls.Add(_pnlJobFilters, 0, 2);
-        mainPanel.Controls.Add(contentPanel, 0, 3);
-        mainPanel.Controls.Add(statusPanel, 0, 4);
+        _mainPanel.Controls.Add(row0Panel, 0, 0);
+        _mainPanel.Controls.Add(_pnlSubCategories, 0, 1);
+        _mainPanel.Controls.Add(_pnlJobFilters, 0, 2);
+        _mainPanel.Controls.Add(contentPanel, 0, 3);
+        _mainPanel.Controls.Add(statusPanel, 0, 4);
 
-        _tabPage.Controls.Add(mainPanel);
+        _tabPage.Controls.Add(_mainPanel);
     }
 
     #region UI Creation
 
     private ToolStrip CreateSearchToolbar()
     {
+        var scale = _baseFontSize / 12f;
+
         _toolStrip = new ToolStrip
         {
             GripStyle = ToolStripGripStyle.Hidden,
             BackColor = _colors.Panel
         };
 
-        // Category dropdown
-        var cboCategory = new ToolStripComboBox
+        // Category dropdown - width scales with font size
+        _cboCategoryToolStrip = new ToolStripComboBox
         {
             DropDownStyle = ComboBoxStyle.DropDownList,
-            Width = 100,
+            Width = (int)(100 * scale),
             BackColor = _colors.Grid,
             ForeColor = _colors.Text,
             ToolTipText = "카테고리 선택"
@@ -231,10 +242,10 @@ public class ItemTabController : BaseTabController
 
         foreach (var (id, name) in categoryItems)
         {
-            cboCategory.Items.Add(new CategoryItem(id, name));
+            _cboCategoryToolStrip.Items.Add(new CategoryItem(id, name));
         }
-        cboCategory.SelectedIndex = 0;
-        _cboItemType = cboCategory.ComboBox;
+        _cboCategoryToolStrip.SelectedIndex = 0;
+        _cboItemType = _cboCategoryToolStrip.ComboBox;
         _cboItemType.SelectedIndexChanged += CboItemType_SelectedIndexChanged;
 
         // Search textbox
@@ -292,7 +303,7 @@ public class ItemTabController : BaseTabController
             Size = new Size(120, 16)
         };
 
-        _toolStrip.Items.Add(cboCategory);
+        _toolStrip.Items.Add(_cboCategoryToolStrip);
         _toolStrip.Items.Add(new ToolStripSeparator());
         _toolStrip.Items.Add(txtSearch);
         _toolStrip.Items.Add(new ToolStripSeparator());
@@ -492,6 +503,10 @@ public class ItemTabController : BaseTabController
 
     private TableLayoutPanel CreateRightPanel()
     {
+        var scale = _baseFontSize / 12f;
+        // Header needs: name (30) + 4 lines of basicInfo (~90) + padding (30) = ~150 base, increase for safety
+        var headerHeight = (int)(180 * scale);
+
         var rightPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -501,7 +516,7 @@ public class ItemTabController : BaseTabController
             Padding = new Padding(5),
             Margin = new Padding(5, 0, 0, 0)
         };
-        rightPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 135));
+        rightPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, headerHeight));
         rightPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
         // Header card
@@ -517,6 +532,10 @@ public class ItemTabController : BaseTabController
 
     private Panel CreateHeaderCard()
     {
+        var scale = _baseFontSize / 12f;
+        var nameHeight = (int)(30 * scale);
+        var imageSize = (int)(100 * scale);  // Scale image with font size
+
         var headerCard = new Panel
         {
             Dock = DockStyle.Fill,
@@ -532,15 +551,18 @@ public class ItemTabController : BaseTabController
             RowCount = 1,
             BackColor = Color.Transparent
         };
-        headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 90));
+        headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, (int)(90 * scale)));
         headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        // Force row to take full available height
+        headerLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
         _picItemImage = new PictureBox
         {
-            Size = new Size(75, 100),
+            Size = new Size((int)(75 * scale), imageSize),
             SizeMode = PictureBoxSizeMode.Zoom,
             BackColor = _colors.Grid,
-            Margin = new Padding(0, 0, 5, 0)
+            Margin = new Padding(0, 0, 5, 0),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left  // Anchor to top-left
         };
         headerLayout.Controls.Add(_picItemImage, 0, 0);
 
@@ -554,11 +576,11 @@ public class ItemTabController : BaseTabController
         _lblItemName = new Label
         {
             Text = "",
-            Font = new Font("Malgun Gothic", 11, FontStyle.Bold),
+            Font = new Font("Malgun Gothic", _baseFontSize, FontStyle.Bold),
             ForeColor = _colors.LinkColor,
             AutoSize = false,
             Dock = DockStyle.Top,
-            Height = 26,
+            Height = nameHeight,
             TextAlign = ContentAlignment.MiddleLeft
         };
         infoPanel.Controls.Add(_lblItemName);
@@ -566,7 +588,7 @@ public class ItemTabController : BaseTabController
         _lblItemBasicInfo = new Label
         {
             Text = "",
-            Font = new Font("Malgun Gothic", 9),
+            Font = new Font("Malgun Gothic", _baseFontSize - 1),
             ForeColor = _colors.TextMuted,
             AutoSize = false,
             Dock = DockStyle.Fill,
@@ -583,6 +605,9 @@ public class ItemTabController : BaseTabController
 
     private Panel CreateDescriptionCard()
     {
+        var scale = _baseFontSize / 12f;
+        var titleHeight = (int)(24 * scale);
+
         var descCard = new Panel
         {
             Dock = DockStyle.Fill,
@@ -594,10 +619,10 @@ public class ItemTabController : BaseTabController
         var descTitle = new Label
         {
             Text = "아이템 설명",
-            Font = new Font("Malgun Gothic", 10, FontStyle.Bold),
+            Font = new Font("Malgun Gothic", _baseFontSize, FontStyle.Bold),
             ForeColor = _colors.Text,
             Dock = DockStyle.Top,
-            Height = 22
+            Height = titleHeight
         };
         descCard.Controls.Add(descTitle);
 
@@ -605,7 +630,7 @@ public class ItemTabController : BaseTabController
         {
             BackColor = _colors.Grid,
             ForeColor = _colors.Text,
-            Font = new Font("Malgun Gothic", 9.5f),
+            Font = new Font("Malgun Gothic", _baseFontSize),
             BorderStyle = BorderStyle.None,
             ReadOnly = true,
             Dock = DockStyle.Fill,
@@ -624,7 +649,8 @@ public class ItemTabController : BaseTabController
             Dock = DockStyle.Fill,
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = false,
-            BackColor = _colors.Panel
+            BackColor = _colors.Panel,
+            Padding = new Padding(0, 3, 0, 0)  // Top padding for vertical centering
         };
 
         _lblItemStatus = new Label
@@ -632,7 +658,7 @@ public class ItemTabController : BaseTabController
             AutoSize = true,
             TextAlign = ContentAlignment.MiddleLeft,
             Text = "kafra.kr 아이템 데이터베이스에서 검색합니다.",
-            Margin = new Padding(0, 5, 0, 0),
+            Margin = new Padding(0),
             ForeColor = _colors.Text
         };
 
@@ -1019,7 +1045,7 @@ public class ItemTabController : BaseTabController
             _rtbItemDetail.AppendText(equipJobs);
         }
 
-        _ = LoadItemImageAsync(item.ItemConst);
+        _ = LoadItemImageAsync(item.ItemConst, item.Name);
     }
 
     private void DgvItems_CellDoubleClick(object? sender, DataGridViewCellEventArgs e)
@@ -1055,7 +1081,7 @@ public class ItemTabController : BaseTabController
 
     #region Image Loading
 
-    private async Task LoadItemImageAsync(int itemId)
+    private async Task LoadItemImageAsync(int itemId, string? itemName)
     {
         try
         {
@@ -1063,70 +1089,128 @@ public class ItemTabController : BaseTabController
             _picItemImage.Image = null;
 
             byte[]? imageBytes = null;
-            var cacheFilePath = Path.Combine(_imageCacheDir, $"{itemId}_col.png");
 
+            // 1. Check local cache first
+            var cacheFilePath = Path.Combine(_imageCacheDir, $"{itemId}_col.png");
             if (File.Exists(cacheFilePath))
             {
                 imageBytes = await File.ReadAllBytesAsync(cacheFilePath);
+                Debug.WriteLine($"[ItemTabController] Image loaded from cache: {cacheFilePath}");
             }
 
+            // 2. Try GNJOY image URL (most reliable source)
             if (imageBytes == null)
             {
-                string? itemName = null;
-                if (_itemIndexService.IsLoaded)
+                try
+                {
+                    var gnjoyUrl = $"https://imgc1.gnjoy.com/games/ro1/object/201306/{itemId}.png";
+                    Debug.WriteLine($"[ItemTabController] Fetching image from GNJOY: {gnjoyUrl}");
+                    imageBytes = await _imageHttpClient.GetByteArrayAsync(gnjoyUrl);
+
+                    // Save to cache
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await File.WriteAllBytesAsync(cacheFilePath, imageBytes);
+                            Debug.WriteLine($"[ItemTabController] Image cached: {cacheFilePath}");
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"[ItemTabController] Failed to cache image: {ex.Message}");
+                        }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[ItemTabController] Failed to fetch from GNJOY: {ex.Message}");
+                }
+            }
+
+            // 3. Fallback: Try kafra.kr with internal item name
+            if (imageBytes == null)
+            {
+                string? itemInternalName = itemName;
+                if (string.IsNullOrEmpty(itemInternalName) && _itemIndexService?.IsLoaded == true)
                 {
                     var cachedItem = _itemIndexService.GetItemById(itemId);
-                    itemName = cachedItem?.Name;
+                    itemInternalName = cachedItem?.Name;
                 }
 
-                if (!string.IsNullOrEmpty(itemName))
+                if (!string.IsNullOrEmpty(itemInternalName))
                 {
                     try
                     {
-                        var encodedName = Uri.EscapeDataString(itemName);
+                        var encodedName = Uri.EscapeDataString(itemInternalName);
                         var kafraUrl = $"http://static.kafra.kr/kro/data/texture/%EC%9C%A0%EC%A0%80%EC%9D%B8%ED%84%B0%ED%8E%98%EC%9D%B4%EC%8A%A4/collection/png/{encodedName}.png";
+                        Debug.WriteLine($"[ItemTabController] Fetching image from kafra.kr: {kafraUrl}");
                         imageBytes = await _imageHttpClient.GetByteArrayAsync(kafraUrl);
 
+                        // Save to cache
                         _ = Task.Run(async () =>
                         {
-                            try { await File.WriteAllBytesAsync(cacheFilePath, imageBytes); }
-                            catch { }
+                            try
+                            {
+                                await File.WriteAllBytesAsync(cacheFilePath, imageBytes);
+                                Debug.WriteLine($"[ItemTabController] Image cached: {cacheFilePath}");
+                            }
+                            catch (Exception ex)
+                            {
+                                Debug.WriteLine($"[ItemTabController] Failed to cache image: {ex.Message}");
+                            }
                         });
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[ItemTabController] Failed to fetch from kafra.kr: {ex.Message}");
+                    }
                 }
             }
 
+            // 4. Fallback: check old cache format
             if (imageBytes == null)
             {
                 var oldCacheFilePath = Path.Combine(_imageCacheDir, $"{itemId}.png");
                 if (File.Exists(oldCacheFilePath))
                 {
                     imageBytes = await File.ReadAllBytesAsync(oldCacheFilePath);
+                    Debug.WriteLine($"[ItemTabController] Image loaded from old cache: {oldCacheFilePath}");
                 }
             }
 
-            if (imageBytes == null) return;
-
-            using var ms = new MemoryStream(imageBytes);
-            var image = Image.FromStream(ms);
-
-            var currentRow = _dgvItems.CurrentRow;
-            if (!_tabPage.IsDisposed && currentRow != null)
+            if (imageBytes == null)
             {
-                var selectedIndex = currentRow.Index;
-                if (selectedIndex >= 0 && selectedIndex < _itemResults.Count)
+                Debug.WriteLine($"[ItemTabController] No image found for item {itemId} ({itemName})");
+                return;
+            }
+
+            // Must use Invoke to access UI controls from async context (same as ItemDetailForm)
+            if (_tabPage.IsDisposed) return;
+
+            _tabPage.Invoke(() =>
+            {
+                if (_tabPage.IsDisposed) return;
+
+                using var ms = new MemoryStream(imageBytes);
+                var image = Image.FromStream(ms);
+
+                var currentRow = _dgvItems.CurrentRow;
+                if (currentRow != null)
                 {
-                    var selectedItem = _itemResults[selectedIndex];
-                    if (selectedItem.ItemConst == itemId)
+                    var selectedIndex = currentRow.Index;
+                    if (selectedIndex >= 0 && selectedIndex < _itemResults.Count)
                     {
-                        _picItemImage.Image = image;
-                        return;
+                        var selectedItem = _itemResults[selectedIndex];
+                        if (selectedItem.ItemConst == itemId)
+                        {
+                            _picItemImage.Image = image;
+                            return;
+                        }
                     }
                 }
-            }
 
-            image.Dispose();
+                image.Dispose();
+            });
         }
         catch (Exception ex)
         {
@@ -1279,6 +1363,8 @@ public class ItemTabController : BaseTabController
         // Base class handles recursive font application to all controls
         base.UpdateFontSize(baseFontSize);
 
+        var scale = baseFontSize / 12f;
+
         // Additional specific adjustments for grid headers
         if (_dgvItems != null)
         {
@@ -1289,6 +1375,20 @@ public class ItemTabController : BaseTabController
         if (_lblItemName != null)
         {
             _lblItemName.Font = new Font("Malgun Gothic", baseFontSize, FontStyle.Bold);
+        }
+
+        // Update combobox width
+        if (_cboCategoryToolStrip != null)
+        {
+            _cboCategoryToolStrip.Width = (int)(100 * scale);
+        }
+
+        // Update row heights in main panel
+        if (_mainPanel != null && _mainPanel.RowStyles.Count >= 5)
+        {
+            _mainPanel.RowStyles[0].Height = (int)(32 * scale);  // Toolbar
+            // Status bar: ensure minimum height for small fonts
+            _mainPanel.RowStyles[4].Height = Math.Max(26, (int)(30 * scale));  // Status bar
         }
     }
 

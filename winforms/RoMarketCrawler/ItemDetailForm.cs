@@ -165,6 +165,10 @@ public class ItemDetailForm : Form
         LoadTitleBarIcon();
 
         // Main layout: Header | Content | Random Options
+        var fontScale = _baseFontSize / 12f;
+        var headerHeight = (int)(140 * fontScale);
+        var randomOptionsHeight = (int)(175 * fontScale);
+
         var mainPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -174,9 +178,9 @@ public class ItemDetailForm : Form
             BackColor = ThemeBackground,
             CellBorderStyle = TableLayoutPanelCellBorderStyle.None
         };
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 140));  // Top: Header
+        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, headerHeight));  // Top: Header
         mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));   // Middle: Content (+50 from removed bottom)
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 175)); // Random Options (+50)
+        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, randomOptionsHeight)); // Random Options (+50)
 
         // === TOP: Header card (image + name + basic info + price) ===
         var headerCard = CreateCard(new Size(0, 130));
@@ -206,11 +210,15 @@ public class ItemDetailForm : Form
         headerLayout.Controls.Add(_picItem, 0, 0);
 
         // Name and basic info panel (column 1)
+        var scale = _baseFontSize / 12f;
+        var nameHeight = (int)(30 * scale);
+        var infoHeight = (int)(75 * scale);
+
         var infoPanel = new Panel
         {
             Dock = DockStyle.Fill,
             BackColor = Color.Transparent,
-            Padding = new Padding(10, 5, 10, 5)
+            Padding = new Padding(10, 10, 10, 5)
         };
 
         _lblItemName = new Label
@@ -220,7 +228,7 @@ public class ItemDetailForm : Form
             ForeColor = ThemeTextHighlight,
             AutoSize = false,
             Location = new Point(0, 0),
-            Size = new Size(600, 28),
+            Size = new Size(600, nameHeight),
             TextAlign = ContentAlignment.MiddleLeft
         };
         infoPanel.Controls.Add(_lblItemName);
@@ -231,8 +239,8 @@ public class ItemDetailForm : Form
             Font = new Font("Malgun Gothic", _baseFontSize),
             ForeColor = ThemeTextMuted,
             AutoSize = false,
-            Location = new Point(0, 32),
-            Size = new Size(600, 70)
+            Location = new Point(0, nameHeight + 2),
+            Size = new Size(600, infoHeight)
         };
         infoPanel.Controls.Add(_lblBasicInfo);
 
