@@ -545,6 +545,7 @@ public class MonitorTabController : BaseTabController
         _dgvMonitorItems.CellValueChanged += DgvMonitorItems_CellValueChanged;
         _dgvMonitorItems.CellBeginEdit += DgvMonitorItems_CellBeginEdit;
         _dgvMonitorItems.CellFormatting += DgvMonitorItems_CellFormatting;
+        _dgvMonitorItems.EditingControlShowing += DgvMonitorItems_EditingControlShowing;
 
         // Context menu for items grid
         var itemsContextMenu = new ContextMenuStrip();
@@ -1963,12 +1964,42 @@ public class MonitorTabController : BaseTabController
         {
             var cellValue = row.Cells["WatchPrice"].Value;
             long? newWatchPrice = null;
+            bool parseSuccess = false;
 
-            if (cellValue != null && cellValue != DBNull.Value)
+            if (cellValue == null || cellValue == DBNull.Value || string.IsNullOrWhiteSpace(cellValue.ToString()))
             {
-                if (cellValue is long lv) newWatchPrice = lv;
-                else if (cellValue is int iv) newWatchPrice = iv;
-                else if (long.TryParse(cellValue.ToString()?.Replace(",", ""), out var parsed)) newWatchPrice = parsed;
+                // Empty value - clear watch price
+                parseSuccess = true;
+                newWatchPrice = null;
+            }
+            else if (cellValue is long lv)
+            {
+                parseSuccess = true;
+                newWatchPrice = lv;
+            }
+            else if (cellValue is int iv)
+            {
+                parseSuccess = true;
+                newWatchPrice = iv;
+            }
+            else
+            {
+                // Normalize full-width digits (１２３) to half-width (123) and parse
+                var normalizedValue = NormalizeFullWidthDigits(cellValue.ToString()?.Replace(",", "").Replace(" ", "") ?? "");
+                if (long.TryParse(normalizedValue, out var parsed))
+                {
+                    parseSuccess = true;
+                    newWatchPrice = parsed;
+                }
+            }
+
+            // If parsing failed, revert to original value
+            if (!parseSuccess)
+            {
+                var originalWatchPrice = originalValues?.GetValueOrDefault("WatchPrice");
+                row.Cells["WatchPrice"].Value = originalWatchPrice;
+                Debug.WriteLine($"[MonitorTabController] WatchPrice parse failed for input: {cellValue}");
+                return;
             }
 
             var itemName = row.Cells["ItemName"].Value?.ToString();
@@ -1985,6 +2016,69 @@ public class MonitorTabController : BaseTabController
             await _monitoringService.SaveConfigAsync();
             UpdateMonitorItemList();
             UpdateMonitorResults();
+        }
+    }
+
+    private void DgvMonitorItems_EditingControlShowing(object? sender, DataGridViewEditingControlShowingEventArgs e)
+    {
+        var columnName = _dgvMonitorItems.CurrentCell?.OwningColumn?.Name;
+
+        // For WatchPrice column, disable IME and set numeric-only input
+        if (columnName == "WatchPrice" && e.Control is TextBox textBox)
+        {
+            // Disable IME for numeric input to prevent full-width character issues
+            textBox.ImeMode = ImeMode.Disable;
+
+            // Remove previous handlers to avoid duplicates
+            textBox.KeyPress -= WatchPriceTextBox_KeyPress;
+            textBox.KeyPress += WatchPriceTextBox_KeyPress;
+            textBox.TextChanged -= WatchPriceTextBox_TextChanged;
+            textBox.TextChanged += WatchPriceTextBox_TextChanged;
+        }
+    }
+
+    private void WatchPriceTextBox_KeyPress(object? sender, KeyPressEventArgs e)
+    {
+        // Allow only digits, comma, backspace, and control characters
+        if (!char.IsDigit(e.KeyChar) && e.KeyChar != ',' && e.KeyChar != '\b' && !char.IsControl(e.KeyChar))
+        {
+            e.Handled = true; // Block the input
+        }
+    }
+
+    private bool _isFormattingWatchPrice = false;
+    private void WatchPriceTextBox_TextChanged(object? sender, EventArgs e)
+    {
+        if (_isFormattingWatchPrice || sender is not TextBox textBox) return;
+
+        // Get raw digits only
+        var rawDigits = new string(textBox.Text.Where(char.IsDigit).ToArray());
+        if (string.IsNullOrEmpty(rawDigits))
+        {
+            return;
+        }
+
+        // Parse and format with commas
+        if (long.TryParse(rawDigits, out var value))
+        {
+            var formatted = value.ToString("N0");
+
+            // Only update if different to avoid cursor issues
+            if (textBox.Text != formatted)
+            {
+                _isFormattingWatchPrice = true;
+                var cursorPos = textBox.SelectionStart;
+                var oldLength = textBox.Text.Length;
+
+                textBox.Text = formatted;
+
+                // Adjust cursor position based on length change
+                var newLength = formatted.Length;
+                var newCursorPos = Math.Max(0, cursorPos + (newLength - oldLength));
+                textBox.SelectionStart = Math.Min(newCursorPos, newLength);
+
+                _isFormattingWatchPrice = false;
+            }
         }
     }
 
@@ -2268,6 +2362,30 @@ public class MonitorTabController : BaseTabController
         UpdateMonitorItemList();
         UpdateMonitorResults();
         UpdateItemStatusColumn();
+    }
+
+    #endregion
+
+    #region Helper Methods
+
+    /// <summary>
+    /// Convert full-width digits (１２３４５６７８９０) to half-width (1234567890)
+    /// This handles cases where Korean/Japanese IME inputs full-width numbers
+    /// </summary>
+    private static string NormalizeFullWidthDigits(string input)
+    {
+        if (string.IsNullOrEmpty(input)) return input;
+
+        var result = new System.Text.StringBuilder(input.Length);
+        foreach (var c in input)
+        {
+            // Full-width digits ０-９ (U+FF10 - U+FF19) to half-width 0-9
+            if (c >= '０' && c <= '９')
+                result.Append((char)(c - '０' + '0'));
+            else
+                result.Append(c);
+        }
+        return result.ToString();
     }
 
     #endregion
