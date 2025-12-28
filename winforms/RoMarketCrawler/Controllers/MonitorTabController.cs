@@ -2023,17 +2023,24 @@ public class MonitorTabController : BaseTabController
     {
         var columnName = _dgvMonitorItems.CurrentCell?.OwningColumn?.Name;
 
-        // For WatchPrice column, disable IME and set numeric-only input
-        if (columnName == "WatchPrice" && e.Control is TextBox textBox)
+        if (e.Control is TextBox textBox)
         {
-            // Disable IME for numeric input to prevent full-width character issues
-            textBox.ImeMode = ImeMode.Disable;
-
             // Remove previous handlers to avoid duplicates
             textBox.KeyPress -= WatchPriceTextBox_KeyPress;
-            textBox.KeyPress += WatchPriceTextBox_KeyPress;
             textBox.TextChanged -= WatchPriceTextBox_TextChanged;
-            textBox.TextChanged += WatchPriceTextBox_TextChanged;
+
+            if (columnName == "WatchPrice")
+            {
+                // For WatchPrice column, disable IME and set numeric-only input
+                textBox.ImeMode = ImeMode.Disable;
+                textBox.KeyPress += WatchPriceTextBox_KeyPress;
+                textBox.TextChanged += WatchPriceTextBox_TextChanged;
+            }
+            else
+            {
+                // For other columns (like ItemName), use system default IME handling
+                textBox.ImeMode = ImeMode.NoControl;
+            }
         }
     }
 
