@@ -46,6 +46,7 @@ public class DealTabController : BaseTabController
     private RoundedButton _btnDealPrev = null!;
     private RoundedButton _btnDealNext = null!;
     private Label _lblDealPage = null!;
+    private FlowLayoutPanel _pnlPagination = null!;
     private TableLayoutPanel _mainPanel = null!;
 
     #endregion
@@ -472,7 +473,7 @@ public class DealTabController : BaseTabController
 
     private FlowLayoutPanel CreatePaginationPanel()
     {
-        var paginationPanel = new FlowLayoutPanel
+        _pnlPagination = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill,
             BackColor = _colors.Panel,
@@ -511,18 +512,18 @@ public class DealTabController : BaseTabController
         ApplyRoundedButtonStyle(_btnDealNext, false);
         _btnDealNext.Click += async (s, e) => await NextPageAsync();
 
-        paginationPanel.Controls.Add(_btnDealPrev);
-        paginationPanel.Controls.Add(_lblDealPage);
-        paginationPanel.Controls.Add(_btnDealNext);
+        _pnlPagination.Controls.Add(_btnDealPrev);
+        _pnlPagination.Controls.Add(_lblDealPage);
+        _pnlPagination.Controls.Add(_btnDealNext);
 
         // Center alignment by handling resize
-        paginationPanel.Resize += (s, e) =>
+        _pnlPagination.Resize += (s, e) =>
         {
             var totalWidth = _btnDealPrev.Width + _lblDealPage.Width + _btnDealNext.Width + 20;
-            paginationPanel.Padding = new Padding((paginationPanel.Width - totalWidth) / 2, 10, 0, 0);
+            _pnlPagination.Padding = new Padding((_pnlPagination.Width - totalWidth) / 2, _pnlPagination.Padding.Top, 0, 0);
         };
 
-        return paginationPanel;
+        return _pnlPagination;
     }
 
     private void ApplyRoundedButtonStyle(RoundedButton button, bool isPrimary)
@@ -1054,6 +1055,25 @@ public class DealTabController : BaseTabController
         if (_lblDealPage != null)
         {
             _lblDealPage.Font = new Font("Malgun Gothic", baseFontSize);
+            _lblDealPage.Padding = new Padding((int)(10 * scale), (int)(5 * scale), (int)(10 * scale), 0);
+        }
+
+        // Update pagination buttons size
+        if (_btnDealPrev != null)
+        {
+            _btnDealPrev.Size = new Size((int)(36 * scale), (int)(28 * scale));
+        }
+        if (_btnDealNext != null)
+        {
+            _btnDealNext.Size = new Size((int)(36 * scale), (int)(28 * scale));
+        }
+
+        // Update pagination panel padding
+        if (_pnlPagination != null && _btnDealPrev != null && _lblDealPage != null && _btnDealNext != null)
+        {
+            var paddingTop = (int)(10 * scale);
+            var totalWidth = _btnDealPrev.Width + _lblDealPage.Width + _btnDealNext.Width + 20;
+            _pnlPagination.Padding = new Padding((_pnlPagination.Width - totalWidth) / 2, paddingTop, 0, 0);
         }
 
         // Update combobox width
