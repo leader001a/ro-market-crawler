@@ -643,7 +643,7 @@ public class MonitorTabController : BaseTabController
             DataPropertyName = "ServerId",
             MinimumWidth = 60,
             AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
-            FillWeight = 15,
+            FillWeight = 13,
             DataSource = Server.GetAllServers(),
             ValueMember = "Id",
             DisplayMember = "Name",
@@ -652,6 +652,19 @@ public class MonitorTabController : BaseTabController
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
         });
 
+        var exactMatchColumn = new DataGridViewCheckBoxColumn
+        {
+            Name = "ExactMatch",
+            HeaderText = "완전일치",
+            DataPropertyName = "ExactMatch",
+            MinimumWidth = 50,
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
+            FillWeight = 9,
+            DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
+        };
+        exactMatchColumn.HeaderCell.ToolTipText = "체크 시 입력한 아이템명과 정확히 일치하는 결과만 표시합니다.\n예: \"포링 카드\" 검색 시 \"포링 카드\"만 표시되고\n\"수정 포링 카드\" 등 유사 아이템은 제외됩니다.";
+        _dgvMonitorItems.Columns.Add(exactMatchColumn);
+
         _dgvMonitorItems.Columns.Add(new DataGridViewTextBoxColumn
         {
             Name = "ItemName",
@@ -659,7 +672,7 @@ public class MonitorTabController : BaseTabController
             DataPropertyName = "ItemName",
             MinimumWidth = 80,
             AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
-            FillWeight = 40,
+            FillWeight = 33,
             ReadOnly = false
         });
 
@@ -1880,7 +1893,9 @@ public class MonitorTabController : BaseTabController
 
     private void DgvMonitorItems_CurrentCellDirtyStateChanged(object? sender, EventArgs e)
     {
-        if (_dgvMonitorItems.IsCurrentCellDirty && _dgvMonitorItems.CurrentCell is DataGridViewComboBoxCell)
+        if (_dgvMonitorItems.IsCurrentCellDirty &&
+            (_dgvMonitorItems.CurrentCell is DataGridViewComboBoxCell ||
+             _dgvMonitorItems.CurrentCell is DataGridViewCheckBoxCell))
         {
             _dgvMonitorItems.CommitEdit(DataGridViewDataErrorContexts.Commit);
         }
@@ -2012,6 +2027,23 @@ public class MonitorTabController : BaseTabController
 
             monitorItem.WatchPrice = newWatchPrice;
             originalValues?.Remove("WatchPrice");
+            _monitoringService.ClearItemCache(itemName, serverId.Value);
+            await _monitoringService.SaveConfigAsync();
+            UpdateMonitorItemList();
+            UpdateMonitorResults();
+        }
+
+        if (columnName == "ExactMatch")
+        {
+            var itemName = row.Cells["ItemName"].Value?.ToString();
+            var serverId = row.Cells["ServerId"].Value as int?;
+            if (string.IsNullOrEmpty(itemName) || serverId == null) return;
+
+            var monitorItem = _monitoringService.Config.Items.FirstOrDefault(i =>
+                i.ItemName.Equals(itemName, StringComparison.OrdinalIgnoreCase) && i.ServerId == serverId);
+            if (monitorItem == null) return;
+
+            // ExactMatch is already updated by data binding, just clear cache and save
             _monitoringService.ClearItemCache(itemName, serverId.Value);
             await _monitoringService.SaveConfigAsync();
             UpdateMonitorItemList();

@@ -602,6 +602,15 @@ namespace RoMarketCrawler.Services
                 var deals = allDeals.Where(d => d.DealType == "sale").ToList();
                 Debug.WriteLine($"[MonitoringService] Filtered: {allDeals.Count} total -> {deals.Count} sale only");
 
+                // Apply exact match filter if enabled
+                if (item.ExactMatch)
+                {
+                    var beforeCount = deals.Count;
+                    deals = deals.Where(d =>
+                        d.ItemName?.Equals(capturedItemName, StringComparison.OrdinalIgnoreCase) == true).ToList();
+                    Debug.WriteLine($"[MonitoringService] ExactMatch filter: {beforeCount} -> {deals.Count} items");
+                }
+
                 result.Deals = deals;
 
                 // Fetch price statistics for EACH unique item name in the deals

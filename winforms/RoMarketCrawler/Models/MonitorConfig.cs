@@ -40,6 +40,11 @@ namespace RoMarketCrawler.Models
         public int ServerId { get; set; } = -1;
 
         /// <summary>
+        /// Whether to filter results to exact item name matches only
+        /// </summary>
+        public bool ExactMatch { get; set; } = false;
+
+        /// <summary>
         /// When this item was added to monitoring list
         /// </summary>
         public DateTime AddedAt { get; set; } = DateTime.Now;
