@@ -81,6 +81,15 @@ public interface IMonitoringService : IDisposable
 
     #endregion
 
+    #region WebView2 Support
+
+    /// <summary>
+    /// Set WebView2Helper for Cloudflare bypass
+    /// </summary>
+    void SetWebView2Helper(WebView2Helper helper);
+
+    #endregion
+
     #region Refresh Settings
 
     /// <summary>

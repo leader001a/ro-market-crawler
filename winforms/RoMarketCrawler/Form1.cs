@@ -214,6 +214,14 @@ public partial class Form1 : Form
                 _gnjoyClient.SetUseWebView2(true);  // Enable WebView2 mode by default
                 Debug.WriteLine("[Form1] WebView2 enabled for GnjoyClient");
             }
+
+            // Inject WebView2Helper into MonitoringService (it has its own GnjoyClient)
+            var monitoringService = Program.Services.GetRequiredService<IMonitoringService>();
+            if (_webView2Helper.IsReady)
+            {
+                monitoringService.SetWebView2Helper(_webView2Helper);
+                Debug.WriteLine("[Form1] WebView2 enabled for MonitoringService");
+            }
         }
         catch (Exception ex)
         {

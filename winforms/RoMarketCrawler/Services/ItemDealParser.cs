@@ -286,49 +286,98 @@ public class ItemDealParser
 
         Debug.WriteLine($"[ItemDealParser] cellText: '{cellText}', altText: '{altText}'");
 
-        // Choose the more complete item name
-        // Priority: avoid truncated text (contains "..."), prefer text with -LT/-NT suffixes
+        // Choose the item name source
+        // IMPORTANT: With WebView2, cellText can be corrupted (doubled text from img alt + link text)
+        // So we STRONGLY prefer altText (from img alt attribute) as the primary source
         string text;
-        bool cellTextTruncated = cellText.Contains("...");
         bool altTextTruncated = altText.Contains("...");
 
-        if (string.IsNullOrEmpty(altText))
+        if (!string.IsNullOrEmpty(altText) && !altTextTruncated)
         {
-            text = cellText;
-        }
-        else if (cellTextTruncated && !altTextTruncated)
-        {
-            // cellText is truncated, use altText
+            // altText is available and not truncated - use it (most reliable with WebView2)
             text = altText;
-            Debug.WriteLine($"[ItemDealParser] Using altText (cellText is truncated)");
+            Debug.WriteLine($"[ItemDealParser] Using altText (primary source): '{text}'");
         }
-        else if (!cellTextTruncated && altTextTruncated)
+        else if (!string.IsNullOrEmpty(altText) && altTextTruncated && !cellText.Contains("..."))
         {
-            // altText is truncated, use cellText
-            text = cellText;
-            Debug.WriteLine($"[ItemDealParser] Using cellText (altText is truncated)");
+            // altText is truncated but cellText isn't - use cellText
+            // But need to handle doubled text from WebView2
+            // If cellText contains altText (without ...) twice, extract the clean part
+            var altWithoutTrunc = altText.Replace("...", "").Replace("[...", "").Trim();
+            if (cellText.Contains(altWithoutTrunc))
+            {
+                // Try to extract clean item name from cellText
+                // Pattern: remove everything before and after the actual item name
+                var idx = cellText.IndexOf(altWithoutTrunc);
+                if (idx >= 0)
+                {
+                    // Find the end of the item name (look for repetition or end of string)
+                    var remaining = cellText.Substring(idx);
+                    var halfLen = remaining.Length / 2;
+                    if (halfLen > 0 && remaining.Length >= halfLen * 2)
+                    {
+                        var firstHalf = remaining.Substring(0, halfLen);
+                        var secondHalf = remaining.Substring(halfLen);
+                        if (firstHalf == secondHalf)
+                        {
+                            // Text is doubled, use first half
+                            text = firstHalf;
+                            Debug.WriteLine($"[ItemDealParser] Using deduplicated cellText: '{text}'");
+                        }
+                        else
+                        {
+                            text = cellText;
+                            Debug.WriteLine($"[ItemDealParser] Using cellText (altText truncated): '{text}'");
+                        }
+                    }
+                    else
+                    {
+                        text = cellText;
+                        Debug.WriteLine($"[ItemDealParser] Using cellText (altText truncated): '{text}'");
+                    }
+                }
+                else
+                {
+                    text = cellText;
+                }
+            }
+            else
+            {
+                text = cellText;
+                Debug.WriteLine($"[ItemDealParser] Using cellText (altText truncated): '{text}'");
+            }
         }
-        else if (cellText.Contains("-LT") && !altText.Contains("-LT"))
+        else if (string.IsNullOrEmpty(altText))
         {
-            // cellText has -LT suffix that altText is missing
-            text = cellText;
-            Debug.WriteLine($"[ItemDealParser] Using cellText (has -LT suffix)");
-        }
-        else if (cellText.Contains("-NT") && !altText.Contains("-NT"))
-        {
-            // cellText has -NT suffix that altText is missing
-            text = cellText;
-            Debug.WriteLine($"[ItemDealParser] Using cellText (has -NT suffix)");
-        }
-        else if (altText.Length >= cellText.Length)
-        {
-            // altText is longer or equal - use it
-            text = altText;
+            // No altText available - must use cellText but try to deduplicate
+            // Check if cellText is doubled (same text repeated)
+            var halfLen = cellText.Length / 2;
+            if (halfLen > 0)
+            {
+                var firstHalf = cellText.Substring(0, halfLen);
+                var secondHalf = cellText.Substring(halfLen);
+                if (firstHalf == secondHalf)
+                {
+                    text = firstHalf;
+                    Debug.WriteLine($"[ItemDealParser] Using deduplicated cellText (no altText): '{text}'");
+                }
+                else
+                {
+                    text = cellText;
+                    Debug.WriteLine($"[ItemDealParser] Using cellText (no altText): '{text}'");
+                }
+            }
+            else
+            {
+                text = cellText;
+                Debug.WriteLine($"[ItemDealParser] Using cellText (no altText): '{text}'");
+            }
         }
         else
         {
-            // cellText is longer - use it
-            text = cellText;
+            // Both truncated - prefer altText as it's cleaner
+            text = altText;
+            Debug.WriteLine($"[ItemDealParser] Using altText (both truncated): '{text}'");
         }
 
         Debug.WriteLine($"[ItemDealParser] ParseItemName input: '{text}'");

@@ -102,6 +102,16 @@ namespace RoMarketCrawler.Services
         public int ItemCount => _config.Items.Count;
 
         /// <summary>
+        /// Set WebView2Helper for Cloudflare bypass on internal GnjoyClient
+        /// </summary>
+        public void SetWebView2Helper(WebView2Helper helper)
+        {
+            _gnjoyClient.SetWebView2Helper(helper);
+            _gnjoyClient.SetUseWebView2(true);
+            Debug.WriteLine("[MonitoringService] WebView2Helper configured");
+        }
+
+        /// <summary>
         /// Load configuration from persistent storage
         /// </summary>
         public async Task LoadConfigAsync()

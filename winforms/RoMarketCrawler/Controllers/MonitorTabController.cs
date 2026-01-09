@@ -1067,23 +1067,38 @@ public class MonitorTabController : BaseTabController
                 return baseName;
             }
 
-            var groupedDealsQuery = results
-                .SelectMany(r => r.Deals.Select(d => new { Deal = d, Result = r }))
+            // Debug: Log all deals to identify grouping issues
+            var allDeals = results.SelectMany(r => r.Deals.Select(d => new { Deal = d, Result = r })).ToList();
+            Debug.WriteLine($"[MonitorTab] Total deals before grouping: {allDeals.Count}");
+            foreach (var x in allDeals)
+            {
+                Debug.WriteLine($"[MonitorTab] Deal: ItemName='{x.Deal.ItemName}', Refine={x.Deal.Refine}, Grade='{x.Deal.Grade}', CardSlots='{x.Deal.CardSlots}', Server='{x.Deal.ServerName}', Price={x.Deal.Price}");
+            }
+
+            // Normalize function to ensure consistent grouping
+            static string NormalizeString(string? s) => (s ?? "").Trim();
+
+            var groupedDealsQuery = allDeals
                 .GroupBy(x => new
                 {
-                    GroupKey = x.Deal.GetEffectiveItemId()?.ToString() ?? $"name:{x.Deal.ItemName}",
+                    // Normalize all string values to ensure consistent grouping
+                    ItemName = NormalizeString(x.Deal.ItemName),
                     Refine = x.Deal.Refine ?? 0,
-                    Grade = x.Deal.Grade ?? "",
-                    CardSlots = x.Deal.CardSlots ?? "",
-                    x.Deal.ServerName
+                    Grade = NormalizeString(x.Deal.Grade),
+                    CardSlots = NormalizeString(x.Deal.CardSlots),
+                    ServerName = NormalizeString(x.Deal.ServerName)
                 })
                 .Select(g =>
                 {
                     var firstDeal = g.First().Deal;
                     var monitorItem = g.First().Result.Item;
+                    var displayName = GetDisplayName(firstDeal);
+
+                    Debug.WriteLine($"[MonitorTab] Group: DisplayName='{displayName}', ItemName='{g.Key.ItemName}', Refine={g.Key.Refine}, Grade='{g.Key.Grade}', CardSlots='{g.Key.CardSlots}', Count={g.Count()}");
+
                     return new
                     {
-                        DisplayName = GetDisplayName(firstDeal),
+                        DisplayName = displayName,
                         OriginalName = firstDeal.ItemName,
                         ItemId = firstDeal.GetEffectiveItemId(),
                         Refine = g.Key.Refine,
@@ -1100,7 +1115,28 @@ public class MonitorTabController : BaseTabController
 
             // Apply sorting
             var sortedDeals = ApplySorting(groupedDealsQuery, gradeOrder);
-            var groupedDeals = sortedDeals.ToList();
+
+            // Secondary deduplication by DisplayName + Refine + Grade + ServerName
+            // This catches any duplicates that slipped through due to ItemName parsing inconsistencies
+            var sortedList = sortedDeals.ToList();
+            var seenKeys = new HashSet<string>();
+            var groupedDeals = new List<dynamic>();
+
+            foreach (var item in sortedList)
+            {
+                var key = $"{item.DisplayName}|{item.Refine}|{item.Grade}|{item.ServerName}";
+                if (!seenKeys.Contains(key))
+                {
+                    seenKeys.Add(key);
+                    groupedDeals.Add(item);
+                }
+                else
+                {
+                    Debug.WriteLine($"[MonitorTab] Skipping duplicate: DisplayName='{item.DisplayName}', Refine={item.Refine}, Grade='{item.Grade}'");
+                }
+            }
+
+            Debug.WriteLine($"[MonitorTab] Final grouped deals count: {groupedDeals.Count} (from {sortedList.Count})");
 
             foreach (var group in groupedDeals)
             {
