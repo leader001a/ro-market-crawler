@@ -81,6 +81,13 @@ public partial class Form1 : Form
 
     #endregion
 
+    #region WebView2
+
+    private WebView2Helper? _webView2Helper;
+    private GnjoyClient? _gnjoyClient;
+
+    #endregion
+
     public Form1()
     {
         // Initialize dark mode support before creating any controls
@@ -171,10 +178,47 @@ public partial class Form1 : Form
 
             // Refresh autocomplete with loaded data
             RefreshAutoCompleteSource();
+
+            // Initialize WebView2 for Cloudflare bypass
+            await InitializeWebView2Async();
         }
         catch (Exception ex)
         {
             Debug.WriteLine($"[Form1] Data load error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Initialize WebView2 helper for Cloudflare bypass
+    /// </summary>
+    private async Task InitializeWebView2Async()
+    {
+        try
+        {
+            // Check if WebView2 runtime is available
+            if (!WebView2Helper.IsWebView2Available())
+            {
+                Debug.WriteLine("[Form1] WebView2 runtime not available");
+                return;
+            }
+
+            Debug.WriteLine("[Form1] Initializing WebView2...");
+            _webView2Helper = new WebView2Helper();
+            await _webView2Helper.InitializeAsync();
+
+            // Inject WebView2Helper into GnjoyClient
+            _gnjoyClient = Program.Services.GetRequiredService<IGnjoyClient>() as GnjoyClient;
+            if (_gnjoyClient != null && _webView2Helper.IsReady)
+            {
+                _gnjoyClient.SetWebView2Helper(_webView2Helper);
+                _gnjoyClient.SetUseWebView2(true);  // Enable WebView2 mode by default
+                Debug.WriteLine("[Form1] WebView2 enabled for GnjoyClient");
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Form1] WebView2 initialization failed: {ex.Message}");
+            // Continue without WebView2 - will use HttpClient fallback
         }
     }
 
@@ -480,6 +524,19 @@ public partial class Form1 : Form
 
     private void RateLimitTimer_Tick(object? sender, EventArgs e)
     {
+        // Skip rate limit UI when WebView2 mode is active (bypasses Cloudflare)
+        if (_gnjoyClient?.IsWebView2Enabled == true)
+        {
+            if (_isRateLimitUIActive)
+            {
+                _isRateLimitUIActive = false;
+                SetRateLimitUIState(false);
+                GnjoyClient.ClearRateLimit();  // Clear any stale rate limit
+                Debug.WriteLine("[Form1] Rate limit UI deactivated (WebView2 mode)");
+            }
+            return;
+        }
+
         var isRateLimited = GnjoyClient.IsRateLimited;
 
         if (isRateLimited && !_isRateLimitUIActive)
@@ -1037,6 +1094,7 @@ public partial class Form1 : Form
         _autoCompleteDropdown?.Dispose();
         _watermarkImage?.Dispose();
         _watermarkFaded?.Dispose();
+        _webView2Helper?.Dispose();
 
         base.OnFormClosed(e);
     }

@@ -27,12 +27,16 @@
 
     <!-- Application Icon -->
     <ApplicationIcon>app.ico</ApplicationIcon>
+
+    <!-- Suppress WebView2 WPF assembly conflict warning (we only use WinForms) -->
+    <NoWarn>$(NoWarn);MSB3277</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="HtmlAgilityPack" Version="1.12.4" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
     <PackageReference Include="NAudio" Version="2.2.1" />
   </ItemGroup>
 

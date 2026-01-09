@@ -25,6 +25,10 @@ public class GnjoyClient : IGnjoyClient
     private readonly PriceQuoteParser _quoteParser;
     private readonly ItemDetailParser _detailParser;
 
+    // WebView2 for Cloudflare bypass
+    private WebView2Helper? _webView2Helper;
+    private bool _useWebView2 = false;
+
     // Retry settings with exponential backoff
     private const int MaxRetries = 4;
     private const int BaseRetryDelayMs = 1000;  // 1s -> 2s -> 4s -> 8s
@@ -68,6 +72,29 @@ public class GnjoyClient : IGnjoyClient
     /// </summary>
     public static double RequestsPerMinute => _sharedRateLimitManager.Value.RequestsPerMinute;
 
+    /// <summary>
+    /// Check if WebView2 mode is enabled
+    /// </summary>
+    public bool IsWebView2Enabled => _useWebView2 && _webView2Helper?.IsReady == true;
+
+    /// <summary>
+    /// Set WebView2Helper for Cloudflare bypass
+    /// </summary>
+    public void SetWebView2Helper(WebView2Helper helper)
+    {
+        _webView2Helper = helper;
+        Debug.WriteLine("[GnjoyClient] WebView2Helper set");
+    }
+
+    /// <summary>
+    /// Enable or disable WebView2 mode
+    /// </summary>
+    public void SetUseWebView2(bool enabled)
+    {
+        _useWebView2 = enabled;
+        Debug.WriteLine($"[GnjoyClient] WebView2 mode: {(enabled ? "ENABLED" : "DISABLED")}");
+    }
+
     public GnjoyClient()
     {
         // .NET 8 uses SocketsHttpHandler by default - configure it explicitly for connection pool management
@@ -101,11 +128,28 @@ public class GnjoyClient : IGnjoyClient
             Timeout = TimeSpan.FromSeconds(30)
         };
 
-        _client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-        _client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("text/html"));
-        _client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        // Browser-like headers to avoid Cloudflare detection
+        // Full Chrome User-Agent string
+        _client.DefaultRequestHeaders.UserAgent.ParseAdd(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+
+        // Accept headers matching Chrome
+        _client.DefaultRequestHeaders.Accept.ParseAdd(
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7");
         _client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7");
+
+        // Additional browser headers
         _client.DefaultRequestHeaders.Referrer = new Uri("https://ro.gnjoy.com/");
+        _client.DefaultRequestHeaders.Add("sec-ch-ua", "\"Google Chrome\";v=\"131\", \"Chromium\";v=\"131\", \"Not_A Brand\";v=\"24\"");
+        _client.DefaultRequestHeaders.Add("sec-ch-ua-mobile", "?0");
+        _client.DefaultRequestHeaders.Add("sec-ch-ua-platform", "\"Windows\"");
+        _client.DefaultRequestHeaders.Add("sec-fetch-dest", "document");
+        _client.DefaultRequestHeaders.Add("sec-fetch-mode", "navigate");
+        _client.DefaultRequestHeaders.Add("sec-fetch-site", "same-origin");
+        _client.DefaultRequestHeaders.Add("sec-fetch-user", "?1");
+        _client.DefaultRequestHeaders.Add("upgrade-insecure-requests", "1");
+        _client.DefaultRequestHeaders.CacheControl = new CacheControlHeaderValue { NoCache = true };
+        _client.DefaultRequestHeaders.Pragma.ParseAdd("no-cache");
 
         _parser = new ItemDealParser();
         _quoteParser = new PriceQuoteParser();
@@ -143,6 +187,45 @@ public class GnjoyClient : IGnjoyClient
 
         // Default to 60 seconds if no Retry-After header
         return 60;
+    }
+
+    /// <summary>
+    /// Fetch HTML content from URL using either WebView2 or HttpClient
+    /// </summary>
+    private async Task<string> FetchHtmlAsync(string url, CancellationToken cancellationToken)
+    {
+        // Use WebView2 if enabled and ready
+        if (_useWebView2 && _webView2Helper?.IsReady == true)
+        {
+            Debug.WriteLine($"[GnjoyClient] Using WebView2 to fetch: {url}");
+            try
+            {
+                var html = await _webView2Helper.FetchHtmlAsync(url, cancellationToken);
+
+                // Check if we got a valid response (not Cloudflare challenge page)
+                if (html.Contains("Just a moment") || html.Contains("Checking your browser"))
+                {
+                    Debug.WriteLine("[GnjoyClient] WebView2 got Cloudflare challenge page, waiting longer...");
+                    // Wait and retry once
+                    await Task.Delay(3000, cancellationToken);
+                    html = await _webView2Helper.FetchHtmlAsync(url, cancellationToken);
+                }
+
+                // Clear rate limit on successful WebView2 request
+                ClearRateLimit();
+                return html;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[GnjoyClient] WebView2 fetch failed: {ex.Message}, falling back to HttpClient");
+                // Fall through to HttpClient
+            }
+        }
+
+        // Use HttpClient (original method)
+        using var response = await GetWithRetryAsync(url, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsStringAsync(cancellationToken);
     }
 
     /// <summary>
@@ -272,14 +355,10 @@ public class GnjoyClient : IGnjoyClient
             var quoteServerId = ToQuoteServerId(serverId);
             var url = $"{BaseUrl}/{PriceExtendListEndpoint}?svrID={quoteServerId}&itemFullName={Uri.EscapeDataString(itemName)}&curpage=1";
 
-            Debug.WriteLine($"[GnjoyClient] FetchPriceHistoryAsync called with itemName='{itemName}', serverId={serverId}");
-            Debug.WriteLine($"[GnjoyClient] Fetching price history: {url}");
+            Debug.WriteLine($"[GnjoyClient] FetchPriceHistoryAsync: {url}");
 
-            // Use rate-limited GET with retry logic
-            using var response = await GetWithRetryAsync(url, cancellationToken);
-            response.EnsureSuccessStatusCode();
-
-            var htmlContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            // Use FetchHtmlAsync which handles WebView2/HttpClient selection
+            var htmlContent = await FetchHtmlAsync(url, cancellationToken);
             Debug.WriteLine($"[GnjoyClient] Price history response length: {htmlContent.Length}");
 
             var history = _quoteParser.ParsePriceExtendList(htmlContent);
@@ -315,11 +394,8 @@ public class GnjoyClient : IGnjoyClient
 
             Debug.WriteLine($"[GnjoyClient] SearchPriceListAsync: {url}");
 
-            // Use rate-limited GET with retry logic
-            using var response = await GetWithRetryAsync(url, cancellationToken);
-            response.EnsureSuccessStatusCode();
-
-            var htmlContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            // Use FetchHtmlAsync which handles WebView2/HttpClient selection
+            var htmlContent = await FetchHtmlAsync(url, cancellationToken);
             Debug.WriteLine($"[GnjoyClient] Price list response length: {htmlContent.Length}");
 
             var items = _quoteParser.ParsePriceList(htmlContent);
@@ -456,23 +532,12 @@ public class GnjoyClient : IGnjoyClient
 
             Debug.WriteLine($"[GnjoyClient] FetchItemDetailAsync: {url}");
 
-            // Use rate-limited GET with retry logic
-            using var response = await GetWithRetryAsync(url, cancellationToken);
-            response.EnsureSuccessStatusCode();
-
-            var htmlContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            // Use FetchHtmlAsync which handles WebView2/HttpClient selection
+            var htmlContent = await FetchHtmlAsync(url, cancellationToken);
             Debug.WriteLine($"[GnjoyClient] Item detail response length: {htmlContent.Length}");
-
-            // Log first 2000 chars of HTML for debugging
-            var htmlPreview = htmlContent.Length > 2000 ? htmlContent.Substring(0, 2000) : htmlContent;
-            Debug.WriteLine($"[GnjoyClient] Item detail HTML preview:\n{htmlPreview}");
 
             var detail = _detailParser.Parse(htmlContent);
             Debug.WriteLine($"[GnjoyClient] Parsed item detail: {detail.SlotInfo.Count} slots, {detail.RandomOptions.Count} options");
-            foreach (var slot in detail.SlotInfo)
-            {
-                Debug.WriteLine($"[GnjoyClient] Slot: '{slot}'");
-            }
 
             return detail;
         }
@@ -497,7 +562,7 @@ public class GnjoyClient : IGnjoyClient
         CancellationToken cancellationToken = default)
     {
         Debug.WriteLine($"[GnjoyClient] ----- SearchItemDealsAsync START -----");
-        Debug.WriteLine($"[GnjoyClient] itemName='{itemName}', page={page}, IsCancellationRequested={cancellationToken.IsCancellationRequested}");
+        Debug.WriteLine($"[GnjoyClient] itemName='{itemName}', page={page}, WebView2={_useWebView2}");
 
         try
         {
@@ -507,14 +572,8 @@ public class GnjoyClient : IGnjoyClient
             var url = $"{BaseUrl}/{DealListEndpoint}?svrID={gnjoyServerId}&itemFullName={Uri.EscapeDataString(itemName)}&itemOrder=regdate&curpage={page}";
             Debug.WriteLine($"[GnjoyClient] SearchItemDealsAsync URL: {url}");
 
-            Debug.WriteLine($"[GnjoyClient] About to call GetWithRetryAsync...");
-            // Use rate-limited GET with retry logic
-            using var response = await GetWithRetryAsync(url, cancellationToken);
-            Debug.WriteLine($"[GnjoyClient] GetWithRetryAsync completed, StatusCode={response.StatusCode}");
-            response.EnsureSuccessStatusCode();
-
-            // GNJOY returns UTF-8 encoded HTML
-            var htmlContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            // Use FetchHtmlAsync which handles WebView2/HttpClient selection
+            var htmlContent = await FetchHtmlAsync(url, cancellationToken);
             Debug.WriteLine($"[GnjoyClient] Response length: {htmlContent.Length} chars");
 
             var items = _parser.ParseDealList(htmlContent, serverId);
@@ -524,27 +583,21 @@ public class GnjoyClient : IGnjoyClient
         catch (HttpRequestException ex)
         {
             Debug.WriteLine($"[GnjoyClient] SearchItemDealsAsync HTTP ERROR for '{itemName}': {ex.Message}");
-            Debug.WriteLine($"[GnjoyClient] HttpRequestException StackTrace: {ex.StackTrace}");
             return new List<DealItem>();
         }
-        catch (TaskCanceledException ex)
+        catch (TaskCanceledException ex) when (cancellationToken.IsCancellationRequested)
         {
-            Debug.WriteLine($"[GnjoyClient] SearchItemDealsAsync CANCELLED for '{itemName}'");
-            Debug.WriteLine($"[GnjoyClient] TaskCanceledException: {ex.Message}");
-            Debug.WriteLine($"[GnjoyClient] IsCancellationRequested at catch: {cancellationToken.IsCancellationRequested}");
+            Debug.WriteLine($"[GnjoyClient] SearchItemDealsAsync CANCELLED for '{itemName}': {ex.Message}");
             return new List<DealItem>();
         }
-        catch (OperationCanceledException ex)
+        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
         {
-            Debug.WriteLine($"[GnjoyClient] SearchItemDealsAsync OPERATION CANCELLED for '{itemName}'");
-            Debug.WriteLine($"[GnjoyClient] OperationCanceledException: {ex.Message}");
+            Debug.WriteLine($"[GnjoyClient] SearchItemDealsAsync OPERATION CANCELLED for '{itemName}': {ex.Message}");
             return new List<DealItem>();
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[GnjoyClient] SearchItemDealsAsync EXCEPTION for '{itemName}': {ex.GetType().Name}");
-            Debug.WriteLine($"[GnjoyClient] Exception message: {ex.Message}");
-            Debug.WriteLine($"[GnjoyClient] Exception StackTrace: {ex.StackTrace}");
+            Debug.WriteLine($"[GnjoyClient] SearchItemDealsAsync EXCEPTION for '{itemName}': {ex.GetType().Name} - {ex.Message}");
             return new List<DealItem>();
         }
     }
