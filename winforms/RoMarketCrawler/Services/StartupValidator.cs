@@ -34,7 +34,7 @@ public class StartupValidator : IDisposable
     /// Format: "yyyy-MM-dd HH:mm:ss"
     /// Set to null for no expiration
     /// </summary>
-    public static readonly string? ExpirationDateKST = "2026-01-24 23:59:59";
+    public static readonly string? ExpirationDateKST = "2026-02-01 23:59:59";
 
     /// <summary>
     /// Application name for Mutex
