@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using RoMarketCrawler.Controls;
 using RoMarketCrawler.Exceptions;
+using RoMarketCrawler.Forms;
 using RoMarketCrawler.Interfaces;
 using RoMarketCrawler.Models;
 using RoMarketCrawler.Services;
@@ -16,7 +17,7 @@ public class DealTabController : BaseTabController
     #region Constants
 
     private const int MaxSearchHistoryCount = 10;
-    private const int DetailRequestDelayMs = 500;
+    private const int DetailRequestDelayMs = 1000;  // 1 second per item (to avoid rate limiting)
 
     // Item types that have enchant/card/random options (무기, 방어구, 쉐도우, 의상)
     private static readonly HashSet<int> EquipmentItemTypes = new() { 4, 5, 19, 20 };
@@ -54,6 +55,17 @@ public class DealTabController : BaseTabController
     private FlowLayoutPanel _pnlPagination = null!;
     private TableLayoutPanel _mainPanel = null!;
 
+    // Auto-search UI controls
+    private FlowLayoutPanel _pnlAutoSearch = null!;
+    private TextBox _txtAutoSearchFilter = null!;
+    private TextBox _txtAutoSearchStartPage = null!;
+    private TextBox _txtAutoSearchEndPage = null!;
+    private RoundedButton _btnAutoSearch = null!;
+    private RoundedButton _btnAutoSearchCancel = null!;
+    private RoundedButton _btnAutoSearchResults = null!;
+    private Label _lblAutoSearchStatus = null!;
+    private ProgressBar _autoSearchProgressBar = null!;
+
     #endregion
 
     #region State
@@ -73,6 +85,17 @@ public class DealTabController : BaseTabController
     // Link hit areas for SlotAndOptionsDisplay column
     private readonly Dictionary<(int row, int col), List<(Rectangle rect, string itemName)>> _linkHitAreas = new();
     private string? _hoveredLinkItem = null;
+
+    // Auto-search state
+    private const int AutoSearchItemDelayMs = 1000;  // 1 second per item (to avoid rate limiting)
+    private const int AutoSearchPageDelayMs = 5000;  // 5 seconds between pages
+    private const int AutoSearchMaxPages = 1000; // Safety limit
+    private const string AdminAccessCode = "admin access";  // Secret code to unlock auto-search
+    private CancellationTokenSource? _autoSearchCts;
+    private bool _isAutoSearching = false;
+    private bool _isAdminAccessEnabled = false;  // Hidden feature unlock state
+    private AutoSearchResultsForm? _autoSearchResultsForm;
+    private string _autoSearchDataDirectory = string.Empty;
 
     #endregion
 
@@ -192,18 +215,27 @@ public class DealTabController : BaseTabController
     {
         var scale = _baseFontSize / 12f;
 
+        // Set data directory for auto-search results
+        _autoSearchDataDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "RoMarketCrawler");
+        Directory.CreateDirectory(_autoSearchDataDirectory);
+
         _mainPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 5,
+            RowCount = 6,
             Padding = new Padding(10)
         };
-        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, (int)(38 * scale)));   // Row 0: Toolbar
+        // Clear any default row styles and set our own
+        _mainPanel.RowStyles.Clear();
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, (int)(32 * scale)));   // Row 0: Toolbar
         _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));    // Row 1: Search history (dynamic)
-        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));   // Row 2: Results grid
-        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, (int)(50 * scale)));   // Row 3: Pagination
-        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, (int)(28 * scale)));   // Row 4: Status
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, (int)(50 * scale)));   // Row 2: Auto-search panel
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));   // Row 3: Results grid
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, (int)(55 * scale)));   // Row 4: Pagination
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, (int)(28 * scale)));   // Row 5: Status
         ApplyTableLayoutPanelStyle(_mainPanel);
 
         // ToolStrip-based toolbar
@@ -211,6 +243,10 @@ public class DealTabController : BaseTabController
 
         // Search history panel
         _pnlSearchHistory = CreateSearchHistoryPanel();
+
+        // Auto-search panel (hidden by default, unlocked with admin access code)
+        _pnlAutoSearch = CreateAutoSearchPanel();
+        _pnlAutoSearch.Visible = false;
 
         // Results grid
         _dgvDeals = CreateResultsGrid();
@@ -224,14 +260,18 @@ public class DealTabController : BaseTabController
 
         _mainPanel.Controls.Add(toolStrip, 0, 0);
         _mainPanel.Controls.Add(_pnlSearchHistory, 0, 1);
-        _mainPanel.Controls.Add(_dgvDeals, 0, 2);
-        _mainPanel.Controls.Add(paginationPanel, 0, 3);
-        _mainPanel.Controls.Add(_lblDealStatus, 0, 4);
+        _mainPanel.Controls.Add(_pnlAutoSearch, 0, 2);
+        _mainPanel.Controls.Add(_dgvDeals, 0, 3);
+        _mainPanel.Controls.Add(paginationPanel, 0, 4);
+        _mainPanel.Controls.Add(_lblDealStatus, 0, 5);
 
         _tabPage.Controls.Add(_mainPanel);
 
         // Initial update of search history UI
         UpdateSearchHistoryPanel();
+
+        // Initially disable auto-search until a search is performed
+        SetAutoSearchEnabled(false);
     }
 
     #region UI Creation
@@ -260,6 +300,11 @@ public class DealTabController : BaseTabController
         _cboServerToolStrip.ComboBox.DisplayMember = "Name";
         _cboServerToolStrip.SelectedIndex = 0;
         _cboDealServer = _cboServerToolStrip.ComboBox;
+        _cboDealServer.SelectedIndexChanged += (s, e) =>
+        {
+            // Disable auto-search when server changes (results would be for different server)
+            SetAutoSearchEnabled(false);
+        };
 
         // Search text
         var txtSearch = new ToolStripTextBox
@@ -280,6 +325,11 @@ public class DealTabController : BaseTabController
             }
         };
         _txtDealSearch = txtSearch.TextBox;
+        _txtDealSearch.TextChanged += (s, e) =>
+        {
+            // Disable auto-search when search text is modified
+            SetAutoSearchEnabled(false);
+        };
 
         // Search button
         var btnSearch = new ToolStripButton
@@ -336,6 +386,170 @@ public class DealTabController : BaseTabController
         panel.Controls.Add(lblHistoryTitle);
 
         return panel;
+    }
+
+    private FlowLayoutPanel CreateAutoSearchPanel()
+    {
+        var scale = _baseFontSize / 12f;
+
+        var flowPanel = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = false,
+            WrapContents = false,
+            BackColor = _colors.Panel,
+            Padding = new Padding(5, 8, 5, 5)
+        };
+
+        // Label: 자동검색
+        var lblTitle = new Label
+        {
+            Text = "옵션검색:",
+            AutoSize = true,
+            ForeColor = _colors.TextMuted,
+            Margin = new Padding(0, 3, 5, 0)
+        };
+
+        // Filter text input
+        _txtAutoSearchFilter = new TextBox
+        {
+            Width = (int)(150 * scale),
+            BackColor = _colors.Grid,
+            ForeColor = _colors.Text,
+            BorderStyle = BorderStyle.FixedSingle,
+            Margin = new Padding(0, 0, 5, 0)
+        };
+        _txtAutoSearchFilter.PlaceholderText = "카드/인챈트/옵션";
+
+        // Start page label and input
+        var lblStartPage = new Label
+        {
+            Text = "시작:",
+            AutoSize = true,
+            ForeColor = _colors.TextMuted,
+            Margin = new Padding(10, 3, 3, 0)
+        };
+
+        _txtAutoSearchStartPage = new TextBox
+        {
+            Width = (int)(45 * scale),
+            BackColor = _colors.Grid,
+            ForeColor = _colors.Text,
+            BorderStyle = BorderStyle.FixedSingle,
+            Margin = new Padding(0, 0, 5, 0),
+            TextAlign = HorizontalAlignment.Center
+        };
+        _txtAutoSearchStartPage.PlaceholderText = "1";
+
+        // End page label and input
+        var lblEndPage = new Label
+        {
+            Text = "끝:",
+            AutoSize = true,
+            ForeColor = _colors.TextMuted,
+            Margin = new Padding(5, 3, 3, 0)
+        };
+
+        _txtAutoSearchEndPage = new TextBox
+        {
+            Width = (int)(45 * scale),
+            BackColor = _colors.Grid,
+            ForeColor = _colors.Text,
+            BorderStyle = BorderStyle.FixedSingle,
+            Margin = new Padding(0, 0, 5, 0),
+            TextAlign = HorizontalAlignment.Center
+        };
+        _txtAutoSearchEndPage.PlaceholderText = "∞";
+        _txtAutoSearchEndPage.Leave += (s, e) =>
+        {
+            // Validate and clamp end page to total pages
+            if (_totalPages > 0 && !string.IsNullOrWhiteSpace(_txtAutoSearchEndPage.Text))
+            {
+                if (int.TryParse(_txtAutoSearchEndPage.Text.Trim(), out int endPage))
+                {
+                    if (endPage > _totalPages)
+                    {
+                        _txtAutoSearchEndPage.Text = _totalPages.ToString();
+                    }
+                }
+            }
+        };
+
+        // Auto-search button
+        _btnAutoSearch = new RoundedButton
+        {
+            Text = "자동검색",
+            BackColor = _colors.Accent,
+            ForeColor = _colors.AccentText,
+            Width = (int)(65 * scale),
+            Height = (int)(22 * scale),
+            Margin = new Padding(10, 0, 3, 0),
+            CornerRadius = 3
+        };
+        _btnAutoSearch.Click += async (s, e) => await StartAutoSearchAsync();
+
+        // Cancel button
+        _btnAutoSearchCancel = new RoundedButton
+        {
+            Text = "중지",
+            BackColor = Color.FromArgb(200, 80, 80),
+            ForeColor = Color.White,
+            Width = (int)(45 * scale),
+            Height = (int)(22 * scale),
+            Margin = new Padding(0, 0, 3, 0),
+            CornerRadius = 3,
+            Enabled = false
+        };
+        _btnAutoSearchCancel.Click += (s, e) => CancelAutoSearch();
+
+        // Results button
+        _btnAutoSearchResults = new RoundedButton
+        {
+            Text = "결과",
+            BackColor = Color.FromArgb(80, 160, 100),
+            ForeColor = Color.White,
+            Width = (int)(45 * scale),
+            Height = (int)(22 * scale),
+            Margin = new Padding(0, 0, 5, 0),
+            CornerRadius = 3
+        };
+        _btnAutoSearchResults.Click += (s, e) => ShowAutoSearchResults();
+
+        // Progress bar
+        _autoSearchProgressBar = new ProgressBar
+        {
+            Width = (int)(100 * scale),
+            Height = (int)(18 * scale),
+            Minimum = 0,
+            Maximum = 100,
+            Value = 0,
+            Visible = false,
+            Margin = new Padding(5, 2, 0, 0),
+            Style = ProgressBarStyle.Continuous
+        };
+
+        // Status label
+        _lblAutoSearchStatus = new Label
+        {
+            Text = "",
+            AutoSize = true,
+            ForeColor = _colors.TextMuted,
+            Margin = new Padding(5, 3, 0, 0)
+        };
+
+        flowPanel.Controls.Add(lblTitle);
+        flowPanel.Controls.Add(_txtAutoSearchFilter);
+        flowPanel.Controls.Add(lblStartPage);
+        flowPanel.Controls.Add(_txtAutoSearchStartPage);
+        flowPanel.Controls.Add(lblEndPage);
+        flowPanel.Controls.Add(_txtAutoSearchEndPage);
+        flowPanel.Controls.Add(_btnAutoSearch);
+        flowPanel.Controls.Add(_btnAutoSearchCancel);
+        flowPanel.Controls.Add(_btnAutoSearchResults);
+        flowPanel.Controls.Add(_autoSearchProgressBar);
+        flowPanel.Controls.Add(_lblAutoSearchStatus);
+
+        return flowPanel;
     }
 
     private DataGridView CreateResultsGrid()
@@ -498,7 +712,7 @@ public class DealTabController : BaseTabController
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = false,
             AutoSize = false,
-            Padding = new Padding(0, 10, 0, 0)
+            Padding = new Padding(0, 8, 0, 0)
         };
 
         // First page button (<<)
@@ -676,6 +890,17 @@ public class DealTabController : BaseTabController
     /// </summary>
     public async Task SearchAsync()
     {
+        // Check for admin access code to unlock auto-search feature
+        var searchText = _txtDealSearch.Text.Trim();
+        if (searchText.Equals(AdminAccessCode, StringComparison.OrdinalIgnoreCase))
+        {
+            _isAdminAccessEnabled = true;
+            _pnlAutoSearch.Visible = true;
+            _txtDealSearch.Text = "";
+            _lblDealStatus.Text = "옵션검색 기능이 활성화되었습니다.";
+            return;
+        }
+
         _dealCurrentPage = 1;
         await FetchDealPageAsync();
     }
@@ -760,6 +985,14 @@ public class DealTabController : BaseTabController
                 ? $"총 {_totalCount:N0}건 중 {_dealCurrentPage}/{_totalPages}페이지 (더블클릭으로 상세정보 조회)"
                 : "검색 결과가 없습니다.";
             _lblDealStatus.Text = statusText;
+
+            // Enable auto-search after successful search with results (only if admin access enabled)
+            if (_totalCount > 0 && _isAdminAccessEnabled)
+            {
+                SetAutoSearchEnabled(true);
+                // Set end page to total pages
+                _txtAutoSearchEndPage.Text = _totalPages.ToString();
+            }
         }
         catch (OperationCanceledException)
         {
@@ -910,17 +1143,18 @@ public class DealTabController : BaseTabController
             : "";
 
         // Enable/disable navigation buttons based on current position
-        var canGoPrev = _dealCurrentPage > 1;
-        var canGoNext = _dealCurrentPage < _totalPages;
+        // During auto-search, all navigation buttons should be disabled
+        var canGoPrev = !_isAutoSearching && _dealCurrentPage > 1;
+        var canGoNext = !_isAutoSearching && _dealCurrentPage < _totalPages;
 
         _btnFirst.Enabled = canGoPrev;
-        _btnPrev100.Enabled = _dealCurrentPage > 50;
-        _btnPrev10.Enabled = _dealCurrentPage > 10;
+        _btnPrev100.Enabled = !_isAutoSearching && _dealCurrentPage > 50;
+        _btnPrev10.Enabled = !_isAutoSearching && _dealCurrentPage > 10;
         _btnDealPrev.Enabled = canGoPrev;
 
         _btnDealNext.Enabled = canGoNext;
-        _btnNext10.Enabled = _dealCurrentPage + 10 <= _totalPages;
-        _btnNext100.Enabled = _dealCurrentPage + 50 <= _totalPages;
+        _btnNext10.Enabled = !_isAutoSearching && _dealCurrentPage + 10 <= _totalPages;
+        _btnNext100.Enabled = !_isAutoSearching && _dealCurrentPage + 50 <= _totalPages;
         _btnLast.Enabled = canGoNext;
 
         // Rebuild page number buttons
@@ -999,7 +1233,12 @@ public class DealTabController : BaseTabController
             {
                 // Other pages - secondary style
                 ApplyRoundedButtonStyle(btn, false);
-                btn.Click += async (s, e) => await GoToPageAsync(pageNum);
+                btn.Enabled = !_isAutoSearching;  // Disable during auto-search
+                btn.Click += async (s, e) =>
+                {
+                    if (!_isAutoSearching)  // Double-check to prevent race condition
+                        await GoToPageAsync(pageNum);
+                };
             }
 
             _pnlPagination.Controls.Add(btn);
@@ -1507,11 +1746,13 @@ public class DealTabController : BaseTabController
         }
 
         // Update row heights in main panel
-        if (_mainPanel != null && _mainPanel.RowStyles.Count >= 5)
+        // Row indices: 0=Toolbar, 1=SearchHistory, 2=AutoSearch, 3=Grid, 4=Pagination, 5=Status
+        if (_mainPanel != null && _mainPanel.RowStyles.Count >= 6)
         {
-            _mainPanel.RowStyles[0].Height = (int)(38 * scale);  // Toolbar
-            _mainPanel.RowStyles[3].Height = (int)(50 * scale);  // Pagination
-            _mainPanel.RowStyles[4].Height = (int)(28 * scale);  // Status
+            _mainPanel.RowStyles[0].Height = (int)(32 * scale);  // Toolbar
+            _mainPanel.RowStyles[2].Height = (int)(50 * scale);  // Auto-search panel
+            _mainPanel.RowStyles[4].Height = (int)(55 * scale);  // Pagination
+            _mainPanel.RowStyles[5].Height = (int)(28 * scale);  // Status
         }
     }
 
@@ -1693,6 +1934,419 @@ public class DealTabController : BaseTabController
 
     #endregion
 
+    #region Auto-Search
+
+    private async Task StartAutoSearchAsync()
+    {
+        // Validate inputs - filter must have at least 2 characters (excluding special chars and whitespace)
+        var filterText = _txtAutoSearchFilter.Text.Trim();
+        var filterTextClean = System.Text.RegularExpressions.Regex.Replace(filterText, @"[^a-zA-Z0-9가-힣]", "");
+        if (filterTextClean.Length < 2)
+        {
+            MessageBox.Show("검색할 카드/인챈트/옵션은 2글자 이상 입력해주세요.\n(특수문자, 공백 제외)", "입력 오류",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            _txtAutoSearchFilter.Focus();
+            return;
+        }
+
+        var searchTerm = _txtDealSearch.Text.Trim();
+        if (string.IsNullOrEmpty(searchTerm))
+        {
+            MessageBox.Show("먼저 검색할 아이템명을 입력해주세요.", "입력 오류",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            _txtDealSearch.Focus();
+            return;
+        }
+
+        // Parse page range
+        int startPage = 1;
+        int? endPage = null;
+
+        if (!string.IsNullOrWhiteSpace(_txtAutoSearchStartPage.Text))
+        {
+            if (!int.TryParse(_txtAutoSearchStartPage.Text.Trim(), out startPage) || startPage < 1)
+            {
+                MessageBox.Show("시작 페이지는 1 이상의 숫자여야 합니다.", "입력 오류",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                _txtAutoSearchStartPage.Focus();
+                return;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(_txtAutoSearchEndPage.Text))
+        {
+            if (!int.TryParse(_txtAutoSearchEndPage.Text.Trim(), out int parsedEndPage) || parsedEndPage < 1)
+            {
+                MessageBox.Show("끝 페이지는 1 이상의 숫자여야 합니다.", "입력 오류",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                _txtAutoSearchEndPage.Focus();
+                return;
+            }
+            endPage = parsedEndPage;
+        }
+
+        // Validate page range
+        if (endPage.HasValue && startPage > endPage.Value)
+        {
+            MessageBox.Show("시작 페이지가 끝 페이지보다 클 수 없습니다.", "입력 오류",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        // Validate start page against total pages from last search
+        if (_totalPages > 0 && startPage > _totalPages)
+        {
+            MessageBox.Show(
+                $"시작 페이지({startPage})가 총 페이지 수({_totalPages})를 초과합니다.\n" +
+                $"시작 페이지를 {_totalPages} 이하로 설정해주세요.",
+                "입력 오류",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            _txtAutoSearchStartPage.Focus();
+            return;
+        }
+
+        // Apply safety limit if no end page specified
+        int maxEndPage = endPage ?? (startPage + AutoSearchMaxPages - 1);
+
+        // Get selected server first
+        var selectedServer = _cboServerToolStrip.SelectedItem as Server;
+        if (selectedServer == null)
+        {
+            return;
+        }
+
+        // Initialize form with new search session (creates or updates history entry)
+        EnsureAutoSearchResultsForm();
+        _autoSearchResultsForm!.StartNewSearch(searchTerm, filterText, selectedServer.Id, selectedServer.Name);
+
+        // Set up cancellation
+        _autoSearchCts = new CancellationTokenSource();
+        var ct = _autoSearchCts.Token;
+
+        // Update UI state
+        SetAutoSearchingState(true);
+        _lblAutoSearchStatus.Text = $"준비 중...";
+        _autoSearchProgressBar.Value = 0;
+        _autoSearchProgressBar.Visible = true;
+
+        int matchCount = 0;
+        int currentPage = startPage;
+        var searchStartTime = DateTime.Now;
+        int pagesCompleted = 0;
+
+        try
+        {
+            while (currentPage <= maxEndPage)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                // Update progress bar
+                int totalPagesToSearch = maxEndPage - startPage + 1;
+                int progressPercent = totalPagesToSearch > 0
+                    ? (int)((currentPage - startPage) * 100.0 / totalPagesToSearch)
+                    : 0;
+                _autoSearchProgressBar.Value = Math.Min(progressPercent, 100);
+
+                // Calculate estimated remaining time
+                string etaText = "";
+                var remainingPages = maxEndPage - currentPage + 1;
+                double avgTimePerPage;
+
+                if (pagesCompleted > 0)
+                {
+                    // Use actual elapsed time for accuracy
+                    var elapsed = DateTime.Now - searchStartTime;
+                    avgTimePerPage = elapsed.TotalSeconds / pagesCompleted;
+                }
+                else
+                {
+                    // Initial estimate based on configured delays
+                    // (items per page × item delay + page delay) / 1000 to convert ms to seconds
+                    avgTimePerPage = (ItemsPerPage * AutoSearchItemDelayMs + AutoSearchPageDelayMs) / 1000.0;
+                }
+
+                var etaSeconds = (int)(avgTimePerPage * remainingPages);
+                if (etaSeconds >= 60)
+                    etaText = $" (남은 시간: {etaSeconds / 60}분 {etaSeconds % 60}초)";
+                else if (etaSeconds > 0)
+                    etaText = $" (남은 시간: {etaSeconds}초)";
+
+                _lblAutoSearchStatus.Text = $"{currentPage}/{maxEndPage}페이지 검색 중... 발견: {matchCount}건{etaText}";
+
+                // Search the page
+                var (items, totalCount) = await SearchPageForAutoSearchAsync(
+                    searchTerm, selectedServer.Id, currentPage, ct);
+
+                // Update max end page based on actual total pages
+                int actualTotalPages = (int)Math.Ceiling((double)totalCount / ItemsPerPage);
+                if (actualTotalPages > 0)
+                {
+                    maxEndPage = Math.Min(endPage ?? actualTotalPages, actualTotalPages);
+                }
+
+                // Update main grid with current page results
+                _searchResults.Clear();
+                _searchResults.AddRange(items);
+                _dealBindingSource.DataSource = null;
+                _dealBindingSource.DataSource = _searchResults;
+                _dgvDeals.Refresh();
+                _dealCurrentPage = currentPage;
+                _totalCount = totalCount;
+                _totalPages = actualTotalPages;
+                UpdateDealPaginationUI();  // Update pagination (buttons disabled during auto-search)
+                _lblDealStatus.Text = $"옵션검색 중: {currentPage}/{actualTotalPages}페이지";
+
+                // Check for matches in this page's results
+                foreach (var item in items)
+                {
+                    if (IsMatchingItem(item, filterText))
+                    {
+                        matchCount++;
+                        _autoSearchResultsForm.AddResult(item, currentPage);
+                        Debug.WriteLine($"[AutoSearch] Found match on page {currentPage}: {item.DisplayName}");
+                    }
+                }
+
+                pagesCompleted++;
+
+                // Move to next page
+                currentPage++;
+
+                // Wait before next page
+                if (currentPage <= maxEndPage)
+                {
+                    _lblAutoSearchStatus.Text = $"다음 페이지 대기 중... ({AutoSearchPageDelayMs / 1000}초)";
+
+                    try
+                    {
+                        await Task.Delay(AutoSearchPageDelayMs, ct);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                }
+            }
+
+            // Search completed
+            _autoSearchProgressBar.Value = 100;
+            var totalElapsed = DateTime.Now - searchStartTime;
+            var elapsedText = totalElapsed.TotalSeconds >= 60
+                ? $"{(int)totalElapsed.TotalMinutes}분 {(int)totalElapsed.TotalSeconds % 60}초"
+                : $"{(int)totalElapsed.TotalSeconds}초";
+            _lblAutoSearchStatus.Text = $"검색 완료: {startPage}~{currentPage - 1}페이지, {matchCount}건 발견 (소요: {elapsedText})";
+            _autoSearchResultsForm.UpdateSearchStatus($"검색 완료: {matchCount}건 발견");
+
+            if (matchCount > 0)
+            {
+                // Show results form automatically
+                ShowAutoSearchResults();
+            }
+            else
+            {
+                MessageBox.Show(
+                    $"'{filterText}' 항목을 {startPage}~{currentPage - 1}페이지에서 찾지 못했습니다.",
+                    "자동검색 완료", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _lblAutoSearchStatus.Text = $"검색 중지됨: {currentPage - 1}페이지까지 검색, {matchCount}건 발견";
+            _autoSearchResultsForm?.UpdateSearchStatus($"검색 중지됨: {matchCount}건 발견");
+        }
+        catch (RateLimitException rateLimitEx)
+        {
+            var remainingTime = rateLimitEx.RemainingTimeText;
+            _lblAutoSearchStatus.Text = $"API 제한: {remainingTime} 후 재시도";
+            _lblAutoSearchStatus.ForeColor = _colors.SaleColor;
+
+            _autoSearchResultsForm?.UpdateSearchStatus($"API 제한으로 중단됨: {matchCount}건 발견");
+
+            MessageBox.Show(
+                $"GNJOY API 요청 제한이 적용되었습니다.\n\n" +
+                $"제한 해제까지: {remainingTime}\n" +
+                $"검색 진행: {currentPage - 1}페이지까지 완료\n" +
+                $"발견된 항목: {matchCount}건\n\n" +
+                $"제한이 해제된 후 다시 시도해주세요.\n" +
+                $"(시작 페이지를 {currentPage}로 설정하면 이어서 검색 가능)",
+                "API 요청 제한",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+
+            // Set start page to continue from where we left off
+            _txtAutoSearchStartPage.Text = currentPage.ToString();
+        }
+        catch (Exception ex)
+        {
+            _lblAutoSearchStatus.Text = $"오류 발생: {ex.Message}";
+            Debug.WriteLine($"[AutoSearch] Error: {ex}");
+        }
+        finally
+        {
+            _autoSearchProgressBar.Visible = false;
+            SetAutoSearchingState(false);
+        }
+    }
+
+    private async Task<(List<DealItem> items, int totalCount)> SearchPageForAutoSearchAsync(
+        string searchTerm, int serverId, int page, CancellationToken ct)
+    {
+        var items = new List<DealItem>();
+        int totalCount = 0;
+
+        try
+        {
+            var result = await _gnjoyClient.SearchItemDealsWithCountAsync(searchTerm, serverId, page, ct);
+
+            if (result.TotalCount > 0 && result.Items != null)
+            {
+                totalCount = result.TotalCount;
+
+                foreach (var item in result.Items)
+                {
+                    ct.ThrowIfCancellationRequested();
+
+                    // Fetch detail info for equipment items
+                    if (item.MapId.HasValue && !string.IsNullOrEmpty(item.Ssi))
+                    {
+                        try
+                        {
+                            var detail = await _gnjoyClient.FetchItemDetailAsync(
+                                item.ServerId, item.MapId.Value, item.Ssi, ct);
+
+                            if (detail != null)
+                            {
+                                item.ApplyDetailInfo(detail);
+                            }
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            throw;
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"[AutoSearch] Failed to get detail: {ex.Message}");
+                        }
+                    }
+
+                    item.ComputeFields();  // Generate DisplayName and PriceFormatted
+                    items.Add(item);
+
+                    // 1 second delay per item (to avoid rate limiting)
+                    await Task.Delay(AutoSearchItemDelayMs, ct);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[AutoSearch] Search error: {ex.Message}");
+        }
+
+        return (items, totalCount);
+    }
+
+    private bool IsMatchingItem(DealItem item, string filterText)
+    {
+        // Check SlotInfo (cards, enchants)
+        foreach (var slot in item.SlotInfo)
+        {
+            if (slot.Contains(filterText, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        // Check RandomOptions
+        foreach (var option in item.RandomOptions)
+        {
+            if (option.Contains(filterText, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
+    private void CancelAutoSearch()
+    {
+        _autoSearchCts?.Cancel();
+        _lblAutoSearchStatus.Text = "검색 중지 요청됨...";
+    }
+
+    private void ShowAutoSearchResults()
+    {
+        EnsureAutoSearchResultsForm();
+
+        if (_autoSearchResultsForm!.Visible)
+        {
+            _autoSearchResultsForm.BringToFront();
+            _autoSearchResultsForm.Focus();
+        }
+        else
+        {
+            var parentForm = _tabPage.FindForm();
+            if (parentForm != null)
+            {
+                _autoSearchResultsForm.Show(parentForm);
+            }
+            else
+            {
+                _autoSearchResultsForm.Show();
+            }
+        }
+    }
+
+    private void EnsureAutoSearchResultsForm()
+    {
+        if (_autoSearchResultsForm == null || _autoSearchResultsForm.IsDisposed)
+        {
+            _autoSearchResultsForm = new AutoSearchResultsForm(_colors, _baseFontSize, _autoSearchDataDirectory);
+            _autoSearchResultsForm.FormClosed += (s, e) => _autoSearchResultsForm = null;
+        }
+    }
+
+    private void SetAutoSearchingState(bool searching)
+    {
+        _isAutoSearching = searching;
+
+        _txtAutoSearchFilter.Enabled = !searching;
+        _txtAutoSearchStartPage.Enabled = !searching;
+        _txtAutoSearchEndPage.Enabled = !searching;
+        _btnAutoSearch.Enabled = !searching;
+        _btnAutoSearchCancel.Enabled = searching;
+
+        // Also disable regular search controls during auto-search
+        _btnDealSearchToolStrip.Enabled = !searching;
+        _txtDealSearch.Enabled = !searching;
+        _cboDealServer.Enabled = !searching;
+
+        // Disable navigation buttons
+        _btnFirst.Enabled = !searching && _dealCurrentPage > 1;
+        _btnPrev100.Enabled = !searching && _dealCurrentPage > 50;
+        _btnPrev10.Enabled = !searching && _dealCurrentPage > 10;
+        _btnDealPrev.Enabled = !searching && _dealCurrentPage > 1;
+        _btnDealNext.Enabled = !searching && _dealCurrentPage < _totalPages;
+        _btnNext10.Enabled = !searching && _dealCurrentPage + 10 <= _totalPages;
+        _btnNext100.Enabled = !searching && _dealCurrentPage + 50 <= _totalPages;
+        _btnLast.Enabled = !searching && _dealCurrentPage < _totalPages;
+    }
+
+    /// <summary>
+    /// Enable or disable auto-search controls based on whether a search has been performed
+    /// </summary>
+    private void SetAutoSearchEnabled(bool enabled)
+    {
+        _txtAutoSearchFilter.Enabled = enabled;
+        _txtAutoSearchStartPage.Enabled = enabled;
+        _txtAutoSearchEndPage.Enabled = enabled;
+        _btnAutoSearch.Enabled = enabled;
+        // Results button is always enabled to view previous results
+        // Cancel button is only enabled during auto-search
+    }
+
+    #endregion
+
     #region Dispose
 
     protected override void Dispose(bool disposing)
@@ -1703,6 +2357,9 @@ public class DealTabController : BaseTabController
         {
             _cts?.Cancel();
             _cts?.Dispose();
+            _autoSearchCts?.Cancel();
+            _autoSearchCts?.Dispose();
+            _autoSearchResultsForm?.Dispose();
             _dealBindingSource?.Dispose();
             _dgvDeals?.Dispose();
         }
