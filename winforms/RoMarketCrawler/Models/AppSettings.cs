@@ -11,4 +11,5 @@ public class AppSettings
     public AlarmSoundType AlarmSound { get; set; } = AlarmSoundType.SystemSound;
     public int AlarmIntervalSeconds { get; set; } = 5;
     public List<string> DealSearchHistory { get; set; } = new();
+    public bool HideDealSearchGuide { get; set; } = false;
 }

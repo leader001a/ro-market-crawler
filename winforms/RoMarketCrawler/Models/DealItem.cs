@@ -109,11 +109,7 @@ public class DealItem
                 parts.AddRange(SlotInfo);
 
             if (RandomOptions.Count > 0)
-            {
-                // Add random options with prefix to distinguish
-                foreach (var opt in RandomOptions)
-                    parts.Add($"[옵션] {opt}");
-            }
+                parts.AddRange(RandomOptions);
 
             return parts.Count > 0 ? string.Join(Environment.NewLine, parts) : "-";
         }

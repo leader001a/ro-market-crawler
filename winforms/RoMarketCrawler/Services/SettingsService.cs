@@ -142,6 +142,26 @@ public class SettingsService : ISettingsService
         }
     }
 
+    /// <inheritdoc/>
+    public bool HideDealSearchGuide
+    {
+        get { lock (_lock) return _settings.HideDealSearchGuide; }
+        set => SetHideDealSearchGuide(value);
+    }
+
+    private void SetHideDealSearchGuide(bool value)
+    {
+        bool oldValue;
+        lock (_lock)
+        {
+            if (_settings.HideDealSearchGuide == value) return;
+            oldValue = _settings.HideDealSearchGuide;
+            _settings.HideDealSearchGuide = value;
+            _isDirty = true;
+        }
+        RaiseSettingChanged(nameof(HideDealSearchGuide), oldValue, value);
+    }
+
     #endregion
 
     #region Methods
@@ -197,7 +217,8 @@ public class SettingsService : ISettingsService
                     IsSoundMuted = _settings.IsSoundMuted,
                     AlarmSound = _settings.AlarmSound,
                     AlarmIntervalSeconds = _settings.AlarmIntervalSeconds,
-                    DealSearchHistory = new List<string>(_settings.DealSearchHistory)
+                    DealSearchHistory = new List<string>(_settings.DealSearchHistory),
+                    HideDealSearchGuide = _settings.HideDealSearchGuide
                 };
                 _isDirty = false;
             }

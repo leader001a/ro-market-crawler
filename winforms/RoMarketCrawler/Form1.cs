@@ -107,6 +107,9 @@ public partial class Form1 : Form
 
         // Load data asynchronously
         _ = LoadDataAsync();
+
+        // Activate initial tab after form is shown
+        Shown += (s, e) => _dealTabController?.OnActivated();
     }
 
     private void CreateTabControllers()

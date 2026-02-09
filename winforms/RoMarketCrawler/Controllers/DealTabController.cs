@@ -71,6 +71,10 @@ public class DealTabController : BaseTabController
     private const int ItemsPerPage = 10;
     private const int MaxVisiblePages = 10;
 
+    // Link hit areas for SlotAndOptionsDisplay column
+    private readonly Dictionary<(int row, int col), List<(Rectangle rect, string itemName)>> _linkHitAreas = new();
+    private string? _hoveredLinkItem = null;
+
     #endregion
 
     #region Events
@@ -363,23 +367,8 @@ public class DealTabController : BaseTabController
         };
         ApplyDataGridViewStyle(dgv);
 
-        // Force header center alignment by custom painting
-        dgv.CellPainting += (s, e) =>
-        {
-            if (e.RowIndex == -1 && e.ColumnIndex >= 0 && e.Graphics != null)
-            {
-                e.PaintBackground(e.ClipBounds, true);
-                TextRenderer.DrawText(
-                    e.Graphics,
-                    e.FormattedValue?.ToString() ?? "",
-                    e.CellStyle?.Font ?? dgv.Font,
-                    e.CellBounds,
-                    e.CellStyle?.ForeColor ?? _colors.Text,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter
-                );
-                e.Handled = true;
-            }
-        };
+        // Custom cell painting for header and SlotAndOptionsDisplay column
+        dgv.CellPainting += DgvDeals_CellPainting;
 
         dgv.CellFormatting += DgvDeals_CellFormatting;
         SetupDealGridColumns(dgv);
@@ -393,6 +382,7 @@ public class DealTabController : BaseTabController
         dgv.ContextMenuStrip = dealContextMenu;
 
         // Handle right-click to select row before showing context menu
+        // Also prevent selection on SlotAndOptionsDisplay column
         dgv.CellMouseDown += (s, e) =>
         {
             if (e.Button == MouseButtons.Right && e.RowIndex >= 0)
@@ -400,9 +390,37 @@ public class DealTabController : BaseTabController
                 dgv.ClearSelection();
                 dgv.Rows[e.RowIndex].Selected = true;
             }
+            // Prevent selection on SlotAndOptionsDisplay column (blue background makes links hard to read)
+            else if (e.Button == MouseButtons.Left && e.RowIndex >= 0 && e.ColumnIndex >= 0)
+            {
+                var colName = dgv.Columns[e.ColumnIndex].Name;
+                if (colName == "SlotAndOptionsDisplay")
+                {
+                    // Clear any existing selection of this cell after a brief delay
+                    dgv.BeginInvoke(new Action(() =>
+                    {
+                        if (e.RowIndex < dgv.Rows.Count && e.ColumnIndex < dgv.Columns.Count)
+                        {
+                            dgv.Rows[e.RowIndex].Cells[e.ColumnIndex].Selected = false;
+                        }
+                    }));
+                }
+            }
+        };
+
+        // Mouse move for link hover effect
+        dgv.CellMouseMove += DgvDeals_CellMouseMove;
+        dgv.CellMouseLeave += (s, e) =>
+        {
+            if (_hoveredLinkItem != null)
+            {
+                _hoveredLinkItem = null;
+                dgv.Cursor = Cursors.Default;
+            }
         };
 
         dgv.CellDoubleClick += DgvDeals_CellDoubleClick;
+        dgv.CellMouseClick += DgvDeals_CellMouseClick;
 
         return dgv;
     }
@@ -1174,6 +1192,188 @@ public class DealTabController : BaseTabController
         ShowItemDetail?.Invoke(this, selectedItem);
     }
 
+    private void DgvDeals_CellPainting(object? sender, DataGridViewCellPaintingEventArgs e)
+    {
+        if (e.Graphics == null) return;
+
+        // Header painting
+        if (e.RowIndex == -1 && e.ColumnIndex >= 0)
+        {
+            e.PaintBackground(e.ClipBounds, true);
+            TextRenderer.DrawText(
+                e.Graphics,
+                e.FormattedValue?.ToString() ?? "",
+                e.CellStyle?.Font ?? _dgvDeals.Font,
+                e.CellBounds,
+                e.CellStyle?.ForeColor ?? _colors.Text,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter
+            );
+            e.Handled = true;
+            return;
+        }
+
+        // SlotAndOptionsDisplay column - draw links for SlotInfo, plain text for RandomOptions
+        if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
+        {
+            var columnName = _dgvDeals.Columns[e.ColumnIndex].Name;
+            if (columnName == "SlotAndOptionsDisplay")
+            {
+                var dataSource = _dealBindingSource.DataSource as List<DealItem>;
+                if (dataSource == null || e.RowIndex >= dataSource.Count) return;
+
+                var dealItem = dataSource[e.RowIndex];
+                var slotItems = dealItem.SlotInfo ?? new List<string>();
+                var randomOptions = dealItem.RandomOptions ?? new List<string>();
+
+                if (slotItems.Count == 0 && randomOptions.Count == 0) return;
+
+                // Paint background
+                e.PaintBackground(e.ClipBounds, true);
+
+                var font = e.CellStyle?.Font ?? _dgvDeals.DefaultCellStyle.Font ?? _dgvDeals.Font;
+                var linkFont = new Font(font, FontStyle.Underline);
+                var padding = e.CellStyle?.Padding ?? new Padding(2);
+                var x = e.CellBounds.X + padding.Left + 3;
+                var y = e.CellBounds.Y + padding.Top + 2;
+
+                var hitAreas = new List<(Rectangle rect, string itemName)>();
+                var key = (e.RowIndex, e.ColumnIndex);
+
+                var lineHeight = TextRenderer.MeasureText(e.Graphics, "Test", font).Height;
+
+                // Draw SlotInfo items as links (one per line)
+                foreach (var item in slotItems)
+                {
+                    var textSize = TextRenderer.MeasureText(e.Graphics, item, linkFont);
+                    var textRect = new Rectangle(x, y, textSize.Width, textSize.Height);
+
+                    // Check if this is the hovered link
+                    var isHovered = _hoveredLinkItem == item && key == _hoveredLinkKey;
+                    var linkColor = isHovered ? _colors.Accent : _colors.LinkColor;
+
+                    TextRenderer.DrawText(e.Graphics, item, linkFont, textRect, linkColor, TextFormatFlags.Left);
+
+                    hitAreas.Add((textRect, item));
+                    y += lineHeight + 1;
+                }
+
+                // Draw RandomOptions as plain text (one per line)
+                foreach (var option in randomOptions)
+                {
+                    var textSize = TextRenderer.MeasureText(e.Graphics, option, font);
+                    var textRect = new Rectangle(x, y, textSize.Width, textSize.Height);
+                    TextRenderer.DrawText(e.Graphics, option, font, textRect, _colors.TextMuted, TextFormatFlags.Left);
+
+                    y += lineHeight + 1;
+                }
+
+                // Store hit areas for click detection (only SlotInfo items)
+                _linkHitAreas[key] = hitAreas;
+
+                linkFont.Dispose();
+                e.Handled = true;
+            }
+        }
+    }
+
+    private (int row, int col) _hoveredLinkKey;
+
+    private void DgvDeals_CellMouseMove(object? sender, DataGridViewCellMouseEventArgs e)
+    {
+        if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
+
+        var columnName = _dgvDeals.Columns[e.ColumnIndex].Name;
+        if (columnName != "SlotAndOptionsDisplay")
+        {
+            if (_hoveredLinkItem != null)
+            {
+                _hoveredLinkItem = null;
+                _dgvDeals.Cursor = Cursors.Default;
+                _dgvDeals.InvalidateCell(e.ColumnIndex, e.RowIndex);
+            }
+            return;
+        }
+
+        var key = (e.RowIndex, e.ColumnIndex);
+        if (!_linkHitAreas.TryGetValue(key, out var hitAreas)) return;
+
+        var cellRect = _dgvDeals.GetCellDisplayRectangle(e.ColumnIndex, e.RowIndex, true);
+        var mousePos = new Point(cellRect.X + e.X, cellRect.Y + e.Y);
+
+        string? hoveredItem = null;
+        foreach (var (rect, itemName) in hitAreas)
+        {
+            if (rect.Contains(mousePos))
+            {
+                hoveredItem = itemName;
+                break;
+            }
+        }
+
+        if (hoveredItem != _hoveredLinkItem)
+        {
+            _hoveredLinkItem = hoveredItem;
+            _hoveredLinkKey = key;
+            _dgvDeals.Cursor = hoveredItem != null ? Cursors.Hand : Cursors.Default;
+            _dgvDeals.InvalidateCell(e.ColumnIndex, e.RowIndex);
+        }
+    }
+
+    private void DgvDeals_CellMouseClick(object? sender, DataGridViewCellMouseEventArgs e)
+    {
+        if (e.RowIndex < 0 || e.Button != MouseButtons.Left) return;
+
+        var columnName = _dgvDeals.Columns[e.ColumnIndex].Name;
+        if (columnName != "SlotAndOptionsDisplay") return;
+
+        // Prevent cell selection for this column (blue background makes text hard to read)
+        if (_dgvDeals.Rows[e.RowIndex].Cells[e.ColumnIndex].Selected)
+        {
+            _dgvDeals.Rows[e.RowIndex].Cells[e.ColumnIndex].Selected = false;
+        }
+
+        var key = (e.RowIndex, e.ColumnIndex);
+        if (!_linkHitAreas.TryGetValue(key, out var hitAreas)) return;
+
+        var cellRect = _dgvDeals.GetCellDisplayRectangle(e.ColumnIndex, e.RowIndex, true);
+        var mousePos = new Point(cellRect.X + e.X, cellRect.Y + e.Y);
+
+        foreach (var (rect, itemName) in hitAreas)
+        {
+            if (rect.Contains(mousePos))
+            {
+                ShowItemInfoByName(itemName);
+                break;
+            }
+        }
+    }
+
+
+    private void ShowItemInfoByName(string itemName)
+    {
+        Debug.WriteLine($"[DealTabController] Looking up item: {itemName}");
+
+        // Search for item in index
+        var foundItem = _itemIndexService.SearchItems(itemName, new HashSet<int> { 999 }, 0, 1, false).FirstOrDefault();
+
+        if (foundItem != null)
+        {
+            // Show item info popup
+            var parentForm = _tabPage.FindForm();
+            if (parentForm != null)
+            {
+                var indexService = _itemIndexService as ItemIndexService;
+                var infoForm = new ItemInfoForm(foundItem, indexService, _currentTheme, _baseFontSize);
+                infoForm.Show(parentForm);
+            }
+        }
+        else
+        {
+            MessageBox.Show($"'{itemName}' 아이템을 찾을 수 없습니다.\n\n아이템 정보 수집(도구 > 아이템정보 수집)을 먼저 실행해 주세요.",
+                "아이템 검색", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+    }
+
     private async void DealContextMenu_AddToMonitor(object? sender, EventArgs e)
     {
         var selectedRow = _dgvDeals.CurrentRow;
@@ -1391,6 +1591,117 @@ public class DealTabController : BaseTabController
     {
         _lblDealStatus.Text = "검색어를 입력하고 [검색] 버튼을 클릭하세요.";
         _lblDealStatus.ForeColor = _colors.Text;
+    }
+
+    #endregion
+
+    #region Tab Activation
+
+    private bool _guideShownThisSession = false;
+
+    /// <inheritdoc/>
+    public override void OnActivated()
+    {
+        base.OnActivated();
+
+        // Show guide dialog on first activation if not hidden
+        if (!_guideShownThisSession && !_settingsService.HideDealSearchGuide)
+        {
+            _guideShownThisSession = true;
+            ShowSearchGuideDialog();
+        }
+    }
+
+    private void ShowSearchGuideDialog()
+    {
+        var parentForm = _tabPage.FindForm();
+        if (parentForm == null) return;
+
+        // Use BeginInvoke to show dialog after tab switch completes
+        parentForm.BeginInvoke(() =>
+        {
+            using var guideForm = new Form
+            {
+                Text = "노점조회 안내",
+                Size = new Size(500, 400),
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                StartPosition = FormStartPosition.CenterParent,
+                MaximizeBox = false,
+                MinimizeBox = false,
+                BackColor = _colors.Panel,
+                ForeColor = _colors.Text
+            };
+
+            var lblTitle = new Label
+            {
+                Text = "노점 거래 검색 안내",
+                Font = new Font("Malgun Gothic", _baseFontSize + 2, FontStyle.Bold),
+                ForeColor = _colors.Accent,
+                AutoSize = false,
+                Size = new Size(460, 30),
+                Location = new Point(20, 15),
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+
+            var lblContent = new Label
+            {
+                Text = "【 데이터 출처 】\n" +
+                       "노점 거래 정보는 GNJOY 공식 홈페이지(ro.gnjoy.com)에서\n" +
+                       "제공하는 데이터를 실시간으로 조회합니다.\n\n" +
+                       "【 조회 방식 】\n" +
+                       "1페이지(10건) 조회 시 아이템 목록 1회 + 상세정보 10회를\n" +
+                       "순차적으로 요청하며, 상세정보 1건당 약 1초가 소요됩니다.\n" +
+                       "따라서 한 페이지 조회에 약 10~15초가 소요될 수 있습니다.\n\n" +
+                       "【 검색 제한 주의 】\n" +
+                       "GNJOY 서버의 요청 제한 기준과 차단 기간은 공개되어 있지\n" +
+                       "않아 정확히 알 수 없습니다.\n" +
+                       "(개발자가 의상검색 개발 중 약 1일간 차단된 경험이 있습니다)\n" +
+                       "과도한 연속 검색은 자제해 주시기 바랍니다.",
+                Font = new Font("Malgun Gothic", _baseFontSize),
+                ForeColor = _colors.Text,
+                AutoSize = false,
+                Size = new Size(460, 250),
+                Location = new Point(20, 50)
+            };
+
+            var chkDontShowAgain = new CheckBox
+            {
+                Text = "다시 보지 않기",
+                Font = new Font("Malgun Gothic", _baseFontSize),
+                ForeColor = _colors.TextMuted,
+                AutoSize = true,
+                Location = new Point(20, 310)
+            };
+
+            var btnOk = new Button
+            {
+                Text = "확인",
+                Size = new Size(100, 35),
+                Location = new Point(380, 305),
+                FlatStyle = _currentTheme == ThemeType.Dark ? FlatStyle.Flat : FlatStyle.Standard,
+                BackColor = _colors.Accent,
+                ForeColor = _colors.AccentText,
+                Cursor = Cursors.Hand
+            };
+            if (_currentTheme == ThemeType.Dark)
+            {
+                btnOk.FlatAppearance.BorderColor = _colors.Accent;
+            }
+
+            btnOk.Click += (s, e) =>
+            {
+                if (chkDontShowAgain.Checked)
+                {
+                    _settingsService.HideDealSearchGuide = true;
+                    _ = _settingsService.SaveAsync();
+                }
+                guideForm.Close();
+            };
+
+            guideForm.Controls.AddRange(new Control[] { lblTitle, lblContent, chkDontShowAgain, btnOk });
+            guideForm.AcceptButton = btnOk;
+            guideForm.ShowDialog(parentForm);
+        });
     }
 
     #endregion
