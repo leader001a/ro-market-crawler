@@ -71,10 +71,6 @@ public class DealTabController : BaseTabController
     private const int ItemsPerPage = 10;
     private const int MaxVisiblePages = 10;
 
-    // AutoComplete support (set from parent form)
-    private AutoCompleteDropdown? _autoCompleteDropdown;
-    private List<string>? _autoCompleteItems;
-
     #endregion
 
     #region Events
@@ -101,15 +97,6 @@ public class DealTabController : BaseTabController
         _monitoringService = GetService<IMonitoringService>();
         _settingsService = GetService<ISettingsService>();
         _dealBindingSource = new BindingSource { DataSource = _searchResults };
-    }
-
-    /// <summary>
-    /// Set autocomplete support from parent form
-    /// </summary>
-    public void SetAutoComplete(AutoCompleteDropdown dropdown, List<string> items)
-    {
-        _autoCompleteDropdown = dropdown;
-        _autoCompleteItems = items;
     }
 
     /// <summary>
@@ -282,11 +269,10 @@ public class DealTabController : BaseTabController
         };
         txtSearch.KeyDown += (s, e) =>
         {
-            if (e.KeyCode == Keys.Enter && _autoCompleteDropdown?.HasSelection != true)
+            if (e.KeyCode == Keys.Enter)
             {
                 e.Handled = true;
                 e.SuppressKeyPress = true;
-                _autoCompleteDropdown?.Hide();
                 _ = SearchAsync();
             }
         };
@@ -1110,9 +1096,7 @@ public class DealTabController : BaseTabController
             {
                 if (s is Label lbl && lbl.Tag is (string _, string searchTerm))
                 {
-                    _autoCompleteDropdown?.Hide();
                     _txtDealSearch.Text = searchTerm;
-                    _autoCompleteDropdown?.Hide();
                     await SearchAsync();
                 }
             };
@@ -1154,13 +1138,6 @@ public class DealTabController : BaseTabController
 
         // Notify parent to save settings
         SearchHistoryChanged?.Invoke(this, _dealSearchHistory);
-
-        // Add to autocomplete source if not already present
-        if (_autoCompleteItems != null && !_autoCompleteItems.Contains(searchTerm))
-        {
-            _autoCompleteItems.Insert(0, searchTerm);
-            _autoCompleteDropdown?.SetDataSource(_autoCompleteItems);
-        }
     }
 
     #endregion

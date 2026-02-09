@@ -49,13 +49,6 @@ public partial class Form1 : Form
 
     #endregion
 
-    #region AutoComplete
-
-    private AutoCompleteDropdown _autoCompleteDropdown = null!;
-    private List<string> _autoCompleteItems = new();
-
-    #endregion
-
     #region Watermark
 
     private Image? _watermarkImage = null;
@@ -134,24 +127,12 @@ public partial class Form1 : Form
         _dealTabController.SearchHistoryChanged += (s, history) =>
         {
             _dealSearchHistory = history;
-            RefreshAutoCompleteSource();
             SaveSettings();
         };
 
         _dealTabController.ShowItemDetail += (s, dealItem) =>
         {
             ShowItemDetailForm(dealItem);
-        };
-
-        // ItemTabController events
-        _itemTabController.IndexStatusChanged += (s, e) =>
-        {
-            RefreshAutoCompleteSource();
-        };
-
-        _itemTabController.AutoCompleteRefreshNeeded += (s, e) =>
-        {
-            RefreshAutoCompleteSource();
         };
 
         // MonitorTabController events
@@ -175,9 +156,6 @@ public partial class Form1 : Form
 
             // Load monitoring config and reset auto-refresh state
             await _monitorTabController.LoadMonitoringAsync();
-
-            // Refresh autocomplete with loaded data
-            RefreshAutoCompleteSource();
 
             // Initialize WebView2 for Cloudflare bypass
             await InitializeWebView2Async();
@@ -296,9 +274,6 @@ public partial class Form1 : Form
         // Apply dark mode to title bar
         ThemeManager.ApplyDarkModeToTitleBar(Handle, _currentTheme == ThemeType.Dark);
 
-        // Initialize autocomplete
-        InitializeAutoComplete();
-
         // Load watermark
         LoadWatermarkImage();
 
@@ -369,53 +344,6 @@ public partial class Form1 : Form
             _statusStrip.Items.Add(lblExpiration);
         }
         _statusStrip.Items.Add(_lblCreator);
-    }
-
-    private void InitializeAutoComplete()
-    {
-        _autoCompleteDropdown = new AutoCompleteDropdown();
-        _autoCompleteDropdown.UpdateTheme(ThemeGrid, ThemeText, ThemeAccent, ThemeBorder);
-
-        // Set autocomplete on controllers
-        _dealTabController.SetAutoComplete(_autoCompleteDropdown, _autoCompleteItems);
-        _itemTabController.SetAutoComplete(_autoCompleteDropdown);
-        _monitorTabController.SetAutoComplete(_autoCompleteDropdown);
-
-        Debug.WriteLine("[Form1] AutoComplete dropdown initialized");
-    }
-
-    private void RefreshAutoCompleteSource()
-    {
-        if (InvokeRequired)
-        {
-            Invoke(new Action(RefreshAutoCompleteSource));
-            return;
-        }
-
-        try
-        {
-            _autoCompleteItems.Clear();
-
-            // Add search history first
-            if (_dealSearchHistory?.Count > 0)
-            {
-                _autoCompleteItems.AddRange(_dealSearchHistory);
-            }
-
-            // Add item names from index via controller
-            var itemNames = _itemTabController.GetAllItemNames();
-            if (itemNames.Count > 0)
-            {
-                _autoCompleteItems.AddRange(itemNames);
-                Debug.WriteLine($"[Form1] AutoComplete source refreshed: {itemNames.Count} items + {_dealSearchHistory?.Count ?? 0} history");
-            }
-
-            _autoCompleteDropdown?.SetDataSource(_autoCompleteItems);
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"[Form1] AutoComplete refresh error: {ex.Message}");
-        }
     }
 
     private void LoadWatermarkImage()
@@ -1099,7 +1027,6 @@ public partial class Form1 : Form
         _itemTabController?.Dispose();
         _monitorTabController?.Dispose();
 
-        _autoCompleteDropdown?.Dispose();
         _watermarkImage?.Dispose();
         _watermarkFaded?.Dispose();
         _webView2Helper?.Dispose();

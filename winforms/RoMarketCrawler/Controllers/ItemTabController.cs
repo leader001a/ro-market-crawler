@@ -62,9 +62,6 @@ public class ItemTabController : BaseTabController
     private int _itemCurrentPage = 0;
     private int _itemTotalCount = 0;
 
-    // AutoComplete support
-    private AutoCompleteDropdown? _autoCompleteDropdown;
-
     #endregion
 
     #region Events
@@ -73,11 +70,6 @@ public class ItemTabController : BaseTabController
     /// Raised when index status changes (for updating menu items)
     /// </summary>
     public event EventHandler? IndexStatusChanged;
-
-    /// <summary>
-    /// Raised when autocomplete source needs refresh
-    /// </summary>
-    public event EventHandler? AutoCompleteRefreshNeeded;
 
     #endregion
 
@@ -103,14 +95,6 @@ public class ItemTabController : BaseTabController
     }
 
     /// <summary>
-    /// Set autocomplete dropdown for search textbox
-    /// </summary>
-    public void SetAutoComplete(AutoCompleteDropdown dropdown)
-    {
-        _autoCompleteDropdown = dropdown;
-    }
-
-    /// <summary>
     /// Get the search textbox for autocomplete attachment
     /// </summary>
     public TextBox GetSearchTextBox() => _txtItemSearch;
@@ -133,15 +117,6 @@ public class ItemTabController : BaseTabController
         {
             Debug.WriteLine($"[ItemTabController] Index load error: {ex.Message}");
         }
-    }
-
-    /// <summary>
-    /// Get all item names for autocomplete
-    /// </summary>
-    public List<string> GetAllItemNames()
-    {
-        if (!_itemIndexService.IsLoaded) return new List<string>();
-        return _itemIndexService.GetAllScreenNames().ToList();
     }
 
     /// <summary>
@@ -259,11 +234,10 @@ public class ItemTabController : BaseTabController
         };
         txtSearch.KeyDown += (s, e) =>
         {
-            if (e.KeyCode == Keys.Enter && _autoCompleteDropdown?.HasSelection != true)
+            if (e.KeyCode == Keys.Enter)
             {
                 e.Handled = true;
                 e.SuppressKeyPress = true;
-                _autoCompleteDropdown?.Hide();
                 _ = SearchAsync();
             }
         };
@@ -1241,7 +1215,6 @@ public class ItemTabController : BaseTabController
         if (success)
         {
             UpdateIndexStatus();
-            AutoCompleteRefreshNeeded?.Invoke(this, EventArgs.Empty);
             MessageBox.Show(
                 $"인덱스 생성 완료!\n\n총 {progressDialog.TotalCount:N0}개 아이템이 저장되었습니다.",
                 "완료",

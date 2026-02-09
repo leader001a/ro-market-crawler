@@ -86,9 +86,6 @@ public class MonitorTabController : BaseTabController
     private AlarmSoundType _selectedAlarmSound = AlarmSoundType.Chime;
     private int _alarmIntervalSeconds = 5;
 
-    // AutoComplete support
-    private AutoCompleteDropdown? _autoCompleteDropdown;
-
     // Track auto-refresh state before rate limit pause
     private bool _wasAutoRefreshRunningBeforeRateLimit = false;
 
@@ -119,14 +116,6 @@ public class MonitorTabController : BaseTabController
 
         _monitorItemsBindingSource = new BindingSource();
         _monitorResultsBindingSource = new BindingSource();
-    }
-
-    /// <summary>
-    /// Set autocomplete dropdown for item name textbox
-    /// </summary>
-    public void SetAutoComplete(AutoCompleteDropdown dropdown)
-    {
-        _autoCompleteDropdown = dropdown;
     }
 
     /// <summary>
@@ -362,11 +351,10 @@ public class MonitorTabController : BaseTabController
         };
         txtItemName.KeyDown += (s, e) =>
         {
-            if (e.KeyCode == Keys.Enter && _autoCompleteDropdown?.HasSelection != true)
+            if (e.KeyCode == Keys.Enter)
             {
                 e.Handled = true;
                 e.SuppressKeyPress = true;
-                _autoCompleteDropdown?.Hide();
                 BtnMonitorAdd_Click(s, e);
             }
         };

@@ -62,7 +62,6 @@ public partial class Form1
         ThemeManager.ApplyDarkModeToTitleBar(Handle, _currentTheme == ThemeType.Dark);
         ApplyThemeToAllControls(this);
         UpdateThemeMenuChecks();
-        _autoCompleteDropdown?.UpdateTheme(ThemeGrid, ThemeText, ThemeAccent, ThemeBorder);
 
         // Update controllers with new theme
         var colors = ThemeColors.ForTheme(theme);
