@@ -43,8 +43,14 @@ public class DealTabController : BaseTabController
     private DataGridView _dgvDeals = null!;
     private Label _lblDealStatus = null!;
     private FlowLayoutPanel _pnlSearchHistory = null!;
-    private RoundedButton _btnDealPrev = null!;
-    private RoundedButton _btnDealNext = null!;
+    private RoundedButton _btnFirst = null!;      // <<
+    private RoundedButton _btnPrev100 = null!;    // -50
+    private RoundedButton _btnPrev10 = null!;     // -10
+    private RoundedButton _btnDealPrev = null!;   // <
+    private RoundedButton _btnDealNext = null!;   // >
+    private RoundedButton _btnNext10 = null!;     // +10
+    private RoundedButton _btnNext100 = null!;    // +50
+    private RoundedButton _btnLast = null!;       // >>
     private Label _lblDealPage = null!;
     private FlowLayoutPanel _pnlPagination = null!;
     private TableLayoutPanel _mainPanel = null!;
@@ -60,7 +66,10 @@ public class DealTabController : BaseTabController
     private int _currentSearchId = 0;
     private List<string> _dealSearchHistory = new();
     private int _dealCurrentPage = 1;
-    private bool _hasMorePages = false;
+    private int _totalCount = 0;
+    private int _totalPages = 0;
+    private const int ItemsPerPage = 10;
+    private const int MaxVisiblePages = 10;
 
     // AutoComplete support (set from parent form)
     private AutoCompleteDropdown? _autoCompleteDropdown;
@@ -133,8 +142,25 @@ public class DealTabController : BaseTabController
         _btnDealSearchToolStrip.Enabled = !isRateLimited;
         _txtDealSearch.Enabled = !isRateLimited;
         _cboDealServer.Enabled = !isRateLimited;
+
+        // Disable all navigation buttons
+        _btnFirst.Enabled = !isRateLimited && _dealCurrentPage > 1;
+        _btnPrev100.Enabled = !isRateLimited && _dealCurrentPage > 50;
+        _btnPrev10.Enabled = !isRateLimited && _dealCurrentPage > 10;
         _btnDealPrev.Enabled = !isRateLimited && _dealCurrentPage > 1;
-        _btnDealNext.Enabled = !isRateLimited && _hasMorePages;
+        _btnDealNext.Enabled = !isRateLimited && _dealCurrentPage < _totalPages;
+        _btnNext10.Enabled = !isRateLimited && _dealCurrentPage + 10 <= _totalPages;
+        _btnNext100.Enabled = !isRateLimited && _dealCurrentPage + 50 <= _totalPages;
+        _btnLast.Enabled = !isRateLimited && _dealCurrentPage < _totalPages;
+
+        // Disable page number buttons
+        foreach (Control ctrl in _pnlPagination.Controls)
+        {
+            if (ctrl.Tag is string s && (s == "PageButton" || s == "NavButton"))
+            {
+                if (isRateLimited) ctrl.Enabled = false;
+            }
+        }
 
         // Disable search history links
         if (_pnlSearchHistory != null)
@@ -483,45 +509,134 @@ public class DealTabController : BaseTabController
             Padding = new Padding(0, 10, 0, 0)
         };
 
+        // First page button (<<)
+        _btnFirst = new RoundedButton
+        {
+            Text = "<<",
+            Size = new Size(36, 28),
+            CornerRadius = 6,
+            Enabled = false,
+            Margin = new Padding(0, 0, 2, 0),
+            Tag = "NavButton"
+        };
+        ApplyRoundedButtonStyle(_btnFirst, false);
+        _btnFirst.Click += async (s, e) => await GoToPageAsync(1);
+
+        // Previous 100 pages button (-50)
+        _btnPrev100 = new RoundedButton
+        {
+            Text = "-50",
+            Size = new Size(44, 28),
+            CornerRadius = 6,
+            Enabled = false,
+            Margin = new Padding(0, 0, 2, 0),
+            Tag = "NavButton"
+        };
+        ApplyRoundedButtonStyle(_btnPrev100, false);
+        _btnPrev100.Click += async (s, e) => await GoToPageAsync(_dealCurrentPage - 50);
+
+        // Previous 10 pages button (-10)
+        _btnPrev10 = new RoundedButton
+        {
+            Text = "-10",
+            Size = new Size(40, 28),
+            CornerRadius = 6,
+            Enabled = false,
+            Margin = new Padding(0, 0, 2, 0),
+            Tag = "NavButton"
+        };
+        ApplyRoundedButtonStyle(_btnPrev10, false);
+        _btnPrev10.Click += async (s, e) => await GoToPageAsync(_dealCurrentPage - 10);
+
+        // Previous page button (<)
         _btnDealPrev = new RoundedButton
         {
             Text = "<",
-            Size = new Size(36, 28),
+            Size = new Size(32, 28),
             CornerRadius = 6,
-            Enabled = false
+            Enabled = false,
+            Margin = new Padding(0, 0, 5, 0),
+            Tag = "NavButton"
         };
         ApplyRoundedButtonStyle(_btnDealPrev, false);
         _btnDealPrev.Click += async (s, e) => await PreviousPageAsync();
 
-        _lblDealPage = new Label
-        {
-            Text = "0페이지",
-            AutoSize = true,
-            ForeColor = _colors.Text,
-            TextAlign = ContentAlignment.MiddleCenter,
-            Padding = new Padding(10, 5, 10, 0)
-        };
-
+        // Next page button (>)
         _btnDealNext = new RoundedButton
         {
             Text = ">",
-            Size = new Size(36, 28),
+            Size = new Size(32, 28),
             CornerRadius = 6,
-            Enabled = false
+            Enabled = false,
+            Margin = new Padding(5, 0, 0, 0),
+            Tag = "NavButton"
         };
         ApplyRoundedButtonStyle(_btnDealNext, false);
         _btnDealNext.Click += async (s, e) => await NextPageAsync();
 
+        // Next 10 pages button (+10)
+        _btnNext10 = new RoundedButton
+        {
+            Text = "+10",
+            Size = new Size(40, 28),
+            CornerRadius = 6,
+            Enabled = false,
+            Margin = new Padding(2, 0, 0, 0),
+            Tag = "NavButton"
+        };
+        ApplyRoundedButtonStyle(_btnNext10, false);
+        _btnNext10.Click += async (s, e) => await GoToPageAsync(_dealCurrentPage + 10);
+
+        // Next 100 pages button (+50)
+        _btnNext100 = new RoundedButton
+        {
+            Text = "+50",
+            Size = new Size(44, 28),
+            CornerRadius = 6,
+            Enabled = false,
+            Margin = new Padding(2, 0, 0, 0),
+            Tag = "NavButton"
+        };
+        ApplyRoundedButtonStyle(_btnNext100, false);
+        _btnNext100.Click += async (s, e) => await GoToPageAsync(_dealCurrentPage + 50);
+
+        // Last page button (>>)
+        _btnLast = new RoundedButton
+        {
+            Text = ">>",
+            Size = new Size(36, 28),
+            CornerRadius = 6,
+            Enabled = false,
+            Margin = new Padding(2, 0, 10, 0),
+            Tag = "NavButton"
+        };
+        ApplyRoundedButtonStyle(_btnLast, false);
+        _btnLast.Click += async (s, e) => await GoToPageAsync(_totalPages);
+
+        // Total count label (will be updated dynamically)
+        _lblDealPage = new Label
+        {
+            Text = "",
+            AutoSize = true,
+            ForeColor = _colors.TextMuted,
+            TextAlign = ContentAlignment.MiddleCenter,
+            Padding = new Padding(5, 5, 0, 0)
+        };
+
+        // Add controls in order: [<<] [-50] [-10] [<] [pages] [>] [+10] [+50] [>>] [label]
+        _pnlPagination.Controls.Add(_btnFirst);
+        _pnlPagination.Controls.Add(_btnPrev100);
+        _pnlPagination.Controls.Add(_btnPrev10);
         _pnlPagination.Controls.Add(_btnDealPrev);
-        _pnlPagination.Controls.Add(_lblDealPage);
+        // Page number buttons will be added dynamically here
         _pnlPagination.Controls.Add(_btnDealNext);
+        _pnlPagination.Controls.Add(_btnNext10);
+        _pnlPagination.Controls.Add(_btnNext100);
+        _pnlPagination.Controls.Add(_btnLast);
+        _pnlPagination.Controls.Add(_lblDealPage);
 
         // Center alignment by handling resize
-        _pnlPagination.Resize += (s, e) =>
-        {
-            var totalWidth = _btnDealPrev.Width + _lblDealPage.Width + _btnDealNext.Width + 20;
-            _pnlPagination.Padding = new Padding((_pnlPagination.Width - totalWidth) / 2, _pnlPagination.Padding.Top, 0, 0);
-        };
+        _pnlPagination.Resize += (s, e) => CenterPaginationPanel();
 
         return _pnlPagination;
     }
@@ -614,13 +729,15 @@ public class DealTabController : BaseTabController
 
         try
         {
-            // Fetch single page from API
-            var items = await _gnjoyClient.SearchItemDealsAsync(searchText, serverId, _dealCurrentPage, _cts.Token);
+            // Fetch single page from API with total count
+            var result = await _gnjoyClient.SearchItemDealsWithCountAsync(searchText, serverId, _dealCurrentPage, _cts.Token);
+            var items = result.Items;
 
-            Debug.WriteLine($"[DealTabController] Page {_dealCurrentPage}: Got {items.Count} items");
+            Debug.WriteLine($"[DealTabController] Page {_dealCurrentPage}: Got {items.Count} items, Total: {result.TotalCount}");
 
-            // Determine if there are more pages (API returns 10 items per page)
-            _hasMorePages = items.Count >= 10;
+            // Update pagination state
+            _totalCount = result.TotalCount;
+            _totalPages = result.TotalPages;
 
             // Compute display fields
             foreach (var item in items)
@@ -647,7 +764,10 @@ public class DealTabController : BaseTabController
 
             // Final status update
             _progressDealSearch.Visible = false;
-            _lblDealStatus.Text = $"{_dealCurrentPage}페이지: {items.Count}개 결과 (더블클릭으로 상세정보 조회)";
+            var statusText = _totalCount > 0
+                ? $"총 {_totalCount:N0}건 중 {_dealCurrentPage}/{_totalPages}페이지 (더블클릭으로 상세정보 조회)"
+                : "검색 결과가 없습니다.";
+            _lblDealStatus.Text = statusText;
         }
         catch (OperationCanceledException)
         {
@@ -774,18 +894,140 @@ public class DealTabController : BaseTabController
 
     private async Task NextPageAsync()
     {
-        if (_hasMorePages)
+        if (_dealCurrentPage < _totalPages)
         {
             _dealCurrentPage++;
             await FetchDealPageAsync();
         }
     }
 
+    private async Task GoToPageAsync(int page)
+    {
+        if (page >= 1 && page <= _totalPages && page != _dealCurrentPage)
+        {
+            _dealCurrentPage = page;
+            await FetchDealPageAsync();
+        }
+    }
+
     private void UpdateDealPaginationUI()
     {
-        _lblDealPage.Text = $"{_dealCurrentPage}페이지";
-        _btnDealPrev.Enabled = _dealCurrentPage > 1;
-        _btnDealNext.Enabled = _hasMorePages;
+        // Update total count label with current page info
+        _lblDealPage.Text = _totalCount > 0
+            ? $"{_dealCurrentPage}/{_totalPages} ({_totalCount:N0}건)"
+            : "";
+
+        // Enable/disable navigation buttons based on current position
+        var canGoPrev = _dealCurrentPage > 1;
+        var canGoNext = _dealCurrentPage < _totalPages;
+
+        _btnFirst.Enabled = canGoPrev;
+        _btnPrev100.Enabled = _dealCurrentPage > 50;
+        _btnPrev10.Enabled = _dealCurrentPage > 10;
+        _btnDealPrev.Enabled = canGoPrev;
+
+        _btnDealNext.Enabled = canGoNext;
+        _btnNext10.Enabled = _dealCurrentPage + 10 <= _totalPages;
+        _btnNext100.Enabled = _dealCurrentPage + 50 <= _totalPages;
+        _btnLast.Enabled = canGoNext;
+
+        // Rebuild page number buttons
+        RebuildPageNumberButtons();
+        CenterPaginationPanel();
+    }
+
+    private void RebuildPageNumberButtons()
+    {
+        // Remove existing page number buttons (keep prev, next, and label)
+        var toRemove = _pnlPagination.Controls.Cast<Control>()
+            .Where(c => c.Tag is string s && s == "PageButton")
+            .ToList();
+        foreach (var ctrl in toRemove)
+        {
+            _pnlPagination.Controls.Remove(ctrl);
+            ctrl.Dispose();
+        }
+
+        if (_totalPages <= 0) return;
+
+        // Calculate which page numbers to show
+        // Show up to MaxVisiblePages pages, centered around current page
+        int startPage, endPage;
+        if (_totalPages <= MaxVisiblePages)
+        {
+            startPage = 1;
+            endPage = _totalPages;
+        }
+        else
+        {
+            // Try to center current page
+            int half = MaxVisiblePages / 2;
+            startPage = Math.Max(1, _dealCurrentPage - half);
+            endPage = startPage + MaxVisiblePages - 1;
+
+            if (endPage > _totalPages)
+            {
+                endPage = _totalPages;
+                startPage = Math.Max(1, endPage - MaxVisiblePages + 1);
+            }
+        }
+
+        // Insert page buttons after prev button
+        int insertIndex = _pnlPagination.Controls.IndexOf(_btnDealPrev) + 1;
+
+        // Calculate button size based on font scale
+        var scale = _baseFontSize / 12f;
+        var btnHeight = (int)(28 * scale);
+
+        for (int page = startPage; page <= endPage; page++)
+        {
+            var pageNum = page;
+            var isCurrentPage = page == _dealCurrentPage;
+
+            // Adjust width based on number of digits
+            var digitCount = page.ToString().Length;
+            var btnWidth = (int)((24 + (digitCount * 8)) * scale);
+
+            var btn = new RoundedButton
+            {
+                Text = page.ToString(),
+                Size = new Size(btnWidth, btnHeight),
+                CornerRadius = 6,
+                Tag = "PageButton",
+                Margin = new Padding(2, 0, 2, 0)
+            };
+
+            if (isCurrentPage)
+            {
+                // Current page - primary style (highlighted)
+                ApplyRoundedButtonStyle(btn, true);
+                btn.Enabled = false;
+            }
+            else
+            {
+                // Other pages - secondary style
+                ApplyRoundedButtonStyle(btn, false);
+                btn.Click += async (s, e) => await GoToPageAsync(pageNum);
+            }
+
+            _pnlPagination.Controls.Add(btn);
+            _pnlPagination.Controls.SetChildIndex(btn, insertIndex++);
+        }
+    }
+
+    private void CenterPaginationPanel()
+    {
+        if (_pnlPagination == null) return;
+
+        // Calculate total width of all controls
+        int totalWidth = 0;
+        foreach (Control ctrl in _pnlPagination.Controls)
+        {
+            totalWidth += ctrl.Width + ctrl.Margin.Horizontal;
+        }
+
+        var leftPadding = Math.Max(0, (_pnlPagination.Width - totalWidth) / 2);
+        _pnlPagination.Padding = new Padding(leftPadding, _pnlPagination.Padding.Top, 0, 0);
     }
 
     private void SetDealSearchingState(bool searching)
@@ -794,8 +1036,25 @@ public class DealTabController : BaseTabController
         _btnDealCancelToolStrip.Enabled = searching;
         _txtDealSearch.Enabled = !searching;
         _cboDealServer.Enabled = !searching;
+
+        // Disable all navigation buttons during search
+        _btnFirst.Enabled = !searching && _dealCurrentPage > 1;
+        _btnPrev100.Enabled = !searching && _dealCurrentPage > 50;
+        _btnPrev10.Enabled = !searching && _dealCurrentPage > 10;
         _btnDealPrev.Enabled = !searching && _dealCurrentPage > 1;
-        _btnDealNext.Enabled = !searching && _hasMorePages;
+        _btnDealNext.Enabled = !searching && _dealCurrentPage < _totalPages;
+        _btnNext10.Enabled = !searching && _dealCurrentPage + 10 <= _totalPages;
+        _btnNext100.Enabled = !searching && _dealCurrentPage + 50 <= _totalPages;
+        _btnLast.Enabled = !searching && _dealCurrentPage < _totalPages;
+
+        // Disable page number buttons during search
+        foreach (Control ctrl in _pnlPagination.Controls)
+        {
+            if (ctrl.Tag is string s && (s == "PageButton" || s == "NavButton"))
+            {
+                if (searching) ctrl.Enabled = false;
+            }
+        }
 
         // Reset status label color when starting a new search
         if (searching)
@@ -1058,22 +1317,23 @@ public class DealTabController : BaseTabController
             _lblDealPage.Padding = new Padding((int)(10 * scale), (int)(5 * scale), (int)(10 * scale), 0);
         }
 
-        // Update pagination buttons size
-        if (_btnDealPrev != null)
-        {
-            _btnDealPrev.Size = new Size((int)(36 * scale), (int)(28 * scale));
-        }
-        if (_btnDealNext != null)
-        {
-            _btnDealNext.Size = new Size((int)(36 * scale), (int)(28 * scale));
-        }
+        // Update pagination buttons size - all buttons have same height (28 * scale)
+        var btnHeight = (int)(28 * scale);
+        if (_btnFirst != null) _btnFirst.Size = new Size((int)(36 * scale), btnHeight);
+        if (_btnPrev100 != null) _btnPrev100.Size = new Size((int)(44 * scale), btnHeight);
+        if (_btnPrev10 != null) _btnPrev10.Size = new Size((int)(40 * scale), btnHeight);
+        if (_btnDealPrev != null) _btnDealPrev.Size = new Size((int)(32 * scale), btnHeight);
+        if (_btnDealNext != null) _btnDealNext.Size = new Size((int)(32 * scale), btnHeight);
+        if (_btnNext10 != null) _btnNext10.Size = new Size((int)(40 * scale), btnHeight);
+        if (_btnNext100 != null) _btnNext100.Size = new Size((int)(44 * scale), btnHeight);
+        if (_btnLast != null) _btnLast.Size = new Size((int)(36 * scale), btnHeight);
 
         // Update pagination panel padding
-        if (_pnlPagination != null && _btnDealPrev != null && _lblDealPage != null && _btnDealNext != null)
+        if (_pnlPagination != null)
         {
             var paddingTop = (int)(10 * scale);
-            var totalWidth = _btnDealPrev.Width + _lblDealPage.Width + _btnDealNext.Width + 20;
-            _pnlPagination.Padding = new Padding((_pnlPagination.Width - totalWidth) / 2, paddingTop, 0, 0);
+            CenterPaginationPanel();
+            _pnlPagination.Padding = new Padding(_pnlPagination.Padding.Left, paddingTop, 0, 0);
         }
 
         // Update combobox width
@@ -1103,8 +1363,25 @@ public class DealTabController : BaseTabController
         _btnDealSearchToolStrip.Enabled = !isRateLimited;
         _txtDealSearch.Enabled = !isRateLimited;
         _cboDealServer.Enabled = !isRateLimited;
+
+        // Disable all navigation buttons
+        _btnFirst.Enabled = !isRateLimited && _dealCurrentPage > 1;
+        _btnPrev100.Enabled = !isRateLimited && _dealCurrentPage > 50;
+        _btnPrev10.Enabled = !isRateLimited && _dealCurrentPage > 10;
         _btnDealPrev.Enabled = !isRateLimited && _dealCurrentPage > 1;
-        _btnDealNext.Enabled = !isRateLimited && _hasMorePages;
+        _btnDealNext.Enabled = !isRateLimited && _dealCurrentPage < _totalPages;
+        _btnNext10.Enabled = !isRateLimited && _dealCurrentPage + 10 <= _totalPages;
+        _btnNext100.Enabled = !isRateLimited && _dealCurrentPage + 50 <= _totalPages;
+        _btnLast.Enabled = !isRateLimited && _dealCurrentPage < _totalPages;
+
+        // Disable page number and nav buttons
+        foreach (Control ctrl in _pnlPagination.Controls)
+        {
+            if (ctrl.Tag is string s && (s == "PageButton" || s == "NavButton"))
+            {
+                if (isRateLimited) ctrl.Enabled = false;
+            }
+        }
 
         // Update search history links
         if (_pnlSearchHistory != null)

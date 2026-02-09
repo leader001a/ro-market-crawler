@@ -22,6 +22,19 @@ public interface IGnjoyClient : IDisposable
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Search for item deals by name (single page) with total count for pagination
+    /// </summary>
+    /// <param name="itemName">Item name to search (Korean)</param>
+    /// <param name="serverId">Server ID (-1=all, 1=바포, 2=이그, 3=다크, 4=이프)</param>
+    /// <param name="page">Page number (1-based)</param>
+    /// <returns>DealSearchResult with items and total count</returns>
+    Task<DealSearchResult> SearchItemDealsWithCountAsync(
+        string itemName,
+        int serverId = -1,
+        int page = 1,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Search for item deals by name (all pages)
     /// Fetches all pages until no more results are found
     /// </summary>

@@ -10,6 +10,60 @@ namespace RoMarketCrawler.Services;
 /// </summary>
 public class ItemDealParser
 {
+    /// <summary>
+    /// Parse deal list and return result with total count
+    /// </summary>
+    public DealSearchResult ParseDealListWithCount(string html, int defaultServerId = -1)
+    {
+        var result = new DealSearchResult
+        {
+            Items = ParseDealList(html, defaultServerId),
+            TotalCount = ParseTotalCount(html)
+        };
+        return result;
+    }
+
+    /// <summary>
+    /// Parse total count from HTML (e.g., "검색결과 : 2,161건" or "검색결과 : <b>2,161건</b>")
+    /// </summary>
+    public int ParseTotalCount(string html)
+    {
+        try
+        {
+            // Pattern: "검색결과 : 2,161건" - handles HTML tags like <b>, <strong> around the number
+            // Examples: "검색결과 : 2,161건", "검색결과 : <b>2,161건</b>", "검색결과: <strong>2,161</strong>건"
+            var match = Regex.Match(html, @"검색결과\s*:\s*(?:<[^>]+>\s*)*([\d,]+)\s*건");
+            if (match.Success)
+            {
+                var countStr = match.Groups[1].Value.Replace(",", "");
+                if (int.TryParse(countStr, out var count))
+                {
+                    Debug.WriteLine($"[ItemDealParser] Total count: {count}");
+                    return count;
+                }
+            }
+
+            // Fallback: Try to find any pattern with numbers followed by 건
+            match = Regex.Match(html, @"검색결과[^<]*?(?:<[^>]*>)*\s*([\d,]+)\s*(?:<[^>]*>)*\s*건");
+            if (match.Success)
+            {
+                var countStr = match.Groups[1].Value.Replace(",", "");
+                if (int.TryParse(countStr, out var count))
+                {
+                    Debug.WriteLine($"[ItemDealParser] Total count (fallback): {count}");
+                    return count;
+                }
+            }
+
+            Debug.WriteLine($"[ItemDealParser] Total count not found in HTML (length: {html.Length})");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[ItemDealParser] ParseTotalCount failed: {ex.Message}");
+        }
+        return 0;
+    }
+
     public List<DealItem> ParseDealList(string html, int defaultServerId = -1)
     {
         var items = new List<DealItem>();

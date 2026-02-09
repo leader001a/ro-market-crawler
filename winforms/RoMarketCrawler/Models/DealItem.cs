@@ -319,3 +319,15 @@ public class DealItem
         return baseName;
     }
 }
+
+/// <summary>
+/// Search result with items and total count for pagination
+/// </summary>
+public class DealSearchResult
+{
+    public List<DealItem> Items { get; set; } = new();
+    public int TotalCount { get; set; }
+    public int TotalPages => (int)Math.Ceiling(TotalCount / 10.0);
+    public int CurrentPage { get; set; } = 1;
+    public bool HasMorePages => CurrentPage < TotalPages;
+}

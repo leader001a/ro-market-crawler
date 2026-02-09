@@ -603,6 +603,58 @@ public class GnjoyClient : IGnjoyClient
     }
 
     /// <summary>
+    /// Search for item deals by name (single page) with total count for pagination
+    /// </summary>
+    /// <param name="itemName">Item name to search (Korean)</param>
+    /// <param name="serverId">Server ID (-1=all, 1=바포, 2=이그, 3=다크, 4=이프)</param>
+    /// <param name="page">Page number (1-based)</param>
+    /// <returns>DealSearchResult with items and total count</returns>
+    public async Task<DealSearchResult> SearchItemDealsWithCountAsync(
+        string itemName,
+        int serverId = -1,
+        int page = 1,
+        CancellationToken cancellationToken = default)
+    {
+        Debug.WriteLine($"[GnjoyClient] ----- SearchItemDealsWithCountAsync START -----");
+        Debug.WriteLine($"[GnjoyClient] itemName='{itemName}', page={page}, WebView2={_useWebView2}");
+
+        try
+        {
+            var gnjoyServerId = serverId == -1 ? -1 : ToQuoteServerId(serverId);
+            var url = $"{BaseUrl}/{DealListEndpoint}?svrID={gnjoyServerId}&itemFullName={Uri.EscapeDataString(itemName)}&itemOrder=regdate&curpage={page}";
+            Debug.WriteLine($"[GnjoyClient] SearchItemDealsWithCountAsync URL: {url}");
+
+            var htmlContent = await FetchHtmlAsync(url, cancellationToken);
+            Debug.WriteLine($"[GnjoyClient] Response length: {htmlContent.Length} chars");
+
+            var result = _parser.ParseDealListWithCount(htmlContent, serverId);
+            result.CurrentPage = page;
+            Debug.WriteLine($"[GnjoyClient] Parsed {result.Items.Count} items, total count: {result.TotalCount}");
+            return result;
+        }
+        catch (HttpRequestException ex)
+        {
+            Debug.WriteLine($"[GnjoyClient] SearchItemDealsWithCountAsync HTTP ERROR for '{itemName}': {ex.Message}");
+            return new DealSearchResult { CurrentPage = page };
+        }
+        catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            Debug.WriteLine($"[GnjoyClient] SearchItemDealsWithCountAsync CANCELLED for '{itemName}'");
+            return new DealSearchResult { CurrentPage = page };
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            Debug.WriteLine($"[GnjoyClient] SearchItemDealsWithCountAsync OPERATION CANCELLED for '{itemName}'");
+            return new DealSearchResult { CurrentPage = page };
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[GnjoyClient] SearchItemDealsWithCountAsync EXCEPTION for '{itemName}': {ex.GetType().Name} - {ex.Message}");
+            return new DealSearchResult { CurrentPage = page };
+        }
+    }
+
+    /// <summary>
     /// Search for item deals by name (all pages)
     /// Fetches all pages until no more results are found
     /// </summary>
