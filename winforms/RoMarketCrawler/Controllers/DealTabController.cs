@@ -38,7 +38,6 @@ public class DealTabController : BaseTabController
     private ComboBox _cboDealServer = null!;
     private ToolStripComboBox _cboServerToolStrip = null!;
     private ToolStripButton _btnDealSearchToolStrip = null!;
-    private ToolStripButton _btnDealCancelToolStrip = null!;
     private ToolStripProgressBar _progressDealSearch = null!;
     private DataGridView _dgvDeals = null!;
     private Label _lblDealStatus = null!;
@@ -293,16 +292,6 @@ public class DealTabController : BaseTabController
         btnSearch.Click += async (s, e) => await SearchAsync();
         _btnDealSearchToolStrip = btnSearch;
 
-        // Cancel button
-        var btnCancel = new ToolStripButton
-        {
-            Text = "취소",
-            Enabled = false,
-            ToolTipText = "검색 취소"
-        };
-        btnCancel.Click += (s, e) => _cts?.Cancel();
-        _btnDealCancelToolStrip = btnCancel;
-
         // Progress bar
         _progressDealSearch = new ToolStripProgressBar
         {
@@ -319,7 +308,6 @@ public class DealTabController : BaseTabController
         toolStrip.Items.Add(txtSearch);
         toolStrip.Items.Add(new ToolStripSeparator());
         toolStrip.Items.Add(btnSearch);
-        toolStrip.Items.Add(btnCancel);
         toolStrip.Items.Add(_progressDealSearch);
 
         return toolStrip;
@@ -1037,7 +1025,6 @@ public class DealTabController : BaseTabController
     private void SetDealSearchingState(bool searching)
     {
         _btnDealSearchToolStrip.Enabled = !searching;
-        _btnDealCancelToolStrip.Enabled = searching;
         _txtDealSearch.Enabled = !searching;
         _cboDealServer.Enabled = !searching;
 
