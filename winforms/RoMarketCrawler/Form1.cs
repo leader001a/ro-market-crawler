@@ -257,6 +257,11 @@ public partial class Form1 : Form
         _tabControl.TabPages.Add(_itemTabController.TabPage);
         _tabControl.TabPages.Add(_monitorTabController.TabPage);
 
+        // Attach IME half-width fix to all TextBox controls (fixes WebView2 IME corruption)
+        ImeHelper.AttachToAllTextBoxes(_dealTabController.TabPage);
+        ImeHelper.AttachToAllTextBoxes(_itemTabController.TabPage);
+        ImeHelper.AttachToAllTextBoxes(_monitorTabController.TabPage);
+
         // Wire up tab switching events
         _tabControl.SelectedIndexChanged += TabControl_SelectedIndexChanged;
         _tabControl.Deselecting += TabControl_Deselecting;

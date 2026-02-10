@@ -2081,6 +2081,9 @@ public class MonitorTabController : BaseTabController
 
         if (e.Control is TextBox textBox)
         {
+            // Fix IME full-width corruption from WebView2
+            ImeHelper.ResetToHalfWidth(textBox);
+
             // Remove previous handlers to avoid duplicates
             textBox.KeyPress -= WatchPriceTextBox_KeyPress;
             textBox.TextChanged -= WatchPriceTextBox_TextChanged;
