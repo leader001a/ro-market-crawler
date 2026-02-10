@@ -948,7 +948,7 @@ public class DealTabController : BaseTabController
         {
             // Fetch single page from API with total count
             var result = await _gnjoyClient.SearchItemDealsWithCountAsync(searchText, serverId, _dealCurrentPage, _cts.Token);
-            var items = result.Items;
+            var items = result.Items ?? new List<DealItem>();
 
             Debug.WriteLine($"[DealTabController] Page {_dealCurrentPage}: Got {items.Count} items, Total: {result.TotalCount}");
 
@@ -2102,7 +2102,7 @@ public class DealTabController : BaseTabController
                     if (IsMatchingItem(item, filterText))
                     {
                         matchCount++;
-                        _autoSearchResultsForm.AddResult(item, currentPage);
+                        _autoSearchResultsForm?.AddResult(item, currentPage);
                         Debug.WriteLine($"[AutoSearch] Found match on page {currentPage}: {item.DisplayName}");
                     }
                 }
@@ -2135,7 +2135,7 @@ public class DealTabController : BaseTabController
                 ? $"{(int)totalElapsed.TotalMinutes}분 {(int)totalElapsed.TotalSeconds % 60}초"
                 : $"{(int)totalElapsed.TotalSeconds}초";
             _lblAutoSearchStatus.Text = $"검색 완료: {startPage}~{currentPage - 1}페이지, {matchCount}건 발견 (소요: {elapsedText})";
-            _autoSearchResultsForm.UpdateSearchStatus($"검색 완료: {matchCount}건 발견");
+            _autoSearchResultsForm?.UpdateSearchStatus($"검색 완료: {matchCount}건 발견");
 
             if (matchCount > 0)
             {
@@ -2251,18 +2251,26 @@ public class DealTabController : BaseTabController
 
     private bool IsMatchingItem(DealItem item, string filterText)
     {
+        if (item == null || string.IsNullOrEmpty(filterText)) return false;
+
         // Check SlotInfo (cards, enchants)
-        foreach (var slot in item.SlotInfo)
+        if (item.SlotInfo != null)
         {
-            if (slot.Contains(filterText, StringComparison.OrdinalIgnoreCase))
-                return true;
+            foreach (var slot in item.SlotInfo)
+            {
+                if (slot?.Contains(filterText, StringComparison.OrdinalIgnoreCase) == true)
+                    return true;
+            }
         }
 
         // Check RandomOptions
-        foreach (var option in item.RandomOptions)
+        if (item.RandomOptions != null)
         {
-            if (option.Contains(filterText, StringComparison.OrdinalIgnoreCase))
-                return true;
+            foreach (var option in item.RandomOptions)
+            {
+                if (option?.Contains(filterText, StringComparison.OrdinalIgnoreCase) == true)
+                    return true;
+            }
         }
 
         return false;

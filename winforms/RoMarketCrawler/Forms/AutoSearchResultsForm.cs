@@ -283,13 +283,16 @@ public class AutoSearchResultsForm : Form
         }
     }
 
-    private void LoadResultsForEntry(AutoSearchHistoryEntry entry)
+    private void LoadResultsForEntry(AutoSearchHistoryEntry? entry)
     {
+        if (entry == null) return;
+
         _currentSearchKey = entry.SearchKey;
         _currentResults.Clear();
-        _currentResults.AddRange(entry.Results);
+        if (entry.Results != null)
+            _currentResults.AddRange(entry.Results);
         _bindingSource.ResetBindings(false);
-        _lblStatus.Text = $"'{entry.ItemName}' + '{entry.FilterText}' 검색 결과: {entry.Results.Count}건 (검색일: {entry.SearchedAt:yyyy-MM-dd HH:mm})";
+        _lblStatus.Text = $"'{entry.ItemName}' + '{entry.FilterText}' 검색 결과: {entry.Results?.Count ?? 0}건 (검색일: {entry.SearchedAt:yyyy-MM-dd HH:mm})";
     }
 
     /// <summary>
@@ -366,8 +369,8 @@ public class AutoSearchResultsForm : Form
             MapName = item.MapName,
             MapId = item.MapId,
             Ssi = item.Ssi,
-            SlotInfo = new List<string>(item.SlotInfo),
-            RandomOptions = new List<string>(item.RandomOptions),
+            SlotInfo = new List<string>(item.SlotInfo ?? []),
+            RandomOptions = new List<string>(item.RandomOptions ?? []),
             FoundAt = DateTime.Now
         };
 
@@ -546,7 +549,7 @@ public class AutoSearchHistoryEntry
     public DateTime SearchedAt { get; set; }
     public List<AutoSearchResultItem> Results { get; set; } = new();
 
-    public string DisplayName => $"[{ServerName}] {ItemName} - {FilterText} ({Results.Count}건, {SearchedAt:MM/dd HH:mm})";
+    public string DisplayName => $"[{ServerName}] {ItemName} - {FilterText} ({Results?.Count ?? 0}건, {SearchedAt:MM/dd HH:mm})";
 
     public override string ToString() => DisplayName;
 }

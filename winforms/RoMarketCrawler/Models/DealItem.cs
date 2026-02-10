@@ -88,13 +88,13 @@ public class DealItem
     /// Slot info display for UI (enchants and cards) - vertical layout
     /// </summary>
     public string SlotInfoDisplay =>
-        SlotInfo.Count > 0 ? string.Join(Environment.NewLine, SlotInfo) : "-";
+        SlotInfo?.Count > 0 ? string.Join(Environment.NewLine, SlotInfo) : "-";
 
     /// <summary>
     /// Random options display for UI
     /// </summary>
     public string RandomOptionsDisplay =>
-        RandomOptions.Count > 0 ? string.Join(", ", RandomOptions) : "-";
+        RandomOptions?.Count > 0 ? string.Join(", ", RandomOptions) : "-";
 
     /// <summary>
     /// Combined display for cards, enchants, and random options
@@ -105,10 +105,10 @@ public class DealItem
         {
             var parts = new List<string>();
 
-            if (SlotInfo.Count > 0)
+            if (SlotInfo?.Count > 0)
                 parts.AddRange(SlotInfo);
 
-            if (RandomOptions.Count > 0)
+            if (RandomOptions?.Count > 0)
                 parts.AddRange(RandomOptions);
 
             return parts.Count > 0 ? string.Join(Environment.NewLine, parts) : "-";
@@ -156,8 +156,8 @@ public class DealItem
     {
         if (detail == null) return;
 
-        SlotInfo = detail.SlotInfo;
-        RandomOptions = detail.RandomOptions;
+        SlotInfo = detail.SlotInfo ?? new();
+        RandomOptions = detail.RandomOptions ?? new();
         Element = detail.Element;
         Maker = detail.Maker;
     }
@@ -257,7 +257,7 @@ public class DealItem
         baseName = System.Text.RegularExpressions.Regex.Replace(baseName, orbPattern, "").Trim();
 
         // Step 2: If no slot info, return after pattern-based removal
-        if (SlotInfo.Count == 0)
+        if (SlotInfo == null || SlotInfo.Count == 0)
         {
             return baseName;
         }
