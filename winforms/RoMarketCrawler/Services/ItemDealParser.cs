@@ -471,7 +471,7 @@ public class ItemDealParser
         // Final cleanup: remove any remaining truncation markers
         text = Regex.Replace(text, @"\[\.\.\.", "");
 
-        var result = text.Trim();
+        var result = System.Net.WebUtility.HtmlDecode(text.Trim());
         Debug.WriteLine($"[ItemDealParser] ParseItemName result: '{result}'");
         return (result, refine, cardSlots);
     }

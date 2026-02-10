@@ -68,6 +68,7 @@ public partial class Form1
         _dealTabController.ApplyTheme(colors);
         _itemTabController.ApplyTheme(colors);
         _monitorTabController.ApplyTheme(colors);
+        _costumeTabController.ApplyTheme(colors);
 
         SaveSettings();
     }

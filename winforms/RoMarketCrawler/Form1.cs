@@ -37,6 +37,7 @@ public partial class Form1 : Form
     private DealTabController _dealTabController = null!;
     private ItemTabController _itemTabController = null!;
     private MonitorTabController _monitorTabController = null!;
+    private CostumeTabController _costumeTabController = null!;
 
     #endregion
 
@@ -118,6 +119,7 @@ public partial class Form1 : Form
         _dealTabController = Program.Services.GetRequiredService<DealTabController>();
         _itemTabController = Program.Services.GetRequiredService<ItemTabController>();
         _monitorTabController = Program.Services.GetRequiredService<MonitorTabController>();
+        _costumeTabController = Program.Services.GetRequiredService<CostumeTabController>();
 
         // Initialize settings in controllers
         _dealTabController.LoadSearchHistory(_dealSearchHistory);
@@ -147,6 +149,13 @@ public partial class Form1 : Form
             _selectedAlarmSound = sound;
             _alarmIntervalSeconds = interval;
             SaveSettings();
+        };
+
+        // CostumeTabController - lock other tabs' API features during crawling
+        _costumeTabController.CrawlStateChanged += (s, isCrawling) =>
+        {
+            _dealTabController.SetCrawlLockState(isCrawling);
+            _monitorTabController.SetCrawlLockState(isCrawling);
         };
     }
 
@@ -252,15 +261,21 @@ public partial class Form1 : Form
         _monitorTabController.ApplyTheme(colors);
         _monitorTabController.UpdateFontSize(_baseFontSize);
 
+        _costumeTabController.Initialize();
+        _costumeTabController.ApplyTheme(colors);
+        _costumeTabController.UpdateFontSize(_baseFontSize);
+
         // Add controller TabPages to TabControl
         _tabControl.TabPages.Add(_dealTabController.TabPage);
         _tabControl.TabPages.Add(_itemTabController.TabPage);
         _tabControl.TabPages.Add(_monitorTabController.TabPage);
+        _tabControl.TabPages.Add(_costumeTabController.TabPage);
 
         // Attach IME half-width fix to all TextBox controls (fixes WebView2 IME corruption)
         ImeHelper.AttachToAllTextBoxes(_dealTabController.TabPage);
         ImeHelper.AttachToAllTextBoxes(_itemTabController.TabPage);
         ImeHelper.AttachToAllTextBoxes(_monitorTabController.TabPage);
+        ImeHelper.AttachToAllTextBoxes(_costumeTabController.TabPage);
 
         // Wire up tab switching events
         _tabControl.SelectedIndexChanged += TabControl_SelectedIndexChanged;
@@ -392,6 +407,7 @@ public partial class Form1 : Form
         _dealTabController.SetWatermark(_watermarkFaded);
         _itemTabController.SetWatermark(_watermarkFaded);
         _monitorTabController.SetWatermark(_watermarkFaded);
+        _costumeTabController.SetWatermark(_watermarkFaded);
     }
 
     private void InitializeRateLimitTimer()
@@ -412,7 +428,10 @@ public partial class Form1 : Form
 
         // Stop auto-refresh when switched to Deal Search tab (index 0)
         // Confirmation was already done in TabControl_Selecting
-        if (selectedIndex == 0 && _monitorTabController != null && _monitorTabController.IsAutoRefreshConfigured)
+        // Skip if costume crawling is active (auto-refresh is already paused by SetCrawlLockState)
+        var isCrawling = _costumeTabController?.IsCrawling == true;
+        if (selectedIndex == 0 && !isCrawling
+            && _monitorTabController != null && _monitorTabController.IsAutoRefreshConfigured)
         {
             _monitorTabController.StopAutoRefreshForTabChange();
         }
@@ -421,6 +440,7 @@ public partial class Form1 : Form
         _dealTabController?.OnDeactivated();
         _itemTabController?.OnDeactivated();
         _monitorTabController?.OnDeactivated();
+        _costumeTabController?.OnDeactivated();
 
         switch (selectedIndex)
         {
@@ -433,6 +453,9 @@ public partial class Form1 : Form
             case 2:
                 _monitorTabController?.OnActivated();
                 break;
+            case 3:
+                _costumeTabController?.OnActivated();
+                break;
         }
     }
 
@@ -441,11 +464,16 @@ public partial class Form1 : Form
         // Not used
     }
 
-    // Selecting event - confirm before switching to Deal tab if auto-refresh is running
+    // Selecting event - confirm before switching tabs if auto-refresh is running
     private void TabControl_Selecting(object? sender, TabControlCancelEventArgs e)
     {
-        // e.TabPageIndex = destination tab being selected
-        // Show confirmation only when going to Deal tab (index 0) and auto-refresh is configured
+        // Skip confirmation dialogs during costume data collection
+        // (auto-refresh is already paused by SetCrawlLockState, API features are locked)
+        if (_costumeTabController?.IsCrawling == true)
+            return;
+
+        // Show confirmation when going to Deal tab (index 0) and auto-refresh is configured
+        // DealTab uses the same GNJOY API, so auto-refresh must be permanently stopped
         if (e.TabPageIndex == 0 && _monitorTabController != null && _monitorTabController.IsAutoRefreshConfigured)
         {
             var result = MessageBox.Show(
@@ -930,6 +958,7 @@ public partial class Form1 : Form
         _dealTabController.UpdateFontSize(size);
         _itemTabController.UpdateFontSize(size);
         _monitorTabController.UpdateFontSize(size);
+        _costumeTabController.UpdateFontSize(size);
 
         UpdateFontSizeMenuChecks();
         SaveSettings();
@@ -1034,6 +1063,7 @@ public partial class Form1 : Form
         _dealTabController?.Dispose();
         _itemTabController?.Dispose();
         _monitorTabController?.Dispose();
+        _costumeTabController?.Dispose();
 
         _watermarkImage?.Dispose();
         _watermarkFaded?.Dispose();

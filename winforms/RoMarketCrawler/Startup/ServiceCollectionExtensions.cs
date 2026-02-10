@@ -50,11 +50,15 @@ public static class ServiceCollectionExtensions
         // Theme manager - singleton for centralized theme management
         services.AddSingleton<IThemeManager, ThemeManager>();
 
+        // Crawl data service - singleton for shared data management
+        services.AddSingleton<CrawlDataService>(sp => new CrawlDataService(dataDir));
+
         // Tab controllers - transient (one per form instance)
         // Controllers receive IServiceProvider to resolve their dependencies
         services.AddTransient<DealTabController>();
         services.AddTransient<ItemTabController>();
         services.AddTransient<MonitorTabController>();
+        services.AddTransient<CostumeTabController>();
 
         return services;
     }

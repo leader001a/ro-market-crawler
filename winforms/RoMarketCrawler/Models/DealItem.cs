@@ -21,6 +21,7 @@ public class DealItem
     public string ShopName { get; set; } = string.Empty;
     public string? MapName { get; set; }
     public DateTime CrawledAt { get; set; } = DateTime.Now;
+    public int? CrawledPage { get; set; }  // Page number where this item was crawled
 
     // Item detail view parameters (for fetching enchant/card info)
     public int? MapId { get; set; }

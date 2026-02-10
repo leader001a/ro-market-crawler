@@ -1,0 +1,36 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "winforms", "winforms", "{2196FF34-E6CA-1178-A4A8-C35FB22CF3D4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RoMarketCrawler", "winforms\RoMarketCrawler\RoMarketCrawler.csproj", "{06FA3A14-072D-4EB0-41BE-0C0806F91D04}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TestParser", "winforms\TestParser\TestParser.csproj", "{7552FE0B-B74A-F46B-31FB-BA3FF37024B1}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{06FA3A14-072D-4EB0-41BE-0C0806F91D04}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{06FA3A14-072D-4EB0-41BE-0C0806F91D04}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{06FA3A14-072D-4EB0-41BE-0C0806F91D04}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{06FA3A14-072D-4EB0-41BE-0C0806F91D04}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7552FE0B-B74A-F46B-31FB-BA3FF37024B1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7552FE0B-B74A-F46B-31FB-BA3FF37024B1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7552FE0B-B74A-F46B-31FB-BA3FF37024B1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7552FE0B-B74A-F46B-31FB-BA3FF37024B1}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{06FA3A14-072D-4EB0-41BE-0C0806F91D04} = {2196FF34-E6CA-1178-A4A8-C35FB22CF3D4}
+		{7552FE0B-B74A-F46B-31FB-BA3FF37024B1} = {2196FF34-E6CA-1178-A4A8-C35FB22CF3D4}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {C8957EEF-11E1-462F-90F5-CAF256480DE1}
+	EndGlobalSection
+EndGlobal
