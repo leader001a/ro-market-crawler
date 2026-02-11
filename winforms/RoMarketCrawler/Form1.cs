@@ -47,6 +47,8 @@ public partial class Form1 : Form
     private MenuStrip _menuStrip = null!;
     private StatusStrip _statusStrip = null!;
     private ToolStripStatusLabel _lblCreator = null!;
+    private ToolStripStatusLabel _lblTabNotification = null!;
+    private System.Windows.Forms.Timer _notificationTimer = null!;
 
     #endregion
 
@@ -151,12 +153,6 @@ public partial class Form1 : Form
             SaveSettings();
         };
 
-        // CostumeTabController - lock other tabs' API features during crawling
-        _costumeTabController.CrawlStateChanged += (s, isCrawling) =>
-        {
-            _dealTabController.SetCrawlLockState(isCrawling);
-            _monitorTabController.SetCrawlLockState(isCrawling);
-        };
     }
 
     private async Task LoadDataAsync()
@@ -362,11 +358,38 @@ public partial class Form1 : Form
             Font = statusFont
         };
 
+        // Tab switch notification label
+        _lblTabNotification = new ToolStripStatusLabel
+        {
+            Text = "",
+            ForeColor = Color.FromArgb(255, 180, 80),
+            Font = statusFont,
+            Visible = false
+        };
+
+        // Auto-clear notification after 5 seconds
+        _notificationTimer = new System.Windows.Forms.Timer { Interval = 5000 };
+        _notificationTimer.Tick += (s2, e2) =>
+        {
+            _notificationTimer.Stop();
+            _lblTabNotification.Visible = false;
+            _lblTabNotification.Text = "";
+        };
+
         if (!string.IsNullOrEmpty(expirationText))
         {
             _statusStrip.Items.Add(lblExpiration);
         }
+        _statusStrip.Items.Add(_lblTabNotification);
         _statusStrip.Items.Add(_lblCreator);
+    }
+
+    private void ShowTabSwitchNotification(string message)
+    {
+        _lblTabNotification.Text = $"  {message}";
+        _lblTabNotification.Visible = true;
+        _notificationTimer.Stop();
+        _notificationTimer.Start();
     }
 
     private void LoadWatermarkImage()
@@ -426,61 +449,50 @@ public partial class Form1 : Form
     {
         var selectedIndex = _tabControl.SelectedIndex;
 
-        // Stop auto-refresh when switched to Deal Search tab (index 0)
-        // Confirmation was already done in TabControl_Selecting
-        // Skip if costume crawling is active (auto-refresh is already paused by SetCrawlLockState)
-        var isCrawling = _costumeTabController?.IsCrawling == true;
-        if (selectedIndex == 0 && !isCrawling
-            && _monitorTabController != null && _monitorTabController.IsAutoRefreshConfigured)
-        {
-            _monitorTabController.StopAutoRefreshForTabChange();
-        }
+        // Deactivate all tabs and collect stop notifications
+        var notifications = new List<string>();
+        AddNotification(notifications, _dealTabController?.OnDeactivated());
+        AddNotification(notifications, _itemTabController?.OnDeactivated());
+        AddNotification(notifications, _monitorTabController?.OnDeactivated());
+        AddNotification(notifications, _costumeTabController?.OnDeactivated());
 
-        // Notify controllers of activation/deactivation
-        _dealTabController?.OnDeactivated();
-        _itemTabController?.OnDeactivated();
-        _monitorTabController?.OnDeactivated();
-        _costumeTabController?.OnDeactivated();
-
+        // Activate the selected tab
         switch (selectedIndex)
         {
-            case 0:
-                _dealTabController?.OnActivated();
-                break;
-            case 1:
-                _itemTabController?.OnActivated();
-                break;
-            case 2:
-                _monitorTabController?.OnActivated();
-                break;
-            case 3:
-                _costumeTabController?.OnActivated();
-                break;
+            case 0: _dealTabController?.OnActivated(); break;
+            case 1: _itemTabController?.OnActivated(); break;
+            case 2: _monitorTabController?.OnActivated(); break;
+            case 3: _costumeTabController?.OnActivated(); break;
         }
+
+        // Show notification if any operations were stopped
+        if (notifications.Count > 0)
+            ShowTabSwitchNotification(string.Join(" / ", notifications));
+    }
+
+    private static void AddNotification(List<string> list, string? msg)
+    {
+        if (msg != null) list.Add(msg);
     }
 
     private void TabControl_Deselecting(object? sender, TabControlCancelEventArgs e)
     {
-        // Not used
-    }
-
-    // Selecting event - confirm before switching tabs if auto-refresh is running
-    private void TabControl_Selecting(object? sender, TabControlCancelEventArgs e)
-    {
-        // Skip confirmation dialogs during costume data collection
-        // (auto-refresh is already paused by SetCrawlLockState, API features are locked)
-        if (_costumeTabController?.IsCrawling == true)
-            return;
-
-        // Show confirmation when going to Deal tab (index 0) and auto-refresh is configured
-        // DealTab uses the same GNJOY API, so auto-refresh must be permanently stopped
-        if (e.TabPageIndex == 0 && _monitorTabController != null && _monitorTabController.IsAutoRefreshConfigured)
+        // e.TabPageIndex = index of the tab being left
+        var currentController = GetTabController(e.TabPageIndex);
+        if (currentController?.HasActiveOperations == true)
         {
+            var message = e.TabPageIndex switch
+            {
+                0 => "노점조회 검색이 진행 중입니다.\n탭을 전환하면 검색이 중지됩니다.",
+                2 => "모니터링 자동 갱신이 실행 중입니다.\n탭을 전환하면 자동 갱신이 일시정지됩니다.",
+                3 => "의상 데이터 수집이 진행 중입니다.\n탭을 전환하면 수집이 중지됩니다.\n(다음에 이어서 수집할 수 있습니다)",
+                _ => "작업이 진행 중입니다.\n탭을 전환하면 작업이 중지됩니다."
+            };
+
             var result = MessageBox.Show(
-                "노점조회 탭으로 이동하면 자동 갱신이 중지됩니다.\n이동하시겠습니까?",
-                "노점 모니터링",
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Question);
+                message + "\n\n탭을 전환하시겠습니까?",
+                "작업 중지 확인",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Question);
 
             if (result == DialogResult.No)
             {
@@ -488,6 +500,23 @@ public partial class Form1 : Form
                 return;
             }
         }
+    }
+
+    private void TabControl_Selecting(object? sender, TabControlCancelEventArgs e)
+    {
+        // Confirmation is handled in Deselecting
+    }
+
+    private ITabController? GetTabController(int tabIndex)
+    {
+        return tabIndex switch
+        {
+            0 => _dealTabController,
+            1 => _itemTabController,
+            2 => _monitorTabController,
+            3 => _costumeTabController,
+            _ => null
+        };
     }
 
     #endregion
@@ -531,8 +560,16 @@ public partial class Form1 : Form
 
     private void SetRateLimitUIState(bool isRateLimited)
     {
-        _dealTabController.SetRateLimitState(isRateLimited);
-        _monitorTabController.SetRateLimitState(isRateLimited);
+        // Apply rate limit state to the currently active tab only
+        switch (_tabControl.SelectedIndex)
+        {
+            case 0:
+                _dealTabController.SetRateLimitState(isRateLimited);
+                break;
+            case 2:
+                _monitorTabController.SetRateLimitState(isRateLimited);
+                break;
+        }
 
         if (isRateLimited)
         {
@@ -547,10 +584,17 @@ public partial class Form1 : Form
         var seconds = remainingSeconds % 60;
 
         string timeText = minutes > 0 ? $"{minutes}분 {seconds}초" : $"{seconds}초";
-        var statusMessage = $"⚠ API 요청 제한 중 - {timeText} 후 재시도 가능";
+        var statusMessage = $"API 요청 제한 중 - {timeText} 후 재시도 가능";
 
-        _dealTabController.UpdateRateLimitStatus(statusMessage);
-        _monitorTabController.UpdateRateLimitStatus(statusMessage);
+        switch (_tabControl.SelectedIndex)
+        {
+            case 0:
+                _dealTabController.UpdateRateLimitStatus(statusMessage);
+                break;
+            case 2:
+                _monitorTabController.UpdateRateLimitStatus(statusMessage);
+                break;
+        }
     }
 
     #endregion
@@ -1059,6 +1103,8 @@ public partial class Form1 : Form
     {
         _rateLimitTimer?.Stop();
         _rateLimitTimer?.Dispose();
+        _notificationTimer?.Stop();
+        _notificationTimer?.Dispose();
 
         _dealTabController?.Dispose();
         _itemTabController?.Dispose();

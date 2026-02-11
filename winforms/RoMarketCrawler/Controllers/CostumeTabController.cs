@@ -66,19 +66,13 @@ public class CostumeTabController : BaseTabController
 
     #endregion
 
-    #region Events
-
-    /// <summary>
-    /// Raised when crawling state changes (true = started, false = stopped)
-    /// </summary>
-    public event EventHandler<bool>? CrawlStateChanged;
-
-    #endregion
-
     /// <summary>
     /// Whether crawling is currently in progress
     /// </summary>
     public bool IsCrawling => _isCrawling;
+
+    /// <inheritdoc/>
+    public override bool HasActiveOperations => _isCrawling;
 
     public override string TabName => "의상검색";
 
@@ -199,7 +193,7 @@ public class CostumeTabController : BaseTabController
         _txtFilterMinPrice = new ToolStripTextBox
         {
             AutoSize = false,
-            Width = (int)(70 * scale),
+            Width = (int)(100 * scale),
             BackColor = _colors.Grid,
             ForeColor = _colors.Text,
             ToolTipText = "최소 가격"
@@ -209,7 +203,7 @@ public class CostumeTabController : BaseTabController
         _txtFilterMaxPrice = new ToolStripTextBox
         {
             AutoSize = false,
-            Width = (int)(70 * scale),
+            Width = (int)(100 * scale),
             BackColor = _colors.Grid,
             ForeColor = _colors.Text,
             ToolTipText = "최대 가격"
@@ -245,17 +239,18 @@ public class CostumeTabController : BaseTabController
             Alignment = ToolStripItemAlignment.Right
         };
 
-        // Build strip: [Server▼] | 시작 중지 | 아이템:[__] 스톤:[__] 가격:[__]~[__] | 검색   [Progress][Status]→
+        // Build strip: [Server▼] | 시작 중지 | 아이템:[__]  스톤:[__]  가격:[__]~[__] | 검색   [Progress][Status]→
+        var labelMargin = new Padding(6, 1, 0, 2);
         strip.Items.Add(_cboServer);
         strip.Items.Add(new ToolStripSeparator());
         strip.Items.Add(_btnCrawlStart);
         strip.Items.Add(_btnCrawlStop);
         strip.Items.Add(new ToolStripSeparator());
-        strip.Items.Add(new ToolStripLabel("아이템:"));
+        strip.Items.Add(new ToolStripLabel("아이템:") { Margin = labelMargin });
         strip.Items.Add(_txtFilterItemName);
-        strip.Items.Add(new ToolStripLabel("스톤:"));
+        strip.Items.Add(new ToolStripLabel("스톤:") { Margin = labelMargin });
         strip.Items.Add(_txtFilterStone);
-        strip.Items.Add(new ToolStripLabel("가격:"));
+        strip.Items.Add(new ToolStripLabel("가격:") { Margin = labelMargin });
         strip.Items.Add(_txtFilterMinPrice);
         strip.Items.Add(new ToolStripLabel("~"));
         strip.Items.Add(_txtFilterMaxPrice);
@@ -659,9 +654,6 @@ public class CostumeTabController : BaseTabController
         _btnCrawlStart.Enabled = !crawling;
         _btnCrawlStop.Enabled = crawling;
         _btnSearch.Enabled = !crawling && _currentSession != null;
-
-        // Notify other tabs to lock/unlock API features
-        CrawlStateChanged?.Invoke(this, crawling);
     }
 
     /// <summary>
@@ -789,6 +781,19 @@ public class CostumeTabController : BaseTabController
         {
             await TryLoadLatestDataAsync();
         }
+    }
+
+    /// <inheritdoc/>
+    public override string? OnDeactivated()
+    {
+        base.OnDeactivated();
+
+        if (_isCrawling)
+        {
+            try { _crawlCts?.Cancel(); } catch (ObjectDisposedException) { }
+            return "의상 데이터 수집이 중지되었습니다. 다음에 이어서 수집할 수 있습니다.";
+        }
+        return null;
     }
 
     private async Task TryLoadLatestDataAsync()

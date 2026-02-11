@@ -44,7 +44,6 @@ public class MonitorTabController : BaseTabController
     private Label _lblMonitorStatus = null!;
     private Label _lblRefreshSetting = null!;
     private ToolStripLabel _lblAutoRefreshStatus = null!;
-    private ToolStripLabel _lblCrawlLockStatus = null!;
     private ToolStripButton _btnSoundMute = null!;
     private ComboBox _cboAlarmSound = null!;
     private NumericUpDown _nudAlarmInterval = null!;
@@ -90,8 +89,8 @@ public class MonitorTabController : BaseTabController
     // Track auto-refresh state before rate limit pause
     private bool _wasAutoRefreshRunningBeforeRateLimit = false;
 
-    // Track auto-refresh state before crawl lock
-    private bool _wasAutoRefreshRunningBeforeCrawl = false;
+    // Track auto-refresh state before tab switch
+    private bool _wasAutoRefreshRunningBeforeTabSwitch = false;
 
     // Dropdown panel hosts for font size updates
     private ToolStripControlHost? _autoRefreshHost;
@@ -277,44 +276,6 @@ public class MonitorTabController : BaseTabController
         _lblMonitorStatus.Text = message;
     }
 
-    /// <summary>
-    /// Lock/unlock API features during costume crawling
-    /// </summary>
-    public void SetCrawlLockState(bool isLocked)
-    {
-        _btnMonitorRefresh.Enabled = !isLocked;
-        _btnAutoRefresh.Enabled = !isLocked;
-        _btnMonitorAdd.Enabled = !isLocked;
-
-        if (isLocked)
-        {
-            // Pause auto-refresh timer
-            if (_monitorTimer != null && _monitorTimer.Enabled)
-            {
-                _wasAutoRefreshRunningBeforeCrawl = true;
-                _monitorTimer.Stop();
-                _lblAutoRefreshStatus.Text = "[수집대기]";
-                _lblAutoRefreshStatus.ForeColor = _colors.TextMuted;
-                Debug.WriteLine("[MonitorTabController] Auto-refresh paused for crawling");
-            }
-            _lblCrawlLockStatus.Text = "의상 데이터 수집 중 — 수집 완료 또는 중지 후 이용 가능";
-            _lblCrawlLockStatus.Visible = true;
-        }
-        else
-        {
-            // Restore auto-refresh
-            if (_wasAutoRefreshRunningBeforeCrawl && _monitorTimer != null)
-            {
-                _wasAutoRefreshRunningBeforeCrawl = false;
-                _monitorTimer.Start();
-                _lblAutoRefreshStatus.Text = "[동작중]";
-                _lblAutoRefreshStatus.ForeColor = Color.FromArgb(100, 200, 100);
-                Debug.WriteLine("[MonitorTabController] Auto-refresh resumed after crawling");
-            }
-            _lblCrawlLockStatus.Visible = false;
-        }
-    }
-
     /// <inheritdoc/>
     public override void Initialize()
     {
@@ -468,15 +429,6 @@ public class MonitorTabController : BaseTabController
             Alignment = ToolStripItemAlignment.Right
         };
 
-        // Crawl lock status label (hidden by default, shown during crawling)
-        _lblCrawlLockStatus = new ToolStripLabel
-        {
-            Text = "",
-            Visible = false,
-            ForeColor = _colors.TextMuted,
-            Alignment = ToolStripItemAlignment.Right
-        };
-
         // Hidden status labels (for compatibility)
         _lblMonitorStatus = new Label { Text = "", Visible = false };
         _lblRefreshSetting = new Label { Text = "", Visible = false };
@@ -501,7 +453,6 @@ public class MonitorTabController : BaseTabController
         toolStrip.Items.Add(new ToolStripSeparator { Alignment = ToolStripItemAlignment.Right });
         toolStrip.Items.Add(_btnMonitorRefresh);
         toolStrip.Items.Add(_progressMonitor);
-        toolStrip.Items.Add(_lblCrawlLockStatus);
 
         return toolStrip;
     }
@@ -1335,17 +1286,6 @@ public class MonitorTabController : BaseTabController
                 _monitorTimer.Start();
             }
         }
-    }
-
-    /// <summary>
-    /// Stop auto-refresh when leaving monitor tab
-    /// </summary>
-    public void StopAutoRefreshForTabChange()
-    {
-        StopMonitorTimer();
-        _wasAutoRefreshRunningBeforeRateLimit = false;
-        _monitoringService.Config.RefreshIntervalSeconds = 0;
-        UpdateMonitorRefreshLabel();
     }
 
     #endregion
@@ -2480,6 +2420,41 @@ public class MonitorTabController : BaseTabController
         UpdateMonitorItemList();
         UpdateMonitorResults();
         UpdateItemStatusColumn();
+
+        // Resume auto-refresh if it was paused by tab switch
+        if (_wasAutoRefreshRunningBeforeTabSwitch)
+        {
+            _wasAutoRefreshRunningBeforeTabSwitch = false;
+            var interval = _monitoringService.Config.RefreshIntervalSeconds;
+            if (interval > 0)
+            {
+                StartMonitorTimer(interval);
+                UpdateMonitorRefreshLabel();
+                Debug.WriteLine("[MonitorTabController] Auto-refresh resumed after tab switch");
+            }
+        }
+    }
+
+    /// <inheritdoc/>
+    /// <inheritdoc/>
+    public override bool HasActiveOperations => _monitorTimer != null && _monitorTimer.Enabled;
+
+    public override string? OnDeactivated()
+    {
+        base.OnDeactivated();
+
+        // Pause auto-refresh timer (keep config so it can resume on return)
+        if (_monitorTimer != null && _monitorTimer.Enabled)
+        {
+            _wasAutoRefreshRunningBeforeTabSwitch = true;
+            StopMonitorTimer();
+            _lblAutoRefreshStatus.Text = "[일시정지]";
+            _lblAutoRefreshStatus.ForeColor = _colors.TextMuted;
+            Debug.WriteLine("[MonitorTabController] Auto-refresh paused for tab switch");
+            return "모니터링 자동 갱신이 일시정지되었습니다.";
+        }
+
+        return null;
     }
 
     #endregion

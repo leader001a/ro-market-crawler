@@ -38,9 +38,15 @@ public interface ITabController : IDisposable
     void OnActivated();
 
     /// <summary>
-    /// Called when the tab becomes inactive (hidden)
+    /// Called when the tab becomes inactive (hidden).
+    /// Returns a notification message if operations were stopped, or null.
     /// </summary>
-    void OnDeactivated();
+    string? OnDeactivated();
+
+    /// <summary>
+    /// Whether this tab has long-running operations that should prompt confirmation before interrupting
+    /// </summary>
+    bool HasActiveOperations { get; }
 
     /// <summary>
     /// Save any pending state before closing

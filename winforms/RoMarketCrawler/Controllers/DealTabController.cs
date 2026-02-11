@@ -35,6 +35,7 @@ public class DealTabController : BaseTabController
     #region UI Controls
 
     private TextBox _txtDealSearch = null!;
+    private ToolStripTextBox _txtDealSearchToolStrip = null!;
     private ComboBox _cboDealServer = null!;
     private ToolStripComboBox _cboServerToolStrip = null!;
     private ToolStripButton _btnDealSearchToolStrip = null!;
@@ -130,8 +131,8 @@ public class DealTabController : BaseTabController
     public void SetRateLimitState(bool isRateLimited)
     {
         _btnDealSearchToolStrip.Enabled = !isRateLimited;
-        _txtDealSearch.Enabled = !isRateLimited;
-        _cboDealServer.Enabled = !isRateLimited;
+        _txtDealSearchToolStrip.Enabled = !isRateLimited;
+        _cboServerToolStrip.Enabled = !isRateLimited;
 
         // Disable all navigation buttons
         _btnFirst.Enabled = !isRateLimited && _dealCurrentPage > 1;
@@ -281,6 +282,7 @@ public class DealTabController : BaseTabController
                 _ = SearchAsync();
             }
         };
+        _txtDealSearchToolStrip = txtSearch;
         _txtDealSearch = txtSearch.TextBox;
 
         // Search button
@@ -1032,8 +1034,8 @@ public class DealTabController : BaseTabController
     private void SetDealSearchingState(bool searching)
     {
         _btnDealSearchToolStrip.Enabled = !searching;
-        _txtDealSearch.Enabled = !searching;
-        _cboDealServer.Enabled = !searching;
+        _txtDealSearchToolStrip.Enabled = !searching;
+        _cboServerToolStrip.Enabled = !searching;
 
         // Disable all navigation buttons during search
         _btnFirst.Enabled = !searching && _dealCurrentPage > 1;
@@ -1525,68 +1527,7 @@ public class DealTabController : BaseTabController
 
     #endregion
 
-    #region API Lock (Crawl / Rate Limit)
-
-    /// <summary>
-    /// Lock/unlock API features during costume crawling
-    /// </summary>
-    public void SetCrawlLockState(bool isLocked)
-    {
-        // Cancel any in-flight API requests
-        if (isLocked && _cts != null)
-        {
-            try { _cts.Cancel(); } catch { }
-        }
-
-        _btnDealSearchToolStrip.Enabled = !isLocked;
-        _txtDealSearch.Enabled = !isLocked;
-        _cboDealServer.Enabled = !isLocked;
-
-        // Disable navigation buttons
-        _btnFirst.Enabled = !isLocked && _dealCurrentPage > 1;
-        _btnPrev100.Enabled = !isLocked && _dealCurrentPage > 50;
-        _btnPrev10.Enabled = !isLocked && _dealCurrentPage > 10;
-        _btnDealPrev.Enabled = !isLocked && _dealCurrentPage > 1;
-        _btnDealNext.Enabled = !isLocked && _dealCurrentPage < _totalPages;
-        _btnNext10.Enabled = !isLocked && _dealCurrentPage + 10 <= _totalPages;
-        _btnNext100.Enabled = !isLocked && _dealCurrentPage + 50 <= _totalPages;
-        _btnLast.Enabled = !isLocked && _dealCurrentPage < _totalPages;
-
-        // Disable page number buttons
-        foreach (Control ctrl in _pnlPagination.Controls)
-        {
-            if (ctrl.Tag is string s && (s == "PageButton" || s == "NavButton"))
-            {
-                if (isLocked) ctrl.Enabled = false;
-            }
-        }
-
-        // Disable search history links
-        if (_pnlSearchHistory != null)
-        {
-            foreach (Control ctrl in _pnlSearchHistory.Controls)
-            {
-                if (ctrl is Label lbl && lbl.Tag is ValueTuple<string, string> tag && tag.Item1 == "SearchHistoryLink")
-                {
-                    lbl.Enabled = !isLocked;
-                    lbl.ForeColor = isLocked ? _colors.TextMuted : _colors.Accent;
-                    lbl.Cursor = isLocked ? Cursors.Default : Cursors.Hand;
-                }
-            }
-        }
-
-        // Update status message
-        if (isLocked)
-        {
-            _lblDealStatus.Text = "의상 데이터 수집 중 — 수집 완료 또는 중지 후 검색이 가능합니다.";
-            _lblDealStatus.ForeColor = _colors.TextMuted;
-        }
-        else
-        {
-            _lblDealStatus.Text = "검색어를 입력하고 [검색] 버튼을 클릭하세요.";
-            _lblDealStatus.ForeColor = _colors.Text;
-        }
-    }
+    #region API Lock (Rate Limit)
 
     /// <summary>
     /// Update UI based on rate limit state
@@ -1666,6 +1607,24 @@ public class DealTabController : BaseTabController
             _guideShownThisSession = true;
             ShowSearchGuideDialog();
         }
+    }
+
+    /// <inheritdoc/>
+    public override bool HasActiveOperations => _cts != null && !_cts.IsCancellationRequested;
+
+    /// <inheritdoc/>
+    public override string? OnDeactivated()
+    {
+        base.OnDeactivated();
+
+        // Cancel any in-progress search/detail loading
+        if (_cts != null && !_cts.IsCancellationRequested)
+        {
+            try { _cts.Cancel(); } catch { }
+            _progressDealSearch.Visible = false;
+            return "노점조회 검색이 중지되었습니다.";
+        }
+        return null;
     }
 
     private void ShowSearchGuideDialog()

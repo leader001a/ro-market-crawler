@@ -156,9 +156,13 @@ public abstract class BaseTabController : ITabController
     }
 
     /// <inheritdoc/>
-    public virtual void OnDeactivated()
+    public virtual bool HasActiveOperations => false;
+
+    /// <inheritdoc/>
+    public virtual string? OnDeactivated()
     {
         Debug.WriteLine($"[{GetType().Name}] Tab deactivated");
+        return null;
     }
 
     /// <inheritdoc/>
