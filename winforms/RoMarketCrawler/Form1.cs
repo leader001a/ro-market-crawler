@@ -70,6 +70,7 @@ public partial class Form1 : Form
     private AlarmSoundType _selectedAlarmSound = AlarmSoundType.SystemSound;
     private int _alarmIntervalSeconds = 5;
     private DateTime? _apiLockoutUntil;
+    private bool _hideUsageNotice = false;
 
     #endregion
 
@@ -115,7 +116,11 @@ public partial class Form1 : Form
         _ = LoadDataAsync();
 
         // Activate initial tab after form is shown
-        Shown += (s, e) => _dealTabController?.OnActivated();
+        Shown += (s, e) =>
+        {
+            _dealTabController?.OnActivated();
+            ShowUsageNoticeIfNeeded();
+        };
     }
 
     private void CreateTabControllers()
@@ -1079,6 +1084,7 @@ public partial class Form1 : Form
                     _selectedAlarmSound = settings.AlarmSound;
                     _alarmIntervalSeconds = settings.AlarmIntervalSeconds;
                     _dealSearchHistory = settings.DealSearchHistory ?? new List<string>();
+                    _hideUsageNotice = settings.HideUsageNotice;
                     _apiLockoutUntil = settings.ApiLockoutUntil;
                     Debug.WriteLine($"[Form1] LoadSettings: Loaded {_dealSearchHistory.Count} search history items");
 
@@ -1117,6 +1123,7 @@ public partial class Form1 : Form
                 AlarmSound = _selectedAlarmSound,
                 AlarmIntervalSeconds = _alarmIntervalSeconds,
                 DealSearchHistory = _dealSearchHistory,
+                HideUsageNotice = _hideUsageNotice,
                 ApiLockoutUntil = _apiLockoutUntil
             };
             var json = System.Text.Json.JsonSerializer.Serialize(settings);
@@ -1127,6 +1134,338 @@ public partial class Form1 : Form
         {
             Debug.WriteLine($"[Form1] Failed to save settings: {ex.Message}");
         }
+    }
+
+    #endregion
+
+    #region Usage Notice
+
+    private void ShowUsageNoticeIfNeeded()
+    {
+        if (_hideUsageNotice) return;
+
+        Color bgColor, textColor, accentColor, panelColor;
+
+        if (_currentTheme == ThemeType.Dark)
+        {
+            bgColor = Color.FromArgb(30, 30, 30);
+            textColor = Color.FromArgb(220, 220, 220);
+            accentColor = Color.FromArgb(0, 150, 200);
+            panelColor = Color.FromArgb(45, 45, 45);
+        }
+        else
+        {
+            bgColor = Color.FromArgb(250, 250, 250);
+            textColor = Color.FromArgb(30, 30, 30);
+            accentColor = Color.FromArgb(0, 120, 180);
+            panelColor = Color.FromArgb(240, 240, 240);
+        }
+
+        using var form = new Form
+        {
+            Text = "RO 마켓 크롤러 - 사용 안내",
+            Size = new Size(650, 700),
+            StartPosition = FormStartPosition.CenterParent,
+            BackColor = bgColor,
+            ForeColor = textColor,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MaximizeBox = false,
+            MinimizeBox = false,
+            ShowInTaskbar = false,
+            ShowIcon = true,
+            KeyPreview = true
+        };
+
+        // Load icon
+        try
+        {
+            var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+            using var stream = assembly.GetManifestResourceStream("RoMarketCrawler.app.ico");
+            if (stream != null)
+            {
+                form.Icon = new Icon(stream);
+            }
+        }
+        catch { }
+
+        form.KeyDown += (s, e) => { if (e.KeyCode == Keys.Escape) form.Close(); };
+
+        const string noticeContent =
+@"[1. 이 프로그램은 어떻게 동작하나요?]
+
+이 프로그램은 여러분의 컴퓨터에서 직접 gnjoy 사이트(ro.gnjoy.com)에 검색 요청을 보내서 아이템 정보를 가져옵니다. 쉽게 말해, 여러분이 웹 브라우저에서 gnjoy 사이트를 검색하는 것과 같은 방식입니다.
+
+[왜 이게 중요한가요?]
+
+gnjoy 서버 입장에서는 이 프로그램이 보내는 요청이 여러분의 인터넷 주소(IP)에서 오는 것으로 인식됩니다. 따라서 짧은 시간에 너무 많은 검색을 하면, gnjoy 측에서 여러분의 인터넷 주소를 일시적으로 차단할 수 있습니다.
+
+차단되면 이 프로그램뿐만 아니라, 같은 인터넷을 사용하는 웹 브라우저에서도 gnjoy 아이템 검색이 안 될 수 있습니다.
+
+※ gnjoy 아이템 검색만 차단되며, 게임 접속이나 다른 서비스에는 영향이 없습니다.
+
+
+[2. 차단을 방지하기 위해 프로그램이 하는 일]
+
+[한 번에 하나의 기능만 동작]
+
+노점조회, 모니터링, 의상검색 기능은 동시에 실행되지 않습니다. 다른 탭으로 이동하면 기존 작업이 자동으로 중지됩니다. 이는 동시에 여러 요청이 몰리는 것을 방지하기 위한 설계입니다.
+
+※ 아이템 탭은 별도의 사이트(kafra.kr)를 사용하므로, 아이템 탭으로 이동할 때는 다른 작업이 중지되지 않습니다.
+
+[검색 속도 조절]
+
+프로그램은 gnjoy 사이트에 요청을 보낼 때 일정한 간격을 두고 보냅니다. 한꺼번에 빠르게 보내지 않고 천천히 보내서 차단 위험을 줄입니다.
+
+[노점조회 예시]
+- ""사과"" 검색 → 목록조회 1회로 검색 결과 목록을 가져옴
+- 목록에 10개 결과가 있다면 → 각 아이템의 상세조회를 1초 간격으로 10회 요청
+- 즉, 검색 1회당 총 11회 요청 (목록 1회 + 상세 10회), 약 10초 소요
+- 결과가 30개면 총 31회 요청, 약 30초 소요
+
+[의상 데이터 수집 예시]
+- 전체 의상 목록조회를 한 페이지씩 가져옴 (페이지당 10개)
+- 각 페이지 안의 아이템마다 상세조회를 1초 간격으로 요청
+- 즉, 1페이지당 총 11회 요청 (목록 1회 + 상세 10회), 약 10초 소요
+- 1000개의 의상이 있다면 약 100페이지, 총 약 1,100회 요청, 약 25분 소요
+
+※ gnjoy 측에서 요청 제한 기준을 강화할 경우, 프로그램도 요청 간격을 늘려야 하므로 수집 시간이 더 길어질 수 있습니다. 또한 이러한 변경은 사전 공지 없이 이루어질 수 있어, 현재 정상 동작하더라도 갑자기 차단이 발생할 수 있습니다.
+
+[차단 감지 시 24시간 자동 잠금]
+
+gnjoy 사이트에서 요청을 거부하면, 프로그램은 24시간 동안 모든 gnjoy 관련 기능을 자동으로 잠급니다. 이는 추가 요청으로 차단이 더 길어지는 것을 방지하기 위한 조치입니다.
+
+- 잠금 상태는 프로그램을 껐다 켜도 유지됩니다
+- 잠금이 해제되는 시간이 화면에 표시됩니다
+- 24시간이 지나면 자동으로 다시 사용할 수 있습니다
+
+[왜 24시간이나 잠그나요?]
+
+개발 과정에서 차단이 발생한 뒤 대기 시간이 지났다고 판단하여 다시 요청을 보냈더니, 그 요청 자체가 추가 시도로 인식되어 차단이 계속 연장된 경험이 있었습니다. 결국 24시간 동안 gnjoy 아이템 검색을 사용하지 못했습니다.
+
+이런 상황을 방지하기 위해, 차단이 감지되면 충분한 시간 동안 요청을 완전히 멈추도록 설계했습니다. 조금 불편하더라도, 충분히 기다린 뒤 사용하는 것이 더 안전합니다.
+
+[의상 데이터 ""이어하기"" 기능]
+
+의상 데이터 수집은 시간이 오래 걸리기 때문에, 중간에 중단된 경우 이어서 수집할 수 있습니다. 단, 마지막 수집 이후 1시간 이상 지났다면 그 사이 노점 정보가 바뀌었을 수 있으므로 처음부터 다시 수집하는 것을 권장합니다.
+
+※ 의상검색은 빠른 정보 갱신보다 안정적인 동작을 우선으로 설계되었습니다. 요청 속도를 높이면 차단 위험이 커지기 때문에, 시간이 걸리더라도 안전하게 수집합니다.
+
+[왜 웹 사이트가 아닌 프로그램인가요?]
+
+의상 노점 검색을 웹 사이트로 제공하려면, 서버 한 대가 gnjoy에 주기적으로 요청을 보내서 데이터를 수집해야 합니다. 그런데 위에서 설명한 것처럼 의상 1,000개 기준 한 번 수집에만 약 25분이 걸립니다.
+
+만약 30분~1시간마다 최신 데이터로 갱신하려고 하면, 이전 수집이 끝나기도 전에 다음 수집을 시작해야 하는 상황이 됩니다. 요청 간격을 줄이면 차단당하고, 간격을 유지하면 갱신이 안 되는 딜레마에 빠지게 됩니다.
+
+실제로 과거에 의상 노점 검색을 제공했던 웹 사이트들이 서비스를 중단한 것도 이런 요청 제한 문제가 원인이었을 가능성이 있습니다.
+
+이 프로그램은 여러분의 컴퓨터에서 직접 요청을 보내는 방식이기 때문에, 서버 한 곳에 요청이 집중되는 문제를 피할 수 있습니다. 다만 그만큼 수집에 시간이 걸리고, 각자 차단 위험을 관리해야 하는 점은 양해 부탁드립니다.
+
+
+[3. 사용 시 참고사항]
+
+- 프로그램을 여러 개 동시에 실행하지 마세요. 요청이 두 배로 늘어나 차단 위험이 높아집니다.
+- 모니터링 자동갱신 주기는 너무 짧게 설정하지 마세요. 5분 이상을 권장합니다.
+- 의상 데이터 수집 중에는 다른 gnjoy 관련 기능 사용을 자제해 주세요. 수집이 끝난 뒤 사용하면 더 안전합니다.
+- 차단이 발생하면 조급해하지 마세요. 24시간 후 자동으로 풀립니다. 차단 중에 반복 시도하면 차단이 더 길어질 수 있습니다.
+
+
+[4. 배포 관련 안내]
+
+본 프로그램은 곰곰2Q 님의 팬카페를 통해 공유되고 있으며, 게시 승인을 받았습니다. 단, 곰곰2Q 님은 본 프로그램의 개발 및 운영과 어떠한 연관도 없으며, 본 프로그램의 사용으로 인해 발생하는 문제에 대해 법적 책임을 포함한 어떠한 책임도 지지 않습니다.
+
+프로그램 관련 문의는 개발자에게 직접 연락해 주세요.";
+
+        // Main layout (same structure as HelpGuideForm)
+        var mainPanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 2,
+            ColumnCount = 1,
+            Padding = new Padding(10),
+            BackColor = bgColor
+        };
+        mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
+
+        var rtb = new RichTextBox
+        {
+            Dock = DockStyle.Fill,
+            BackColor = bgColor,
+            ForeColor = textColor,
+            Font = new Font("Malgun Gothic", _baseFontSize),
+            BorderStyle = BorderStyle.None,
+            ReadOnly = true,
+            ScrollBars = RichTextBoxScrollBars.Vertical
+        };
+
+        // Format RichTextBox content (same pattern as HelpGuideForm.ShowQuickHelpDialog)
+        var lines = noticeContent.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+
+        using var normalFont = new Font("Malgun Gothic", _baseFontSize);
+        using var boldFont = new Font("Malgun Gothic", _baseFontSize, FontStyle.Bold);
+        using var headerFont = new Font("Malgun Gothic", _baseFontSize, FontStyle.Bold);
+
+        for (int i = 0; i < lines.Length; i++)
+        {
+            var line = lines[i];
+
+            if (!string.IsNullOrEmpty(line))
+            {
+                var trimmed = line.TrimStart();
+                var leadingSpaces = line.Substring(0, line.Length - trimmed.Length);
+
+                if (leadingSpaces.Length > 0)
+                {
+                    rtb.SelectionColor = textColor;
+                    rtb.SelectionFont = normalFont;
+                    rtb.AppendText(leadingSpaces);
+                }
+
+                // Section headers [...]
+                if (trimmed.StartsWith('[') && trimmed.Contains(']'))
+                {
+                    int bracketEnd = trimmed.IndexOf(']');
+                    var headerPart = trimmed.Substring(0, bracketEnd + 1);
+                    var restPart = trimmed.Substring(bracketEnd + 1);
+
+                    rtb.SelectionColor = accentColor;
+                    rtb.SelectionFont = headerFont;
+                    rtb.AppendText(headerPart);
+
+                    if (restPart.Length > 0)
+                    {
+                        rtb.SelectionColor = textColor;
+                        rtb.SelectionFont = normalFont;
+                        rtb.AppendText(restPart);
+                    }
+                }
+                // Numbered items (1., 2., etc.)
+                else if (trimmed.Length > 1 && char.IsDigit(trimmed[0]) && trimmed[1] == '.')
+                {
+                    var numberPart = trimmed.Substring(0, 2);
+                    var restPart = trimmed.Substring(2);
+
+                    rtb.SelectionColor = accentColor;
+                    rtb.SelectionFont = boldFont;
+                    rtb.AppendText(numberPart);
+
+                    if (restPart.Length > 0)
+                    {
+                        rtb.SelectionColor = textColor;
+                        rtb.SelectionFont = normalFont;
+                        rtb.AppendText(restPart);
+                    }
+                }
+                // Note lines starting with ※
+                else if (trimmed.StartsWith('※'))
+                {
+                    rtb.SelectionColor = accentColor;
+                    rtb.SelectionFont = normalFont;
+                    rtb.AppendText("※");
+
+                    var restPart = trimmed.Substring(1);
+                    if (restPart.Length > 0)
+                    {
+                        rtb.SelectionColor = _currentTheme == ThemeType.Dark
+                            ? Color.FromArgb(180, 180, 180)
+                            : Color.FromArgb(80, 80, 80);
+                        rtb.SelectionFont = normalFont;
+                        rtb.AppendText(restPart);
+                    }
+                }
+                // Bullet points with dash
+                else if (trimmed.StartsWith('-'))
+                {
+                    rtb.SelectionColor = accentColor;
+                    rtb.SelectionFont = normalFont;
+                    rtb.AppendText("-");
+
+                    var restPart = trimmed.Substring(1);
+                    if (restPart.Length > 0)
+                    {
+                        rtb.SelectionColor = textColor;
+                        rtb.SelectionFont = normalFont;
+                        rtb.AppendText(restPart);
+                    }
+                }
+                // Normal line
+                else
+                {
+                    rtb.SelectionColor = textColor;
+                    rtb.SelectionFont = normalFont;
+                    rtb.AppendText(trimmed);
+                }
+            }
+
+            if (i < lines.Length - 1)
+            {
+                rtb.SelectionColor = textColor;
+                rtb.SelectionFont = normalFont;
+                rtb.AppendText(Environment.NewLine);
+            }
+        }
+
+        rtb.SelectionStart = 0;
+        rtb.ScrollToCaret();
+
+        // Bottom panel with checkbox and button (same style as HelpGuideForm)
+        var bottomPanel = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = bgColor
+        };
+
+        var chkDontShowAgain = new CheckBox
+        {
+            Text = "다시 보지 않기",
+            Font = new Font("Malgun Gothic", _baseFontSize),
+            ForeColor = _currentTheme == ThemeType.Dark
+                ? Color.FromArgb(160, 160, 160)
+                : Color.FromArgb(100, 100, 100),
+            AutoSize = true,
+            Location = new Point(5, 13)
+        };
+
+        var btnOk = new Button
+        {
+            Text = "확인",
+            Size = new Size(100, 35),
+            FlatStyle = FlatStyle.Flat,
+            BackColor = panelColor,
+            ForeColor = textColor,
+            Font = new Font("Malgun Gothic", _baseFontSize, FontStyle.Bold),
+            Cursor = Cursors.Hand
+        };
+        btnOk.FlatAppearance.BorderColor = accentColor;
+        btnOk.Anchor = AnchorStyles.Right;
+        btnOk.Location = new Point(bottomPanel.Width - btnOk.Width - 5, 7);
+        bottomPanel.Resize += (s, e) => btnOk.Location = new Point(bottomPanel.Width - btnOk.Width - 5, 7);
+
+        btnOk.Click += (s, e) =>
+        {
+            if (chkDontShowAgain.Checked)
+            {
+                _hideUsageNotice = true;
+                SaveSettings();
+            }
+            form.Close();
+        };
+
+        bottomPanel.Controls.Add(chkDontShowAgain);
+        bottomPanel.Controls.Add(btnOk);
+
+        mainPanel.Controls.Add(rtb, 0, 0);
+        mainPanel.Controls.Add(bottomPanel, 0, 1);
+        form.Controls.Add(mainPanel);
+        form.AcceptButton = btnOk;
+
+        // Apply dark theme scrollbar
+        if (_currentTheme == ThemeType.Dark)
+        {
+            HelpGuideForm.ApplyScrollBarThemeToControl(form, true);
+        }
+
+        form.ShowDialog(this);
     }
 
     #endregion

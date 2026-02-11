@@ -12,5 +12,6 @@ public class AppSettings
     public int AlarmIntervalSeconds { get; set; } = 5;
     public List<string> DealSearchHistory { get; set; } = new();
     public bool HideDealSearchGuide { get; set; } = false;
+    public bool HideUsageNotice { get; set; } = false;
     public DateTime? ApiLockoutUntil { get; set; }
 }

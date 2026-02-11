@@ -1593,19 +1593,10 @@ public class DealTabController : BaseTabController
 
     #region Tab Activation
 
-    private bool _guideShownThisSession = false;
-
     /// <inheritdoc/>
     public override void OnActivated()
     {
         base.OnActivated();
-
-        // Show guide dialog on first activation if not hidden
-        if (!_guideShownThisSession && !_settingsService.HideDealSearchGuide)
-        {
-            _guideShownThisSession = true;
-            ShowSearchGuideDialog();
-        }
     }
 
     /// <inheritdoc/>
@@ -1624,98 +1615,6 @@ public class DealTabController : BaseTabController
             return "노점조회 검색이 중지되었습니다.";
         }
         return null;
-    }
-
-    private void ShowSearchGuideDialog()
-    {
-        var parentForm = _tabPage.FindForm();
-        if (parentForm == null) return;
-
-        // Use BeginInvoke to show dialog after tab switch completes
-        parentForm.BeginInvoke(() =>
-        {
-            using var guideForm = new Form
-            {
-                Text = "노점조회 안내",
-                Size = new Size(500, 400),
-                FormBorderStyle = FormBorderStyle.FixedDialog,
-                StartPosition = FormStartPosition.CenterParent,
-                MaximizeBox = false,
-                MinimizeBox = false,
-                BackColor = _colors.Panel,
-                ForeColor = _colors.Text
-            };
-
-            var lblTitle = new Label
-            {
-                Text = "노점 거래 검색 안내",
-                Font = new Font("Malgun Gothic", _baseFontSize + 2, FontStyle.Bold),
-                ForeColor = _colors.Accent,
-                AutoSize = false,
-                Size = new Size(460, 30),
-                Location = new Point(20, 15),
-                TextAlign = ContentAlignment.MiddleLeft
-            };
-
-            var lblContent = new Label
-            {
-                Text = "【 데이터 출처 】\n" +
-                       "노점 거래 정보는 GNJOY 공식 홈페이지(ro.gnjoy.com)에서\n" +
-                       "제공하는 데이터를 실시간으로 조회합니다.\n\n" +
-                       "【 조회 방식 】\n" +
-                       "1페이지(10건) 조회 시 아이템 목록 1회 + 상세정보 10회를\n" +
-                       "순차적으로 요청하며, 상세정보 1건당 약 1초가 소요됩니다.\n" +
-                       "따라서 한 페이지 조회에 약 10~15초가 소요될 수 있습니다.\n\n" +
-                       "【 검색 제한 주의 】\n" +
-                       "GNJOY 서버의 요청 제한 기준과 차단 기간은 공개되어 있지\n" +
-                       "않아 정확히 알 수 없습니다.\n" +
-                       "(개발자가 의상검색 개발 중 약 1일간 차단된 경험이 있습니다)\n" +
-                       "과도한 연속 검색은 자제해 주시기 바랍니다.",
-                Font = new Font("Malgun Gothic", _baseFontSize),
-                ForeColor = _colors.Text,
-                AutoSize = false,
-                Size = new Size(460, 250),
-                Location = new Point(20, 50)
-            };
-
-            var chkDontShowAgain = new CheckBox
-            {
-                Text = "다시 보지 않기",
-                Font = new Font("Malgun Gothic", _baseFontSize),
-                ForeColor = _colors.TextMuted,
-                AutoSize = true,
-                Location = new Point(20, 310)
-            };
-
-            var btnOk = new Button
-            {
-                Text = "확인",
-                Size = new Size(100, 35),
-                Location = new Point(380, 305),
-                FlatStyle = _currentTheme == ThemeType.Dark ? FlatStyle.Flat : FlatStyle.Standard,
-                BackColor = _colors.Accent,
-                ForeColor = _colors.AccentText,
-                Cursor = Cursors.Hand
-            };
-            if (_currentTheme == ThemeType.Dark)
-            {
-                btnOk.FlatAppearance.BorderColor = _colors.Accent;
-            }
-
-            btnOk.Click += (s, e) =>
-            {
-                if (chkDontShowAgain.Checked)
-                {
-                    _settingsService.HideDealSearchGuide = true;
-                    _ = _settingsService.SaveAsync();
-                }
-                guideForm.Close();
-            };
-
-            guideForm.Controls.AddRange(new Control[] { lblTitle, lblContent, chkDontShowAgain, btnOk });
-            guideForm.AcceptButton = btnOk;
-            guideForm.ShowDialog(parentForm);
-        });
     }
 
     #endregion

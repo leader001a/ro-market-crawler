@@ -28,7 +28,7 @@ public class HelpGuideForm : Form
     /// <summary>
     /// Apply dark or light scrollbar theme to a control and all its children recursively (static version)
     /// </summary>
-    private static void ApplyScrollBarThemeStatic(Control control, bool isDark)
+    public static void ApplyScrollBarThemeToControl(Control control, bool isDark)
     {
         string themeName = isDark ? "DarkMode_Explorer" : "Explorer";
 
@@ -48,7 +48,7 @@ public class HelpGuideForm : Form
 
         foreach (Control child in control.Controls)
         {
-            ApplyScrollBarThemeStatic(child, isDark);
+            ApplyScrollBarThemeToControl(child, isDark);
         }
 
         if (control.IsHandleCreated)
@@ -1140,7 +1140,7 @@ ESC               현재 창 닫기
         // Apply dark theme scrollbar
         if (theme == ThemeType.Dark)
         {
-            ApplyScrollBarThemeStatic(form, true);
+            ApplyScrollBarThemeToControl(form, true);
         }
 
         form.ShowDialog(owner);
