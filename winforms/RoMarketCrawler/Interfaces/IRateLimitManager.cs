@@ -37,10 +37,14 @@ public interface IRateLimitManager
     double RequestsPerMinute { get; }
 
     /// <summary>
-    /// Set rate limit status (called when 429 response received)
+    /// Set rate limit status for 24 hours (called when 429 response received)
     /// </summary>
-    /// <param name="retryAfterSeconds">Number of seconds to wait</param>
-    void SetRateLimit(int retryAfterSeconds);
+    void SetRateLimit();
+
+    /// <summary>
+    /// Restore rate limit from persisted state (called on startup)
+    /// </summary>
+    void SetRateLimitUntil(DateTime until);
 
     /// <summary>
     /// Clear rate limit status (called when rate limit is lifted)

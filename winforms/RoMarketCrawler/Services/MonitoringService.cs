@@ -781,10 +781,10 @@ namespace RoMarketCrawler.Services
             }
             catch (RateLimitException rateLimitEx)
             {
-                result.ErrorMessage = $"API 요청 제한: {rateLimitEx.RemainingTimeText}";
+                result.ErrorMessage = $"API 요청이 제한되었습니다. {rateLimitEx.UnlockTimeText} 이후 이용 가능합니다.";
                 result.IsRateLimited = true;
-                result.RateLimitedUntil = rateLimitEx.RetryAfterTime;
-                Debug.WriteLine($"[MonitoringService] Rate limited for '{capturedItemName}': {rateLimitEx.RetryAfterSeconds}s");
+                result.RateLimitedUntil = rateLimitEx.LockoutUntil;
+                Debug.WriteLine($"[MonitoringService] Locked out until {rateLimitEx.UnlockTimeText} for '{capturedItemName}'");
             }
             catch (Exception ex)
             {

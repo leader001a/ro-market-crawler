@@ -773,15 +773,14 @@ public class DealTabController : BaseTabController
         }
         catch (RateLimitException rateLimitEx)
         {
-            var remainingTime = rateLimitEx.RemainingTimeText;
-            _lblDealStatus.Text = $"API 요청 제한됨: {remainingTime}";
+            _lblDealStatus.Text = $"API 요청이 제한되었습니다. {rateLimitEx.UnlockTimeText} 이후 이용 가능합니다.";
             _lblDealStatus.ForeColor = _colors.SaleColor;
 
-            Debug.WriteLine($"[DealTabController] Rate limited: {rateLimitEx.RetryAfterSeconds}s, until {rateLimitEx.RetryAfterTime}");
+            Debug.WriteLine($"[DealTabController] Locked out until {rateLimitEx.UnlockTimeText}");
 
             MessageBox.Show(
                 $"GNJOY API 요청 제한이 적용되었습니다.\n\n" +
-                $"재시도 가능 시간: {remainingTime}\n\n" +
+                $"이용 가능 시간: {rateLimitEx.UnlockTimeText}\n\n" +
                 "과도한 검색을 자제해 주세요.",
                 "API 요청 제한",
                 MessageBoxButtons.OK,

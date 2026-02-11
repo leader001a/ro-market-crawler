@@ -159,37 +159,6 @@ public class GnjoyClient : IGnjoyClient
     }
 
     /// <summary>
-    /// Parse Retry-After header value (can be seconds or HTTP date)
-    /// </summary>
-    private static int ParseRetryAfterHeader(HttpResponseMessage response)
-    {
-        if (response.Headers.TryGetValues("Retry-After", out var values))
-        {
-            var retryAfter = values.FirstOrDefault();
-            if (!string.IsNullOrEmpty(retryAfter))
-            {
-                // Try parsing as integer (seconds)
-                if (int.TryParse(retryAfter, out var seconds))
-                {
-                    Debug.WriteLine($"[GnjoyClient] Retry-After (seconds): {seconds}");
-                    return seconds;
-                }
-
-                // Try parsing as HTTP date
-                if (DateTimeOffset.TryParse(retryAfter, out var date))
-                {
-                    var diff = (int)(date - DateTimeOffset.Now).TotalSeconds;
-                    Debug.WriteLine($"[GnjoyClient] Retry-After (date): {retryAfter} -> {diff}s");
-                    return Math.Max(0, diff);
-                }
-            }
-        }
-
-        // Default to 60 seconds if no Retry-After header
-        return 60;
-    }
-
-    /// <summary>
     /// Fetch HTML content from URL using either WebView2 or HttpClient
     /// </summary>
     private async Task<string> FetchHtmlAsync(string url, CancellationToken cancellationToken)
@@ -237,12 +206,12 @@ public class GnjoyClient : IGnjoyClient
         HttpResponseMessage? response = null;
         Exception? lastException = null;
 
-        // Check if currently rate limited
+        // Check if currently rate limited (24-hour lockout)
         if (IsRateLimited)
         {
-            var remaining = RemainingRateLimitSeconds;
-            Debug.WriteLine($"[GnjoyClient] Currently rate limited, {remaining}s remaining");
-            throw new RateLimitException(remaining, $"API 요청 제한 중. {remaining}초 후 재시도 가능");
+            var lockoutUntil = RateLimitedUntil!.Value;
+            Debug.WriteLine($"[GnjoyClient] Currently locked out until {lockoutUntil:yyyy-MM-dd HH:mm}");
+            throw new RateLimitException(lockoutUntil);
         }
 
         for (int retryCount = 0; retryCount <= MaxRetries; retryCount++)
@@ -264,17 +233,16 @@ public class GnjoyClient : IGnjoyClient
 
                 response = await _client.GetAsync(url, cancellationToken);
 
-                // Handle 429 Too Many Requests - throw exception with Retry-After info
+                // Handle 429 Too Many Requests - 24-hour lockout
                 if (response.StatusCode == HttpStatusCode.TooManyRequests)
                 {
-                    var retryAfterSeconds = ParseRetryAfterHeader(response);
-                    _sharedRateLimitManager.Value.SetRateLimit(retryAfterSeconds);
+                    _sharedRateLimitManager.Value.SetRateLimit();
+                    var lockoutUntil = _sharedRateLimitManager.Value.RateLimitedUntil!.Value;
 
-                    Debug.WriteLine($"[GnjoyClient] HTTP 429 - Rate limited for {retryAfterSeconds}s (until {RateLimitedUntil})");
+                    Debug.WriteLine($"[GnjoyClient] HTTP 429 - Locked out until {lockoutUntil:yyyy-MM-dd HH:mm}");
                     response.Dispose();
 
-                    throw new RateLimitException(retryAfterSeconds,
-                        $"API 요청 제한됨. {retryAfterSeconds}초 후 재시도 가능");
+                    throw new RateLimitException(lockoutUntil);
                 }
 
                 // Handle 503/504 - retry with exponential backoff

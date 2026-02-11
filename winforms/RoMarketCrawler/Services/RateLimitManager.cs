@@ -82,13 +82,35 @@ public class RateLimitManager : IRateLimitManager
         }
     }
 
+    private const int LockoutHours = 24;
+
     /// <inheritdoc/>
-    public void SetRateLimit(int retryAfterSeconds)
+    public void SetRateLimit()
     {
         lock (_lock)
         {
-            _rateLimitedUntil = DateTime.Now.AddSeconds(retryAfterSeconds);
-            Debug.WriteLine($"[RateLimitManager] Rate limited for {retryAfterSeconds}s (until {_rateLimitedUntil})");
+            _rateLimitedUntil = DateTime.Now.AddHours(LockoutHours);
+            Debug.WriteLine($"[RateLimitManager] Rate limited for {LockoutHours}h (until {_rateLimitedUntil})");
+        }
+
+        RaiseRateLimitChanged();
+    }
+
+    /// <inheritdoc/>
+    public void SetRateLimitUntil(DateTime until)
+    {
+        lock (_lock)
+        {
+            if (until > DateTime.Now)
+            {
+                _rateLimitedUntil = until;
+                Debug.WriteLine($"[RateLimitManager] Rate limit restored (until {_rateLimitedUntil})");
+            }
+            else
+            {
+                _rateLimitedUntil = null;
+                Debug.WriteLine("[RateLimitManager] Stored rate limit already expired, ignoring");
+            }
         }
 
         RaiseRateLimitChanged();

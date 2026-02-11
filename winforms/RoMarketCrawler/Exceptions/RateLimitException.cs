@@ -1,49 +1,24 @@
 namespace RoMarketCrawler.Exceptions;
 
 /// <summary>
-/// Exception thrown when API rate limit (HTTP 429) is encountered
+/// Exception thrown when API rate limit (HTTP 429) is encountered.
+/// Triggers a 24-hour lockout to protect the user's IP from extended blocking.
 /// </summary>
 public class RateLimitException : Exception
 {
     /// <summary>
-    /// Number of seconds to wait before retrying (from Retry-After header)
+    /// Time when the lockout will expire
     /// </summary>
-    public int RetryAfterSeconds { get; }
+    public DateTime LockoutUntil { get; }
 
     /// <summary>
-    /// Time when rate limit will expire
+    /// Formatted unlock datetime string for display
     /// </summary>
-    public DateTime RetryAfterTime { get; }
+    public string UnlockTimeText => LockoutUntil.ToString("yyyy-MM-dd HH:mm");
 
-    /// <summary>
-    /// Human-readable remaining time description
-    /// </summary>
-    public string RemainingTimeText
+    public RateLimitException(DateTime lockoutUntil)
+        : base($"API 요청이 제한되었습니다. {lockoutUntil:yyyy-MM-dd HH:mm} 이후 이용 가능합니다.")
     {
-        get
-        {
-            var remaining = RetryAfterTime - DateTime.Now;
-            if (remaining.TotalSeconds <= 0)
-                return "곧 해제됩니다";
-
-            if (remaining.TotalMinutes >= 1)
-                return $"약 {(int)remaining.TotalMinutes}분 {remaining.Seconds}초 후 해제";
-
-            return $"약 {(int)remaining.TotalSeconds}초 후 해제";
-        }
-    }
-
-    public RateLimitException(int retryAfterSeconds)
-        : base($"API 요청 제한됨. {retryAfterSeconds}초 후 재시도 가능")
-    {
-        RetryAfterSeconds = retryAfterSeconds;
-        RetryAfterTime = DateTime.Now.AddSeconds(retryAfterSeconds);
-    }
-
-    public RateLimitException(int retryAfterSeconds, string message)
-        : base(message)
-    {
-        RetryAfterSeconds = retryAfterSeconds;
-        RetryAfterTime = DateTime.Now.AddSeconds(retryAfterSeconds);
+        LockoutUntil = lockoutUntil;
     }
 }

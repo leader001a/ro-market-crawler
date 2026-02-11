@@ -556,7 +556,7 @@ public class CostumeTabController : BaseTabController
         }
         catch (RateLimitException rateLimitEx)
         {
-            _lblCrawlStatus.Text = $"API 제한: {rateLimitEx.RemainingTimeText}";
+            _lblCrawlStatus.Text = $"API 제한: {rateLimitEx.UnlockTimeText} 이후 이용 가능";
             _lblCrawlStatus.ForeColor = _colors.SaleColor;
 
             // Save partial results with resume info
@@ -564,7 +564,7 @@ public class CostumeTabController : BaseTabController
 
             MessageBox.Show(
                 $"GNJOY API 요청 제한이 적용되었습니다.\n\n" +
-                $"제한 해제까지: {rateLimitEx.RemainingTimeText}\n" +
+                $"이용 가능 시간: {rateLimitEx.UnlockTimeText}\n" +
                 $"수집 진행: {currentPage - 1}페이지, {allItems.Count}건\n\n" +
                 $"다음 수집 시 이어서 진행할 수 있습니다.",
                 "API 요청 제한",

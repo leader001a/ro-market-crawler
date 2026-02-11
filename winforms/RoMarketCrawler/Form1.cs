@@ -69,6 +69,7 @@ public partial class Form1 : Form
     private bool _isSoundMuted = false;
     private AlarmSoundType _selectedAlarmSound = AlarmSoundType.SystemSound;
     private int _alarmIntervalSeconds = 5;
+    private DateTime? _apiLockoutUntil;
 
     #endregion
 
@@ -439,10 +440,13 @@ public partial class Form1 : Form
     {
         _rateLimitTimer = new System.Windows.Forms.Timer
         {
-            Interval = 1000
+            Interval = 30000  // Check every 30 seconds (no countdown needed)
         };
         _rateLimitTimer.Tick += RateLimitTimer_Tick;
         _rateLimitTimer.Start();
+
+        // Immediate check on startup (don't wait 30s for persisted lockout)
+        RateLimitTimer_Tick(null, EventArgs.Empty);
     }
 
     #region Tab Switching
@@ -552,7 +556,8 @@ public partial class Form1 : Form
             {
                 _isRateLimitUIActive = false;
                 SetRateLimitUIState(false);
-                GnjoyClient.ClearRateLimit();  // Clear any stale rate limit
+                GnjoyClient.ClearRateLimit();
+                ClearPersistedLockout();
                 Debug.WriteLine("[Form1] Rate limit UI deactivated (WebView2 mode)");
             }
             return;
@@ -564,23 +569,20 @@ public partial class Form1 : Form
         {
             _isRateLimitUIActive = true;
             SetRateLimitUIState(true);
-            Debug.WriteLine("[Form1] Rate limit UI activated");
-        }
-        else if (isRateLimited && _isRateLimitUIActive)
-        {
-            UpdateRateLimitStatusDisplay();
+            PersistLockout();
+            Debug.WriteLine("[Form1] Rate limit UI activated (24h lockout)");
         }
         else if (!isRateLimited && _isRateLimitUIActive)
         {
             _isRateLimitUIActive = false;
             SetRateLimitUIState(false);
-            Debug.WriteLine("[Form1] Rate limit UI deactivated");
+            ClearPersistedLockout();
+            Debug.WriteLine("[Form1] Rate limit UI deactivated (lockout expired)");
         }
     }
 
     private void SetRateLimitUIState(bool isRateLimited)
     {
-        // Apply rate limit state to the currently active tab only
         switch (_tabControl.SelectedIndex)
         {
             case 0:
@@ -599,12 +601,10 @@ public partial class Form1 : Form
 
     private void UpdateRateLimitStatusDisplay()
     {
-        var remainingSeconds = GnjoyClient.RemainingRateLimitSeconds;
-        var minutes = remainingSeconds / 60;
-        var seconds = remainingSeconds % 60;
+        var rateLimitedUntil = GnjoyClient.RateLimitedUntil;
+        if (!rateLimitedUntil.HasValue) return;
 
-        string timeText = minutes > 0 ? $"{minutes}분 {seconds}초" : $"{seconds}초";
-        var statusMessage = $"API 요청 제한 중 - {timeText} 후 재시도 가능";
+        var statusMessage = $"API 요청이 제한되었습니다. {rateLimitedUntil.Value:yyyy-MM-dd HH:mm} 이후 이용 가능합니다.";
 
         switch (_tabControl.SelectedIndex)
         {
@@ -615,6 +615,20 @@ public partial class Form1 : Form
                 _monitorTabController.UpdateRateLimitStatus(statusMessage);
                 break;
         }
+    }
+
+    private void PersistLockout()
+    {
+        _apiLockoutUntil = GnjoyClient.RateLimitedUntil;
+        SaveSettings();
+        Debug.WriteLine($"[Form1] Lockout persisted until {_apiLockoutUntil:yyyy-MM-dd HH:mm}");
+    }
+
+    private void ClearPersistedLockout()
+    {
+        _apiLockoutUntil = null;
+        SaveSettings();
+        Debug.WriteLine("[Form1] Persisted lockout cleared");
     }
 
     #endregion
@@ -1065,7 +1079,23 @@ public partial class Form1 : Form
                     _selectedAlarmSound = settings.AlarmSound;
                     _alarmIntervalSeconds = settings.AlarmIntervalSeconds;
                     _dealSearchHistory = settings.DealSearchHistory ?? new List<string>();
+                    _apiLockoutUntil = settings.ApiLockoutUntil;
                     Debug.WriteLine($"[Form1] LoadSettings: Loaded {_dealSearchHistory.Count} search history items");
+
+                    // Restore rate limit lockout from persisted state
+                    if (_apiLockoutUntil.HasValue)
+                    {
+                        if (_apiLockoutUntil.Value > DateTime.Now)
+                        {
+                            GnjoyClient.SharedRateLimitManager.SetRateLimitUntil(_apiLockoutUntil.Value);
+                            Debug.WriteLine($"[Form1] Restored lockout until {_apiLockoutUntil.Value:yyyy-MM-dd HH:mm}");
+                        }
+                        else
+                        {
+                            _apiLockoutUntil = null;
+                            Debug.WriteLine("[Form1] Stored lockout expired, cleared");
+                        }
+                    }
                 }
             }
         }
@@ -1086,7 +1116,8 @@ public partial class Form1 : Form
                 IsSoundMuted = _isSoundMuted,
                 AlarmSound = _selectedAlarmSound,
                 AlarmIntervalSeconds = _alarmIntervalSeconds,
-                DealSearchHistory = _dealSearchHistory
+                DealSearchHistory = _dealSearchHistory,
+                ApiLockoutUntil = _apiLockoutUntil
             };
             var json = System.Text.Json.JsonSerializer.Serialize(settings);
             File.WriteAllText(_settingsFilePath, json);
