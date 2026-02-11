@@ -150,6 +150,12 @@ public partial class Form1 : Form
             ShowItemDetailForm(dealItem);
         };
 
+        // CostumeTabController events
+        _costumeTabController.ShowItemDetail += (s, dealItem) =>
+        {
+            ShowItemDetailForm(dealItem);
+        };
+
         // MonitorTabController events
         _monitorTabController.SettingsChanged += (s, e) =>
         {

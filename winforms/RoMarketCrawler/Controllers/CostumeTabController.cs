@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using RoMarketCrawler.Controls;
 using RoMarketCrawler.Exceptions;
 using RoMarketCrawler.Helpers;
 using RoMarketCrawler.Interfaces;
@@ -27,6 +28,7 @@ public class CostumeTabController : BaseTabController
 
     private readonly IGnjoyClient _gnjoyClient;
     private readonly CrawlDataService _crawlDataService;
+    private readonly IItemIndexService _itemIndexService;
 
     #endregion
 
@@ -57,6 +59,43 @@ public class CostumeTabController : BaseTabController
 
     #endregion
 
+    #region Events
+
+    /// <summary>
+    /// Raised when an item detail form needs to be shown
+    /// </summary>
+    public event EventHandler<DealItem>? ShowItemDetail;
+
+    #endregion
+
+    #region Link Hit Areas
+
+    private readonly Dictionary<(int row, int col), List<(Rectangle rect, string itemName)>> _linkHitAreas = new();
+    private string? _hoveredLinkItem = null;
+    private (int row, int col) _hoveredLinkKey;
+
+    #endregion
+
+    #region Pagination
+
+    private List<DealItem> _allFilteredResults = new();
+    private int _currentPage = 1;
+    private int _totalCount = 0;
+    private int _totalPages = 0;
+    private const int PageSize = 50;
+    private const int MaxVisiblePages = 10;
+
+    private FlowLayoutPanel _pnlPagination = null!;
+    private RoundedButton _btnFirst = null!;
+    private RoundedButton _btnPrev10 = null!;
+    private RoundedButton _btnPrev = null!;
+    private RoundedButton _btnNext = null!;
+    private RoundedButton _btnNext10 = null!;
+    private RoundedButton _btnLast = null!;
+    private Label _lblPageInfo = null!;
+
+    #endregion
+
     #region State
 
     private CancellationTokenSource? _crawlCts;
@@ -80,6 +119,7 @@ public class CostumeTabController : BaseTabController
     {
         _gnjoyClient = GetService<IGnjoyClient>();
         _crawlDataService = GetService<CrawlDataService>();
+        _itemIndexService = GetService<IItemIndexService>();
         _resultBindingSource = new BindingSource { DataSource = _searchResults };
     }
 
@@ -96,22 +136,25 @@ public class CostumeTabController : BaseTabController
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 3,
+            RowCount = 4,
             Padding = new Padding(5)
         };
         _mainPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, Math.Max((int)(32 * scale), 28)));   // Row 0: Toolbar
         _mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));                                // Row 1: Grid
-        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, Math.Max((int)(26 * scale), 22)));   // Row 2: Status
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, (int)(55 * scale)));                 // Row 2: Pagination
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, Math.Max((int)(26 * scale), 22)));   // Row 3: Status
 
         _toolStrip = CreateToolStrip();
         _dgvResults = CreateResultsGrid();
+        var paginationPanel = CreatePaginationPanel();
         _lblStatus = CreateStatusLabel();
         _lblStatus.Text = "서버를 선택하고 데이터 수집을 시작하세요.";
 
         _mainPanel.Controls.Add(_toolStrip, 0, 0);
         _mainPanel.Controls.Add(_dgvResults, 0, 1);
-        _mainPanel.Controls.Add(_lblStatus, 0, 2);
+        _mainPanel.Controls.Add(paginationPanel, 0, 2);
+        _mainPanel.Controls.Add(_lblStatus, 0, 3);
 
         _tabPage.Controls.Add(_mainPanel);
     }
@@ -271,14 +314,45 @@ public class CostumeTabController : BaseTabController
             AllowUserToAddRows = false,
             AllowUserToDeleteRows = false,
             AllowUserToResizeRows = false,
-            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-            MultiSelect = false,
+            SelectionMode = DataGridViewSelectionMode.CellSelect,
+            MultiSelect = true,
             RowHeadersVisible = false,
             AutoGenerateColumns = false,
             AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCells,
             DataSource = _resultBindingSource
         };
         ApplyDataGridViewStyle(dgv);
+
+        dgv.CellPainting += DgvResults_CellPainting;
+        dgv.CellFormatting += DgvResults_CellFormatting;
+        dgv.CellDoubleClick += DgvResults_CellDoubleClick;
+        dgv.CellMouseClick += DgvResults_CellMouseClick;
+        dgv.CellMouseMove += DgvResults_CellMouseMove;
+        dgv.CellMouseLeave += (s, e) =>
+        {
+            if (_hoveredLinkItem != null)
+            {
+                _hoveredLinkItem = null;
+                dgv.Cursor = Cursors.Default;
+            }
+        };
+        dgv.CellMouseDown += (s, e) =>
+        {
+            if (e.Button == MouseButtons.Left && e.RowIndex >= 0 && e.ColumnIndex >= 0)
+            {
+                var colName = dgv.Columns[e.ColumnIndex].Name;
+                if (colName == "SlotAndOptionsDisplay")
+                {
+                    dgv.BeginInvoke(new Action(() =>
+                    {
+                        if (e.RowIndex < dgv.Rows.Count && e.ColumnIndex < dgv.Columns.Count)
+                        {
+                            dgv.Rows[e.RowIndex].Cells[e.ColumnIndex].Selected = false;
+                        }
+                    }));
+                }
+            }
+        };
 
         SetupGridColumns(dgv);
         return dgv;
@@ -359,6 +433,506 @@ public class CostumeTabController : BaseTabController
             }
         });
     }
+
+    #region Grid Events
+
+    private void DgvResults_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
+    {
+        if (e.CellStyle == null || e.RowIndex < 0) return;
+
+        var columnName = _dgvResults.Columns[e.ColumnIndex].Name;
+
+        if (columnName == "DealTypeDisplay" && e.Value != null)
+        {
+            var value = e.Value.ToString();
+            if (value == "판매")
+                e.CellStyle.ForeColor = _colors.SaleColor;
+            else if (value == "구매")
+                e.CellStyle.ForeColor = _colors.BuyColor;
+        }
+    }
+
+    private void DgvResults_CellDoubleClick(object? sender, DataGridViewCellEventArgs e)
+    {
+        if (e.RowIndex < 0) return;
+
+        if (e.RowIndex >= _searchResults.Count) return;
+
+        var selectedItem = _searchResults[e.RowIndex];
+        Debug.WriteLine($"[CostumeTab] Opening detail for: {selectedItem.DisplayName}");
+
+        ShowItemDetail?.Invoke(this, selectedItem);
+    }
+
+    private void DgvResults_CellPainting(object? sender, DataGridViewCellPaintingEventArgs e)
+    {
+        if (e.Graphics == null) return;
+
+        // Header painting
+        if (e.RowIndex == -1 && e.ColumnIndex >= 0)
+        {
+            e.PaintBackground(e.ClipBounds, true);
+            TextRenderer.DrawText(
+                e.Graphics,
+                e.FormattedValue?.ToString() ?? "",
+                e.CellStyle?.Font ?? _dgvResults.Font,
+                e.CellBounds,
+                e.CellStyle?.ForeColor ?? _colors.Text,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter
+            );
+            e.Handled = true;
+            return;
+        }
+
+        // SlotAndOptionsDisplay column - draw links for SlotInfo, plain text for RandomOptions
+        if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
+        {
+            var columnName = _dgvResults.Columns[e.ColumnIndex].Name;
+            if (columnName == "SlotAndOptionsDisplay")
+            {
+                if (e.RowIndex >= _searchResults.Count) return;
+
+                var dealItem = _searchResults[e.RowIndex];
+                var slotItems = dealItem.SlotInfo ?? new List<string>();
+                var randomOptions = dealItem.RandomOptions ?? new List<string>();
+
+                if (slotItems.Count == 0 && randomOptions.Count == 0) return;
+
+                e.PaintBackground(e.ClipBounds, true);
+
+                var font = e.CellStyle?.Font ?? _dgvResults.DefaultCellStyle.Font ?? _dgvResults.Font;
+                var linkFont = new Font(font, FontStyle.Underline);
+                var padding = e.CellStyle?.Padding ?? new Padding(2);
+                var x = e.CellBounds.X + padding.Left + 3;
+                var y = e.CellBounds.Y + padding.Top + 2;
+
+                var hitAreas = new List<(Rectangle rect, string itemName)>();
+                var key = (e.RowIndex, e.ColumnIndex);
+
+                var lineHeight = TextRenderer.MeasureText(e.Graphics, "Test", font).Height;
+
+                // Draw SlotInfo items as links
+                foreach (var item in slotItems)
+                {
+                    var textSize = TextRenderer.MeasureText(e.Graphics, item, linkFont);
+                    var textRect = new Rectangle(x, y, textSize.Width, textSize.Height);
+
+                    var isHovered = _hoveredLinkItem == item && key == _hoveredLinkKey;
+                    var linkColor = isHovered ? _colors.Accent : _colors.LinkColor;
+
+                    TextRenderer.DrawText(e.Graphics, item, linkFont, textRect, linkColor, TextFormatFlags.Left);
+
+                    hitAreas.Add((textRect, item));
+                    y += lineHeight + 1;
+                }
+
+                // Draw RandomOptions as plain text
+                foreach (var option in randomOptions)
+                {
+                    var textSize = TextRenderer.MeasureText(e.Graphics, option, font);
+                    var textRect = new Rectangle(x, y, textSize.Width, textSize.Height);
+                    TextRenderer.DrawText(e.Graphics, option, font, textRect, _colors.TextMuted, TextFormatFlags.Left);
+
+                    y += lineHeight + 1;
+                }
+
+                _linkHitAreas[key] = hitAreas;
+
+                linkFont.Dispose();
+                e.Handled = true;
+            }
+        }
+    }
+
+    private void DgvResults_CellMouseMove(object? sender, DataGridViewCellMouseEventArgs e)
+    {
+        if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
+
+        var columnName = _dgvResults.Columns[e.ColumnIndex].Name;
+        if (columnName != "SlotAndOptionsDisplay")
+        {
+            if (_hoveredLinkItem != null)
+            {
+                _hoveredLinkItem = null;
+                _dgvResults.Cursor = Cursors.Default;
+                _dgvResults.InvalidateCell(e.ColumnIndex, e.RowIndex);
+            }
+            return;
+        }
+
+        var key = (e.RowIndex, e.ColumnIndex);
+        if (!_linkHitAreas.TryGetValue(key, out var hitAreas)) return;
+
+        var cellRect = _dgvResults.GetCellDisplayRectangle(e.ColumnIndex, e.RowIndex, true);
+        var mousePos = new Point(cellRect.X + e.X, cellRect.Y + e.Y);
+
+        string? hoveredItem = null;
+        foreach (var (rect, itemName) in hitAreas)
+        {
+            if (rect.Contains(mousePos))
+            {
+                hoveredItem = itemName;
+                break;
+            }
+        }
+
+        if (hoveredItem != _hoveredLinkItem)
+        {
+            _hoveredLinkItem = hoveredItem;
+            _hoveredLinkKey = key;
+            _dgvResults.Cursor = hoveredItem != null ? Cursors.Hand : Cursors.Default;
+            _dgvResults.InvalidateCell(e.ColumnIndex, e.RowIndex);
+        }
+    }
+
+    private void DgvResults_CellMouseClick(object? sender, DataGridViewCellMouseEventArgs e)
+    {
+        if (e.RowIndex < 0 || e.Button != MouseButtons.Left) return;
+
+        var columnName = _dgvResults.Columns[e.ColumnIndex].Name;
+        if (columnName != "SlotAndOptionsDisplay") return;
+
+        if (_dgvResults.Rows[e.RowIndex].Cells[e.ColumnIndex].Selected)
+        {
+            _dgvResults.Rows[e.RowIndex].Cells[e.ColumnIndex].Selected = false;
+        }
+
+        var key = (e.RowIndex, e.ColumnIndex);
+        if (!_linkHitAreas.TryGetValue(key, out var hitAreas)) return;
+
+        var cellRect = _dgvResults.GetCellDisplayRectangle(e.ColumnIndex, e.RowIndex, true);
+        var mousePos = new Point(cellRect.X + e.X, cellRect.Y + e.Y);
+
+        foreach (var (rect, itemName) in hitAreas)
+        {
+            if (rect.Contains(mousePos))
+            {
+                ShowItemInfoByName(itemName);
+                break;
+            }
+        }
+    }
+
+    private void ShowItemInfoByName(string itemName)
+    {
+        Debug.WriteLine($"[CostumeTab] Looking up item: {itemName}");
+
+        var foundItem = _itemIndexService.SearchItems(itemName, new HashSet<int> { 999 }, 0, 1, false).FirstOrDefault();
+
+        if (foundItem != null)
+        {
+            var parentForm = _tabPage.FindForm();
+            if (parentForm != null)
+            {
+                var indexService = _itemIndexService as ItemIndexService;
+                var infoForm = new ItemInfoForm(foundItem, indexService, _currentTheme, _baseFontSize);
+                infoForm.Show(parentForm);
+            }
+        }
+        else
+        {
+            MessageBox.Show($"'{itemName}' 아이템을 찾을 수 없습니다.\n\n아이템 정보 수집(도구 > 아이템정보 수집)을 먼저 실행해 주세요.",
+                "아이템 검색", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+    }
+
+    #endregion
+
+    #region Pagination
+
+    private FlowLayoutPanel CreatePaginationPanel()
+    {
+        _pnlPagination = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = _colors.Panel,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            AutoSize = false,
+            Padding = new Padding(0, 8, 0, 0)
+        };
+
+        _btnFirst = new RoundedButton
+        {
+            Text = "<<",
+            Size = new Size(36, 28),
+            CornerRadius = 6,
+            Enabled = false,
+            Margin = new Padding(0, 0, 2, 0),
+            Tag = "NavButton"
+        };
+        ApplyRoundedButtonStyle(_btnFirst, false);
+        _btnFirst.Click += (s, e) => GoToPage(1);
+
+        _btnPrev10 = new RoundedButton
+        {
+            Text = "-10",
+            Size = new Size(40, 28),
+            CornerRadius = 6,
+            Enabled = false,
+            Margin = new Padding(0, 0, 2, 0),
+            Tag = "NavButton"
+        };
+        ApplyRoundedButtonStyle(_btnPrev10, false);
+        _btnPrev10.Click += (s, e) => GoToPage(_currentPage - 10);
+
+        _btnPrev = new RoundedButton
+        {
+            Text = "<",
+            Size = new Size(32, 28),
+            CornerRadius = 6,
+            Enabled = false,
+            Margin = new Padding(0, 0, 5, 0),
+            Tag = "NavButton"
+        };
+        ApplyRoundedButtonStyle(_btnPrev, false);
+        _btnPrev.Click += (s, e) => PreviousPage();
+
+        _btnNext = new RoundedButton
+        {
+            Text = ">",
+            Size = new Size(32, 28),
+            CornerRadius = 6,
+            Enabled = false,
+            Margin = new Padding(5, 0, 0, 0),
+            Tag = "NavButton"
+        };
+        ApplyRoundedButtonStyle(_btnNext, false);
+        _btnNext.Click += (s, e) => NextPage();
+
+        _btnNext10 = new RoundedButton
+        {
+            Text = "+10",
+            Size = new Size(40, 28),
+            CornerRadius = 6,
+            Enabled = false,
+            Margin = new Padding(2, 0, 0, 0),
+            Tag = "NavButton"
+        };
+        ApplyRoundedButtonStyle(_btnNext10, false);
+        _btnNext10.Click += (s, e) => GoToPage(_currentPage + 10);
+
+        _btnLast = new RoundedButton
+        {
+            Text = ">>",
+            Size = new Size(36, 28),
+            CornerRadius = 6,
+            Enabled = false,
+            Margin = new Padding(2, 0, 10, 0),
+            Tag = "NavButton"
+        };
+        ApplyRoundedButtonStyle(_btnLast, false);
+        _btnLast.Click += (s, e) => GoToPage(_totalPages);
+
+        _lblPageInfo = new Label
+        {
+            Text = "",
+            AutoSize = true,
+            ForeColor = _colors.TextMuted,
+            TextAlign = ContentAlignment.MiddleCenter,
+            Padding = new Padding(5, 5, 0, 0)
+        };
+
+        _pnlPagination.Controls.Add(_btnFirst);
+        _pnlPagination.Controls.Add(_btnPrev10);
+        _pnlPagination.Controls.Add(_btnPrev);
+        // Page number buttons will be added dynamically
+        _pnlPagination.Controls.Add(_btnNext);
+        _pnlPagination.Controls.Add(_btnNext10);
+        _pnlPagination.Controls.Add(_btnLast);
+        _pnlPagination.Controls.Add(_lblPageInfo);
+
+        _pnlPagination.Resize += (s, e) => CenterPaginationPanel();
+
+        return _pnlPagination;
+    }
+
+    private void ApplyRoundedButtonStyle(RoundedButton button, bool isPrimary)
+    {
+        if (_currentTheme == ThemeType.Dark)
+        {
+            if (isPrimary)
+            {
+                button.ApplyPrimaryStyle(
+                    _colors.Accent,
+                    _colors.AccentHover,
+                    ControlPaint.Dark(_colors.Accent, 0.1f),
+                    _colors.AccentText);
+            }
+            else
+            {
+                button.ApplySecondaryStyle(
+                    _colors.Panel,
+                    _colors.GridAlt,
+                    ControlPaint.Dark(_colors.Panel, 0.1f),
+                    _colors.Text,
+                    _colors.Border);
+            }
+        }
+        else
+        {
+            button.ApplySecondaryStyle(
+                SystemColors.Control,
+                SystemColors.ControlLight,
+                SystemColors.ControlDark,
+                SystemColors.ControlText,
+                SystemColors.ControlDark);
+        }
+    }
+
+    private void GoToPage(int page)
+    {
+        if (page >= 1 && page <= _totalPages && page != _currentPage)
+        {
+            _currentPage = page;
+            DisplayCurrentPage();
+        }
+    }
+
+    private void NextPage()
+    {
+        if (_currentPage < _totalPages)
+        {
+            _currentPage++;
+            DisplayCurrentPage();
+        }
+    }
+
+    private void PreviousPage()
+    {
+        if (_currentPage > 1)
+        {
+            _currentPage--;
+            DisplayCurrentPage();
+        }
+    }
+
+    private void DisplayCurrentPage()
+    {
+        var skip = (_currentPage - 1) * PageSize;
+        var pageItems = _allFilteredResults.Skip(skip).Take(PageSize).ToList();
+
+        _searchResults.Clear();
+        _searchResults.AddRange(pageItems);
+        _resultBindingSource.DataSource = null;
+        _resultBindingSource.DataSource = _searchResults;
+        _dgvResults.Refresh();
+        _linkHitAreas.Clear();
+
+        UpdatePaginationUI();
+
+        _lblStatus.Text = _totalCount > 0
+            ? $"검색 결과: {_totalCount}건 중 {_currentPage}/{_totalPages}페이지" +
+              $"  |  {_currentSession!.ServerName}, {_currentSession.CrawledAt:yyyy-MM-dd HH:mm} 수집"
+            : "검색 결과가 없습니다.";
+    }
+
+    private void UpdatePaginationUI()
+    {
+        _lblPageInfo.Text = _totalCount > 0
+            ? $"{_currentPage}/{_totalPages} ({_totalCount:N0}건)"
+            : "";
+
+        var canGoPrev = _currentPage > 1;
+        var canGoNext = _currentPage < _totalPages;
+
+        _btnFirst.Enabled = canGoPrev;
+        _btnPrev10.Enabled = _currentPage > 10;
+        _btnPrev.Enabled = canGoPrev;
+
+        _btnNext.Enabled = canGoNext;
+        _btnNext10.Enabled = _currentPage + 10 <= _totalPages;
+        _btnLast.Enabled = canGoNext;
+
+        RebuildPageNumberButtons();
+        CenterPaginationPanel();
+    }
+
+    private void RebuildPageNumberButtons()
+    {
+        var toRemove = _pnlPagination.Controls.Cast<Control>()
+            .Where(c => c.Tag is string s && s == "PageButton")
+            .ToList();
+        foreach (var ctrl in toRemove)
+        {
+            _pnlPagination.Controls.Remove(ctrl);
+            ctrl.Dispose();
+        }
+
+        if (_totalPages <= 0) return;
+
+        int startPage, endPage;
+        if (_totalPages <= MaxVisiblePages)
+        {
+            startPage = 1;
+            endPage = _totalPages;
+        }
+        else
+        {
+            int half = MaxVisiblePages / 2;
+            startPage = Math.Max(1, _currentPage - half);
+            endPage = startPage + MaxVisiblePages - 1;
+
+            if (endPage > _totalPages)
+            {
+                endPage = _totalPages;
+                startPage = Math.Max(1, endPage - MaxVisiblePages + 1);
+            }
+        }
+
+        int insertIndex = _pnlPagination.Controls.IndexOf(_btnPrev) + 1;
+
+        var scale = _baseFontSize / 12f;
+        var btnHeight = (int)(28 * scale);
+
+        for (int page = startPage; page <= endPage; page++)
+        {
+            var pageNum = page;
+            var isCurrentPage = page == _currentPage;
+
+            var digitCount = page.ToString().Length;
+            var btnWidth = (int)((24 + (digitCount * 8)) * scale);
+
+            var btn = new RoundedButton
+            {
+                Text = page.ToString(),
+                Size = new Size(btnWidth, btnHeight),
+                CornerRadius = 6,
+                Tag = "PageButton",
+                Margin = new Padding(2, 0, 2, 0)
+            };
+
+            if (isCurrentPage)
+            {
+                ApplyRoundedButtonStyle(btn, true);
+                btn.Enabled = false;
+            }
+            else
+            {
+                ApplyRoundedButtonStyle(btn, false);
+                btn.Click += (s, e) => GoToPage(pageNum);
+            }
+
+            _pnlPagination.Controls.Add(btn);
+            _pnlPagination.Controls.SetChildIndex(btn, insertIndex++);
+        }
+    }
+
+    private void CenterPaginationPanel()
+    {
+        if (_pnlPagination == null) return;
+
+        int totalWidth = 0;
+        foreach (Control ctrl in _pnlPagination.Controls)
+        {
+            totalWidth += ctrl.Width + ctrl.Margin.Horizontal;
+        }
+
+        var leftPadding = Math.Max(0, (_pnlPagination.Width - totalWidth) / 2);
+        _pnlPagination.Padding = new Padding(leftPadding, _pnlPagination.Padding.Top, 0, 0);
+    }
+
+    #endregion
 
     #region Crawling
 
@@ -755,15 +1329,13 @@ public class CostumeTabController : BaseTabController
             results = _crawlDataService.Search(_currentSession, filter);
         }
 
-        // Update grid
-        _searchResults.Clear();
-        _searchResults.AddRange(results);
-        _resultBindingSource.DataSource = null;
-        _resultBindingSource.DataSource = _searchResults;
-        _dgvResults.Refresh();
-
-        _lblStatus.Text = $"검색 결과: {results.Count}건 / 전체 {_currentSession.TotalItems}건" +
-            $"  |  {_currentSession.ServerName}, {_currentSession.CrawledAt:yyyy-MM-dd HH:mm} 수집";
+        // Store all results for pagination
+        _allFilteredResults.Clear();
+        _allFilteredResults.AddRange(results);
+        _totalCount = _allFilteredResults.Count;
+        _totalPages = (int)Math.Ceiling((double)_totalCount / PageSize);
+        _currentPage = 1;
+        DisplayCurrentPage();
     }
 
     #endregion
@@ -883,6 +1455,19 @@ public class CostumeTabController : BaseTabController
             _lblStatus.BackColor = colors.Panel;
             _lblStatus.ForeColor = colors.Text;
         }
+
+        // Pagination
+        if (_pnlPagination != null)
+        {
+            _pnlPagination.BackColor = colors.Panel;
+        }
+        if (_btnFirst != null) ApplyRoundedButtonStyle(_btnFirst, false);
+        if (_btnPrev10 != null) ApplyRoundedButtonStyle(_btnPrev10, false);
+        if (_btnPrev != null) ApplyRoundedButtonStyle(_btnPrev, false);
+        if (_btnNext != null) ApplyRoundedButtonStyle(_btnNext, false);
+        if (_btnNext10 != null) ApplyRoundedButtonStyle(_btnNext10, false);
+        if (_btnLast != null) ApplyRoundedButtonStyle(_btnLast, false);
+        if (_lblPageInfo != null) _lblPageInfo.ForeColor = colors.TextMuted;
     }
 
     public override void UpdateFontSize(float baseFontSize)
@@ -915,11 +1500,32 @@ public class CostumeTabController : BaseTabController
         if (_txtFilterMinPrice != null) _txtFilterMinPrice.Width = (int)(70 * scale);
         if (_txtFilterMaxPrice != null) _txtFilterMaxPrice.Width = (int)(70 * scale);
 
+        // Pagination controls
+        var btnHeight = (int)(28 * scale);
+        if (_btnFirst != null) _btnFirst.Size = new Size((int)(36 * scale), btnHeight);
+        if (_btnPrev10 != null) _btnPrev10.Size = new Size((int)(40 * scale), btnHeight);
+        if (_btnPrev != null) _btnPrev.Size = new Size((int)(32 * scale), btnHeight);
+        if (_btnNext != null) _btnNext.Size = new Size((int)(32 * scale), btnHeight);
+        if (_btnNext10 != null) _btnNext10.Size = new Size((int)(40 * scale), btnHeight);
+        if (_btnLast != null) _btnLast.Size = new Size((int)(36 * scale), btnHeight);
+        if (_lblPageInfo != null)
+        {
+            _lblPageInfo.Font = font;
+            _lblPageInfo.Padding = new Padding((int)(10 * scale), (int)(5 * scale), (int)(10 * scale), 0);
+        }
+        if (_pnlPagination != null)
+        {
+            var paddingTop = (int)(10 * scale);
+            CenterPaginationPanel();
+            _pnlPagination.Padding = new Padding(_pnlPagination.Padding.Left, paddingTop, 0, 0);
+        }
+
         // Row heights
-        if (_mainPanel != null && _mainPanel.RowStyles.Count >= 3)
+        if (_mainPanel != null && _mainPanel.RowStyles.Count >= 4)
         {
             _mainPanel.RowStyles[0].Height = Math.Max((int)(32 * scale), 28);  // Toolbar
-            _mainPanel.RowStyles[2].Height = Math.Max((int)(26 * scale), 22);  // Status
+            _mainPanel.RowStyles[2].Height = (int)(55 * scale);                // Pagination
+            _mainPanel.RowStyles[3].Height = Math.Max((int)(26 * scale), 22);  // Status
         }
     }
 
