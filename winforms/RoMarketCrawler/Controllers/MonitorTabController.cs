@@ -89,8 +89,6 @@ public class MonitorTabController : BaseTabController
     // Track auto-refresh state before rate limit pause
     private bool _wasAutoRefreshRunningBeforeRateLimit = false;
 
-    // Track auto-refresh state before tab switch
-    private bool _wasAutoRefreshRunningBeforeTabSwitch = false;
 
     // Dropdown panel hosts for font size updates
     private ToolStripControlHost? _autoRefreshHost;
@@ -2421,18 +2419,6 @@ public class MonitorTabController : BaseTabController
         UpdateMonitorResults();
         UpdateItemStatusColumn();
 
-        // Resume auto-refresh if it was paused by tab switch
-        if (_wasAutoRefreshRunningBeforeTabSwitch)
-        {
-            _wasAutoRefreshRunningBeforeTabSwitch = false;
-            var interval = _monitoringService.Config.RefreshIntervalSeconds;
-            if (interval > 0)
-            {
-                StartMonitorTimer(interval);
-                UpdateMonitorRefreshLabel();
-                Debug.WriteLine("[MonitorTabController] Auto-refresh resumed after tab switch");
-            }
-        }
     }
 
     /// <inheritdoc/>
@@ -2443,15 +2429,14 @@ public class MonitorTabController : BaseTabController
     {
         base.OnDeactivated();
 
-        // Pause auto-refresh timer (keep config so it can resume on return)
+        // Stop auto-refresh completely
         if (_monitorTimer != null && _monitorTimer.Enabled)
         {
-            _wasAutoRefreshRunningBeforeTabSwitch = true;
             StopMonitorTimer();
-            _lblAutoRefreshStatus.Text = "[일시정지]";
-            _lblAutoRefreshStatus.ForeColor = _colors.TextMuted;
-            Debug.WriteLine("[MonitorTabController] Auto-refresh paused for tab switch");
-            return "모니터링 자동 갱신이 일시정지되었습니다.";
+            _monitoringService.Config.RefreshIntervalSeconds = 0;
+            UpdateMonitorRefreshLabel();
+            Debug.WriteLine("[MonitorTabController] Auto-refresh stopped for tab switch");
+            return "모니터링 자동 갱신이 중지되었습니다.";
         }
 
         return null;

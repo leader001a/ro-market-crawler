@@ -49,6 +49,8 @@ public partial class Form1 : Form
     private ToolStripStatusLabel _lblCreator = null!;
     private ToolStripStatusLabel _lblTabNotification = null!;
     private System.Windows.Forms.Timer _notificationTimer = null!;
+    private int _currentTabIndex = 0;
+    private int _lastApiTabIndex = 0; // Last active GNJOY API tab (excludes Item tab)
 
     #endregion
 
@@ -449,25 +451,37 @@ public partial class Form1 : Form
     {
         var selectedIndex = _tabControl.SelectedIndex;
 
-        // Deactivate all tabs and collect stop notifications
-        var notifications = new List<string>();
-        AddNotification(notifications, _dealTabController?.OnDeactivated());
-        AddNotification(notifications, _itemTabController?.OnDeactivated());
-        AddNotification(notifications, _monitorTabController?.OnDeactivated());
-        AddNotification(notifications, _costumeTabController?.OnDeactivated());
-
-        // Activate the selected tab
-        switch (selectedIndex)
+        if (selectedIndex == 1)
         {
-            case 0: _dealTabController?.OnActivated(); break;
-            case 1: _itemTabController?.OnActivated(); break;
-            case 2: _monitorTabController?.OnActivated(); break;
-            case 3: _costumeTabController?.OnActivated(); break;
+            // Moving to Item tab — don't deactivate anything, don't update _lastApiTabIndex
+            _itemTabController?.OnActivated();
+        }
+        else
+        {
+            // Moving to a GNJOY API tab — deactivate the last active API tab
+            if (selectedIndex != _lastApiTabIndex)
+            {
+                var notifications = new List<string>();
+                AddNotification(notifications, _dealTabController?.OnDeactivated());
+                AddNotification(notifications, _monitorTabController?.OnDeactivated());
+                AddNotification(notifications, _costumeTabController?.OnDeactivated());
+
+                if (notifications.Count > 0)
+                    ShowTabSwitchNotification(string.Join(" / ", notifications));
+            }
+
+            // Activate the selected tab
+            switch (selectedIndex)
+            {
+                case 0: _dealTabController?.OnActivated(); break;
+                case 2: _monitorTabController?.OnActivated(); break;
+                case 3: _costumeTabController?.OnActivated(); break;
+            }
+
+            _lastApiTabIndex = selectedIndex;
         }
 
-        // Show notification if any operations were stopped
-        if (notifications.Count > 0)
-            ShowTabSwitchNotification(string.Join(" / ", notifications));
+        _currentTabIndex = selectedIndex;
     }
 
     private static void AddNotification(List<string> list, string? msg)
@@ -477,20 +491,31 @@ public partial class Form1 : Form
 
     private void TabControl_Deselecting(object? sender, TabControlCancelEventArgs e)
     {
-        // e.TabPageIndex = index of the tab being left
-        var currentController = GetTabController(e.TabPageIndex);
-        if (currentController?.HasActiveOperations == true)
+        // Not used — confirmation is handled in Selecting
+    }
+
+    private void TabControl_Selecting(object? sender, TabControlCancelEventArgs e)
+    {
+        // No confirmation needed when moving to Item tab
+        if (e.TabPageIndex == 1) return;
+
+        // No confirmation when returning to the same API tab (e.g. via Item tab pass-through)
+        if (e.TabPageIndex == _lastApiTabIndex) return;
+
+        // Check if last active API tab has active operations
+        var lastApiController = GetTabController(_lastApiTabIndex);
+        if (lastApiController?.HasActiveOperations == true)
         {
-            var message = e.TabPageIndex switch
+            var message = _lastApiTabIndex switch
             {
                 0 => "노점조회 검색이 진행 중입니다.\n탭을 전환하면 검색이 중지됩니다.",
-                2 => "모니터링 자동 갱신이 실행 중입니다.\n탭을 전환하면 자동 갱신이 일시정지됩니다.",
+                2 => "모니터링 자동 갱신이 실행 중입니다.\n탭을 전환하면 자동 갱신이 중지됩니다.",
                 3 => "의상 데이터 수집이 진행 중입니다.\n탭을 전환하면 수집이 중지됩니다.\n(다음에 이어서 수집할 수 있습니다)",
                 _ => "작업이 진행 중입니다.\n탭을 전환하면 작업이 중지됩니다."
             };
 
             var result = MessageBox.Show(
-                message + "\n\n탭을 전환하시겠습니까?",
+                message + "\n(아이템 탭으로는 중지 없이 이동 가능합니다)\n\n탭을 전환하시겠습니까?",
                 "작업 중지 확인",
                 MessageBoxButtons.YesNo, MessageBoxIcon.Question);
 
@@ -500,11 +525,6 @@ public partial class Form1 : Form
                 return;
             }
         }
-    }
-
-    private void TabControl_Selecting(object? sender, TabControlCancelEventArgs e)
-    {
-        // Confirmation is handled in Deselecting
     }
 
     private ITabController? GetTabController(int tabIndex)
