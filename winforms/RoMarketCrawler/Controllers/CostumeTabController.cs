@@ -1538,9 +1538,11 @@ public class CostumeTabController : BaseTabController
         // Always try to load and display data on tab activation
         await TryLoadLatestDataAsync(autoDisplay: true);
 
-        // Resume auto-crawl timer if it was running
+        // Resume auto-crawl: immediately trigger a crawl, then restart the timer
         if (_isAutoCrawling && _autoCrawlTimer != null && !_autoCrawlTimer.Enabled)
         {
+            if (!_isCrawling)
+                _ = RunIncrementalCrawlAsync();
             _autoCrawlTimer.Start();
         }
     }
