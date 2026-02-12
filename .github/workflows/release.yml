@@ -51,47 +51,9 @@ jobs:
         }
       shell: pwsh
 
-    - name: Create Release
+    - name: Upload asset to existing Release
       uses: softprops/action-gh-release@v1
       with:
-        name: Release ${{ steps.get_version.outputs.VERSION }}
-        body: |
-          ## RO Market Crawler ${{ steps.get_version.outputs.VERSION }}
-
-          ### 사용 가능 기간
-          **~${{ steps.expiration.outputs.DATE }}** 까지 사용 가능합니다.
-
-          ### 다운로드
-          아래 `RoMarketCrawler.exe` 파일을 다운로드하세요.
-
-          ---
-
-          ## 주요 변경사항
-
-          ### 신규 기능
-          - (사용자가 이해할 수 있는 설명)
-
-          ### 개선
-          - (사용자가 이해할 수 있는 설명)
-
-          ### 버그 수정
-          - (사용자가 이해할 수 있는 설명)
-
-          > 시스템 내부 변경은 제외합니다. 카테고리는 해당하는 것만 사용하세요.
-
-          ---
-
-          ### 파일 검증 (SHA256)
-          ```
-          ${{ steps.sha256.outputs.HASH }}
-          ```
-
-          PowerShell에서 확인:
-          ```powershell
-          Get-FileHash RoMarketCrawler.exe -Algorithm SHA256
-          ```
         files: ./publish/RoMarketCrawler.exe
-        draft: false
-        prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
