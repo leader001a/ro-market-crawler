@@ -216,7 +216,7 @@ public class PriceQuoteParser
             {
                 foreach (var link in itemLinks)
                 {
-                    var itemName = link.InnerText.Trim();
+                    var itemName = System.Net.WebUtility.HtmlDecode(link.InnerText.Trim());
                     if (!string.IsNullOrEmpty(itemName))
                     {
                         items.Add(itemName);
@@ -311,13 +311,13 @@ public class PriceQuoteParser
                         {
                             // Try to get from span inside link
                             var span = link.SelectSingleNode(".//span");
-                            exactItemName = span?.InnerText.Trim() ?? link.InnerText.Trim();
+                            exactItemName = System.Net.WebUtility.HtmlDecode(span?.InnerText.Trim() ?? link.InnerText.Trim());
                         }
                     }
 
                     if (string.IsNullOrEmpty(exactItemName))
                     {
-                        exactItemName = itemCell.InnerText.Trim();
+                        exactItemName = System.Net.WebUtility.HtmlDecode(itemCell.InnerText.Trim());
                     }
 
                     if (string.IsNullOrEmpty(exactItemName))

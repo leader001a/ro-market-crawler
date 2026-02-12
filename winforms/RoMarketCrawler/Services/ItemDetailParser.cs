@@ -100,12 +100,12 @@ public class ItemDetailParser
                     }
                     else if (headerText.Contains("속성"))
                     {
-                        info.Element = td.InnerText.Trim();
+                        info.Element = System.Net.WebUtility.HtmlDecode(td.InnerText.Trim());
                         Debug.WriteLine($"[ItemDetailParser] Element: '{info.Element}'");
                     }
                     else if (headerText.Contains("제조자") || headerText.Contains("제작자"))
                     {
-                        info.Maker = td.InnerText.Trim();
+                        info.Maker = System.Net.WebUtility.HtmlDecode(td.InnerText.Trim());
                         Debug.WriteLine($"[ItemDetailParser] Maker: '{info.Maker}'");
                     }
                 }
@@ -187,7 +187,7 @@ public class ItemDetailParser
             // Last resort: split by newlines or commas
             if (slots.Count == 0)
             {
-                var text = cell.InnerText.Trim();
+                var text = System.Net.WebUtility.HtmlDecode(cell.InnerText.Trim());
                 var parts = text.Split(new[] { '\n', '\r', ',' }, StringSplitOptions.RemoveEmptyEntries);
                 foreach (var part in parts)
                 {
@@ -250,7 +250,7 @@ public class ItemDetailParser
             // Fallback to splitting text
             if (options.Count == 0)
             {
-                var text = cell.InnerText.Trim();
+                var text = System.Net.WebUtility.HtmlDecode(cell.InnerText.Trim());
                 var parts = text.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
                 foreach (var part in parts)
                 {

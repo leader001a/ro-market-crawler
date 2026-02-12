@@ -257,7 +257,7 @@ public class ItemDealParser
 
             // Shop name and deal type (column 4)
             var shopCell = cells[4];
-            var shopName = shopCell.InnerText.Trim();
+            var shopName = System.Net.WebUtility.HtmlDecode(shopCell.InnerText.Trim());
             string? dealType = null;
             var shopClass = shopCell.GetAttributeValue("class", "");
             Debug.WriteLine($"[ItemDealParser] Shop cell class: '{shopClass}'");
@@ -275,7 +275,7 @@ public class ItemDealParser
             string? mapName = null;
             if (cells.Count > 5)
             {
-                mapName = cells[5].InnerText.Trim();
+                mapName = System.Net.WebUtility.HtmlDecode(cells[5].InnerText.Trim());
                 if (string.IsNullOrEmpty(mapName)) mapName = null;
             }
 
