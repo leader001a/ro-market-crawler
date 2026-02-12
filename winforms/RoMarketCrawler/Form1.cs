@@ -1495,6 +1495,35 @@ gnjoy 사이트에서 요청을 거부하면, 프로그램은 24시간 동안 �
         return base.ProcessCmdKey(ref msg, keyData);
     }
 
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        // Check if any tab has active operations
+        bool hasActive = (_dealTabController?.HasActiveOperations == true)
+            || (_monitorTabController?.HasActiveOperations == true)
+            || (_costumeTabController?.HasActiveOperations == true);
+
+        if (hasActive)
+        {
+            var result = MessageBox.Show(
+                "작업이 진행 중입니다.\n종료하면 수집 중인 데이터가 저장됩니다.\n\n종료하시겠습니까?",
+                "종료 확인",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+
+            if (result == DialogResult.No)
+            {
+                e.Cancel = true;
+                return;
+            }
+        }
+
+        // Gracefully stop operations and wait briefly for partial save
+        _costumeTabController?.RequestGracefulStop();
+        _monitorTabController?.Dispose();
+        _dealTabController?.Dispose();
+
+        base.OnFormClosing(e);
+    }
+
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
         _rateLimitTimer?.Stop();

@@ -195,6 +195,14 @@ public class CostumeTabController : BaseTabController
         _cboServer.ComboBox.DisplayMember = "Name";
         if (_cboServer.Items.Count > 0)
             _cboServer.SelectedIndex = 0;
+        _cboServer.SelectedIndexChanged += async (s, e) =>
+        {
+            if (_isAutoCrawling)
+                StopAutoCrawl();
+            _currentSession = null;
+            _btnSearch.Enabled = false;
+            await TryLoadLatestDataAsync();
+        };
 
         // Auto crawl toggle button
         _btnAutoCrawl = new ToolStripButton
@@ -1082,15 +1090,19 @@ public class CostumeTabController : BaseTabController
             }
         }
 
+        // Load persistent detail cache (survives app restart)
+        var detailCache = _crawlDataService.LoadDetailCache(selectedServer.Id);
+
         _crawlCts = new CancellationTokenSource();
         var ct = _crawlCts.Token;
         SetCrawlingState(true);
 
         var allItems = new List<DealItem>();
-        int newCount = 0, updatedCount = 0, pageItemCount = 0, pageNewCount = 0;
+        int newCount = 0, updatedCount = 0, cacheHitCount = 0, pageItemCount = 0, pageNewCount = 0;
         int currentPage = 1;
         int maxEndPage = CrawlMaxPages;
         int totalCount = 0;
+        bool detailCacheSaved = false;
         var startTime = DateTime.Now;
 
         _crawlProgressBar.Value = 0;
@@ -1111,8 +1123,9 @@ public class CostumeTabController : BaseTabController
                     _crawlProgressBar.Value = Math.Min(progressPercent, 100);
                 }
 
+                var cacheText = cacheHitCount > 0 ? $", 캐시 {cacheHitCount}건" : "";
                 _lblCrawlStatus.Text = $"{modeLabel} {currentPage}/{(maxEndPage < CrawlMaxPages ? maxEndPage.ToString() : "?")} " +
-                    $"수집 중... (신규 {newCount}건, 갱신 {updatedCount}건)";
+                    $"수집 중... (신규 {newCount}건, 갱신 {updatedCount}건{cacheText})";
 
                 // Fetch page listing
                 var result = await _gnjoyClient.SearchItemDealsWithCountAsync(
@@ -1148,30 +1161,45 @@ public class CostumeTabController : BaseTabController
                         }
                         else
                         {
-                            // New item: fetch detail info
+                            // New item: check persistent detail cache first, then fetch from API
+                            bool fetchedFromApi = false;
                             if (item.MapId.HasValue && !string.IsNullOrEmpty(item.Ssi))
                             {
-                                try
+                                if (detailCache.TryGetValue(item.Ssi, out var cachedDetail))
                                 {
-                                    var detail = await _gnjoyClient.FetchItemDetailAsync(
-                                        item.ServerId, item.MapId.Value, item.Ssi, ct);
-                                    if (detail != null)
-                                        item.ApplyDetailInfo(detail);
+                                    // Cache hit: apply without API request
+                                    item.ApplyDetailInfo(cachedDetail);
+                                    cacheHitCount++;
                                 }
-                                catch (OperationCanceledException) { throw; }
-                                catch (Exception ex)
+                                else
                                 {
-                                    Debug.WriteLine($"[CostumeTab] Incremental detail fetch failed: {ex.Message}");
-                                }
+                                    // Cache miss: fetch from API
+                                    try
+                                    {
+                                        var detail = await _gnjoyClient.FetchItemDetailAsync(
+                                            item.ServerId, item.MapId.Value, item.Ssi, ct);
+                                        if (detail != null)
+                                        {
+                                            item.ApplyDetailInfo(detail);
+                                            detailCache[item.Ssi] = detail;
+                                        }
+                                    }
+                                    catch (OperationCanceledException) { throw; }
+                                    catch (Exception ex)
+                                    {
+                                        Debug.WriteLine($"[CostumeTab] Incremental detail fetch failed: {ex.Message}");
+                                    }
 
-                                await Task.Delay(NewItemDetailDelayMs, ct);
+                                    fetchedFromApi = true;
+                                    await Task.Delay(NewItemDetailDelayMs, ct);
+                                }
                             }
 
                             item.CrawledPage = currentPage;
                             item.ComputeFields();
                             allItems.Add(item);
                             newCount++;
-                            pageNewCount++;
+                            if (fetchedFromApi) pageNewCount++; // Only count API requests for adaptive delay
                         }
                     }
                 }
@@ -1224,6 +1252,11 @@ public class CostumeTabController : BaseTabController
             _currentSession = session;
             _btnSearch.Enabled = true;
 
+            // Save detail cache (prune to only current session SSIs)
+            var activeSsis = new HashSet<string>(allItems.Where(i => !string.IsNullOrEmpty(i.Ssi)).Select(i => i.Ssi!));
+            _crawlDataService.SaveDetailCache(selectedServer.Id, detailCache, activeSsis);
+            detailCacheSaved = true;
+
             var totalElapsed = DateTime.Now - startTime;
             var elapsedText = totalElapsed.TotalSeconds >= 60
                 ? $"{(int)totalElapsed.TotalMinutes}분 {(int)totalElapsed.TotalSeconds % 60}초"
@@ -1232,7 +1265,8 @@ public class CostumeTabController : BaseTabController
             _lastCrawlFinishedAt = DateTime.Now;
 
             var removedText = isIncremental && removedCount > 0 ? $", 제거 {removedCount}건" : "";
-            _lblCrawlStatus.Text = $"완료: {allItems.Count}건 (신규 {newCount}건{removedText}, {elapsedText})";
+            var cacheHitText = cacheHitCount > 0 ? $", 캐시 {cacheHitCount}건" : "";
+            _lblCrawlStatus.Text = $"완료: {allItems.Count}건 (신규 {newCount}건{cacheHitText}{removedText}, {elapsedText})";
             UpdateStatusBar();
         }
         catch (OperationCanceledException)
@@ -1275,6 +1309,10 @@ public class CostumeTabController : BaseTabController
         }
         finally
         {
+            // Save detail cache on partial exit (without pruning — don't lose cached entries for un-crawled items)
+            if (!detailCacheSaved && detailCache.Count > 0)
+                _crawlDataService.SaveDetailCache(selectedServer.Id, detailCache);
+
             _crawlProgressBar.Visible = false;
             SetCrawlingState(false);
         }
@@ -1574,6 +1612,24 @@ public class CostumeTabController : BaseTabController
     #endregion
 
     #region Dispose
+
+    /// <summary>
+    /// 종료 전 크롤링을 중지하고 부분 저장이 완료될 때까지 대기
+    /// </summary>
+    public void RequestGracefulStop()
+    {
+        if (!_isCrawling && !_isAutoCrawling) return;
+
+        StopAutoCrawl();
+
+        // Wait briefly for the catch block (MergeRemainingItems + SavePartialSession) to complete
+        var sw = Stopwatch.StartNew();
+        while (_isCrawling && sw.ElapsedMilliseconds < 3000)
+        {
+            Application.DoEvents();
+            Thread.Sleep(50);
+        }
+    }
 
     protected override void Dispose(bool disposing)
     {

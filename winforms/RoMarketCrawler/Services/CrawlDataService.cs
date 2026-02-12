@@ -183,6 +183,70 @@ public class CrawlDataService
         }
     }
 
+    #region Detail Cache
+
+    /// <summary>
+    /// Load SSI-based detail cache for a server.
+    /// File: detail_cache_{serverId}.json  →  Dictionary&lt;ssi, ItemDetailInfo&gt;
+    /// </summary>
+    public Dictionary<string, ItemDetailInfo> LoadDetailCache(int serverId)
+    {
+        try
+        {
+            var filePath = GetDetailCachePath(serverId);
+            if (!File.Exists(filePath)) return new();
+
+            var json = File.ReadAllText(filePath);
+            return JsonSerializer.Deserialize<Dictionary<string, ItemDetailInfo>>(json, _jsonReadOptions)
+                ?? new();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[CrawlDataService] Failed to load detail cache: {ex.Message}");
+            return new();
+        }
+    }
+
+    /// <summary>
+    /// Save SSI-based detail cache for a server.
+    /// Only SSIs present in activeSsis are kept (prune sold/removed items).
+    /// </summary>
+    public void SaveDetailCache(int serverId, Dictionary<string, ItemDetailInfo> cache, HashSet<string>? activeSsis = null)
+    {
+        try
+        {
+            // Prune entries not in current session
+            Dictionary<string, ItemDetailInfo> toSave;
+            if (activeSsis != null)
+            {
+                toSave = new(activeSsis.Count);
+                foreach (var ssi in activeSsis)
+                {
+                    if (cache.TryGetValue(ssi, out var detail))
+                        toSave[ssi] = detail;
+                }
+            }
+            else
+            {
+                toSave = cache;
+            }
+
+            var filePath = GetDetailCachePath(serverId);
+            var json = JsonSerializer.Serialize(toSave, _jsonOptions);
+            File.WriteAllText(filePath, json);
+            Debug.WriteLine($"[CrawlDataService] Saved detail cache: {toSave.Count} entries for server {serverId}");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[CrawlDataService] Failed to save detail cache: {ex.Message}");
+        }
+    }
+
+    private string GetDetailCachePath(int serverId)
+        => Path.Combine(_crawlDir, $"detail_cache_{serverId}.json");
+
+    #endregion
+
     private static string SanitizeFileName(string name)
     {
         // Remove characters that are invalid in file names
