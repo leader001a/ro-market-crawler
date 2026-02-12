@@ -100,12 +100,12 @@ public class ItemDetailParser
                     }
                     else if (headerText.Contains("속성"))
                     {
-                        info.Element = System.Net.WebUtility.HtmlDecode(td.InnerText.Trim());
+                        info.Element = StripRoTags(System.Net.WebUtility.HtmlDecode(td.InnerText.Trim()));
                         Debug.WriteLine($"[ItemDetailParser] Element: '{info.Element}'");
                     }
                     else if (headerText.Contains("제조자") || headerText.Contains("제작자"))
                     {
-                        info.Maker = System.Net.WebUtility.HtmlDecode(td.InnerText.Trim());
+                        info.Maker = StripRoTags(System.Net.WebUtility.HtmlDecode(td.InnerText.Trim()));
                         Debug.WriteLine($"[ItemDetailParser] Maker: '{info.Maker}'");
                     }
                 }
@@ -325,14 +325,29 @@ public class ItemDetailParser
         return info;
     }
 
+    /// <summary>
+    /// Strip RO inline tags like &lt;NAVI&gt;[NPC name]&lt;INFO&gt;map,x,y,...&lt;/INFO&gt;&lt;/NAVI&gt;
+    /// and extract only the display text (e.g. NPC name).
+    /// </summary>
+    private static string StripRoTags(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+
+        // Remove <INFO>...</INFO> blocks entirely
+        text = Regex.Replace(text, @"<INFO>[^<]*</INFO>", "", RegexOptions.IgnoreCase);
+
+        // Remove remaining <NAVI>, </NAVI> and other RO tags
+        text = Regex.Replace(text, @"</?[A-Z_]+>", "", RegexOptions.IgnoreCase);
+
+        return text;
+    }
+
     private string CleanSlotText(string text)
     {
         if (string.IsNullOrEmpty(text)) return "";
 
-        // Remove HTML entities
         text = System.Net.WebUtility.HtmlDecode(text);
-
-        // Remove extra whitespace
+        text = StripRoTags(text);
         text = Regex.Replace(text, @"\s+", " ").Trim();
 
         return text;
@@ -342,10 +357,8 @@ public class ItemDetailParser
     {
         if (string.IsNullOrEmpty(text)) return "";
 
-        // Remove HTML entities
         text = System.Net.WebUtility.HtmlDecode(text);
-
-        // Remove extra whitespace
+        text = StripRoTags(text);
         text = Regex.Replace(text, @"\s+", " ").Trim();
 
         return text;

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using RoMarketCrawler.Models;
 using RoMarketCrawler.Services;
 
@@ -484,7 +485,7 @@ public class ItemDetailForm : Form
                     AppendColoredText(_rtbItemDesc, "아이템 효과", ThemeTextHighlight, true);
                     if (!string.IsNullOrEmpty(kafraItem.ItemText))
                     {
-                        AppendColoredText(_rtbItemDesc, kafraItem.ItemText, ThemeText);
+                        AppendColoredText(_rtbItemDesc, StripRoTags(kafraItem.ItemText), ThemeText);
                     }
                     else
                     {
@@ -646,7 +647,7 @@ public class ItemDetailForm : Form
 
                     if (cachedItem != null)
                     {
-                        effect = cachedItem.ItemText;
+                        effect = StripRoTags(cachedItem.ItemText);
                     }
                 }
 
@@ -705,6 +706,18 @@ public class ItemDetailForm : Form
         {
             Debug.WriteLine($"[ItemDetailForm] Failed to load icon: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Strip RO inline tags like &lt;NAVI&gt;, &lt;INFO&gt; and color codes from text
+    /// </summary>
+    private static string StripRoTags(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return text ?? "";
+        text = Regex.Replace(text, @"\^[0-9a-fA-F]{6}_?", "");
+        text = Regex.Replace(text, @"<INFO>[^<]*</INFO>", "", RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"</?[A-Z_]+>", "", RegexOptions.IgnoreCase);
+        return text;
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)

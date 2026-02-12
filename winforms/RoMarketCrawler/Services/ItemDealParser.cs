@@ -257,7 +257,11 @@ public class ItemDealParser
 
             // Shop name and deal type (column 4)
             var shopCell = cells[4];
-            var shopName = System.Net.WebUtility.HtmlDecode(shopCell.InnerText.Trim());
+            var shopName = Regex.Replace(
+                Regex.Replace(
+                    System.Net.WebUtility.HtmlDecode(shopCell.InnerText.Trim()),
+                    @"<INFO>[^<]*</INFO>", "", RegexOptions.IgnoreCase),
+                @"</?[A-Z_]+>", "", RegexOptions.IgnoreCase);
             string? dealType = null;
             var shopClass = shopCell.GetAttributeValue("class", "");
             Debug.WriteLine($"[ItemDealParser] Shop cell class: '{shopClass}'");
@@ -470,6 +474,10 @@ public class ItemDealParser
 
         // Final cleanup: remove any remaining truncation markers
         text = Regex.Replace(text, @"\[\.\.\.", "");
+
+        // Strip RO inline tags: <NAVI>[NPC]<INFO>map,x,y,...</INFO></NAVI>
+        text = Regex.Replace(text, @"<INFO>[^<]*</INFO>", "", RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"</?[A-Z_]+>", "", RegexOptions.IgnoreCase);
 
         var result = System.Net.WebUtility.HtmlDecode(text.Trim());
         Debug.WriteLine($"[ItemDealParser] ParseItemName result: '{result}'");

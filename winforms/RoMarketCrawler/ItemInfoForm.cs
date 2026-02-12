@@ -301,6 +301,9 @@ public class ItemInfoForm : Form
         var itemText = _item.ItemText ?? "(설명 없음)";
         // Remove color codes
         itemText = System.Text.RegularExpressions.Regex.Replace(itemText, @"\^[0-9a-fA-F]{6}_?", "");
+        // Remove RO inline tags: <NAVI>[NPC]<INFO>map,x,y,...</INFO></NAVI>
+        itemText = System.Text.RegularExpressions.Regex.Replace(itemText, @"<INFO>[^<]*</INFO>", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        itemText = System.Text.RegularExpressions.Regex.Replace(itemText, @"</?[A-Z_]+>", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         itemText = itemText.Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", Environment.NewLine);
 
         _rtbItemDesc.Text = itemText;
