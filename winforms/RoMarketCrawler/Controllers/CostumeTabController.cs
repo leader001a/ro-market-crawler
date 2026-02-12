@@ -992,6 +992,10 @@ public class CostumeTabController : BaseTabController
         _btnCrawlStop.Enabled = crawling || _isAutoCrawling;
         _btnSearch.Enabled = !crawling && _currentSession != null;
 
+        // Reset status label color only when starting crawl (preserves red color after rate limit error)
+        if (crawling)
+            _lblCrawlStatus.ForeColor = _colors.Text;
+
         // Update auto-crawl button appearance
         if (_isAutoCrawling)
         {
@@ -1120,6 +1124,7 @@ public class CostumeTabController : BaseTabController
         // Load persistent detail cache (survives app restart)
         var detailCache = _crawlDataService.LoadDetailCache(selectedServer.Id);
 
+        _crawlCts?.Dispose();
         _crawlCts = new CancellationTokenSource();
         var ct = _crawlCts.Token;
         SetCrawlingState(true);
@@ -1279,9 +1284,6 @@ public class CostumeTabController : BaseTabController
             _crawlProgressBar.Value = 100;
             _lblCrawlStatus.Text = "저장 중...";
 
-            int previousCount = _currentSession?.Items?.Count ?? 0;
-            int removedCount = Math.Max(0, previousCount - updatedCount);
-
             var session = new CrawlSession
             {
                 SearchTerm = CrawlSearchTerm,
@@ -1300,9 +1302,11 @@ public class CostumeTabController : BaseTabController
             _currentSession = session;
             _btnSearch.Enabled = true;
 
-            // Save detail cache (prune to only current session SSIs)
-            var activeSsis = new HashSet<string>(allItems.Where(i => !string.IsNullOrEmpty(i.Ssi)).Select(i => i.Ssi!));
-            _crawlDataService.SaveDetailCache(selectedServer.Id, detailCache, activeSsis);
+            // Save detail cache — merge with disk to preserve entries added by other tabs during crawl
+            var freshCache = _crawlDataService.LoadDetailCache(selectedServer.Id);
+            foreach (var kvp in detailCache)
+                freshCache[kvp.Key] = kvp.Value;
+            _crawlDataService.SaveDetailCache(selectedServer.Id, freshCache);
             detailCacheSaved = true;
 
             // Clean up old timestamped files only after successful complete crawl
@@ -1342,15 +1346,17 @@ public class CostumeTabController : BaseTabController
         catch (RateLimitException rateLimitEx)
         {
             MergeRemainingItems(isIncremental, allItems, existingBySsi);
-            _lblCrawlStatus.Text = $"API 제한: {rateLimitEx.UnlockTimeText} 이후 이용 가능";
-            _lblCrawlStatus.ForeColor = _colors.SaleColor;
 
             if (allItems.Count > 0)
                 SavePartialSession(selectedServer, allItems, currentPage - 1, maxEndPage);
 
-            // Stop auto-crawl on rate limit
+            // Stop auto-crawl first (overwrites status text with "자동 수집 중지됨")
             if (_isAutoCrawling)
                 StopAutoCrawl();
+
+            // Then set rate limit status (overrides StopAutoCrawl's text)
+            _lblCrawlStatus.Text = $"API 제한: {rateLimitEx.UnlockTimeText} 이후 이용 가능";
+            _lblCrawlStatus.ForeColor = _colors.SaleColor;
 
             MessageBox.Show(
                 $"GNJOY API 요청 제한이 적용되었습니다.\n\n" +
@@ -1371,9 +1377,14 @@ public class CostumeTabController : BaseTabController
         }
         finally
         {
-            // Save detail cache on partial exit (without pruning — don't lose cached entries for un-crawled items)
+            // Save detail cache on partial exit — merge with disk to preserve entries from other tabs
             if (!detailCacheSaved && detailCache.Count > 0)
-                _crawlDataService.SaveDetailCache(selectedServer.Id, detailCache);
+            {
+                var partialFreshCache = _crawlDataService.LoadDetailCache(selectedServer.Id);
+                foreach (var kvp in detailCache)
+                    partialFreshCache[kvp.Key] = kvp.Value;
+                _crawlDataService.SaveDetailCache(selectedServer.Id, partialFreshCache);
+            }
 
             _crawlProgressBar.Visible = false;
             SetCrawlingState(false);
