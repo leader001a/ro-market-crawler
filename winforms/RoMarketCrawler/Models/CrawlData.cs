@@ -26,6 +26,11 @@ public class CrawlSession
     public int TotalServerPages { get; set; }
 
     /// <summary>
+    /// Whether this session was collected via incremental update
+    /// </summary>
+    public bool IsIncremental { get; set; }
+
+    /// <summary>
     /// Whether this session was fully completed (all pages crawled)
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]

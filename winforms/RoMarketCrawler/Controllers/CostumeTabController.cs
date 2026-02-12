@@ -18,9 +18,11 @@ public class CostumeTabController : BaseTabController
 
     private const string CrawlSearchTerm = "의상";
     private const int ItemsPerPage = 10;
-    private const int CrawlItemDelayMs = 1000;   // 1 second per item
-    private const int CrawlPageDelayMs = 5000;    // 5 seconds between pages
-    private const int CrawlMaxPages = 1000;       // Safety limit
+    private const int CrawlMaxPages = 1000;             // Safety limit
+    private const int PageDelaySlowMs = 5000;            // 5s — 신규 비율 높을 때 (429 방지)
+    private const int PageDelayFastMs = 1500;            // 1.5s — 신규 비율 낮을 때
+    private const int NewItemDetailDelayMs = 1000;       // 1s — 신규 아이템 상세요청 후 딜레이
+    private const int AutoCrawlIntervalMs = 300_000;     // 5분 자동 반복 주기
 
     #endregion
 
@@ -39,7 +41,7 @@ public class CostumeTabController : BaseTabController
 
     // Crawl bar controls
     private ToolStripComboBox _cboServer = null!;
-    private ToolStripButton _btnCrawlStart = null!;
+    private ToolStripButton _btnAutoCrawl = null!;
     private ToolStripButton _btnCrawlStop = null!;
     private ToolStripProgressBar _crawlProgressBar = null!;
     private ToolStripLabel _lblCrawlStatus = null!;
@@ -103,6 +105,11 @@ public class CostumeTabController : BaseTabController
     private CrawlSession? _currentSession;
     private readonly List<DealItem> _searchResults = new();
 
+    // Auto-crawl state
+    private System.Windows.Forms.Timer? _autoCrawlTimer;
+    private bool _isAutoCrawling = false;
+    private DateTime _lastCrawlFinishedAt;
+
     #endregion
 
     /// <summary>
@@ -111,7 +118,7 @@ public class CostumeTabController : BaseTabController
     public bool IsCrawling => _isCrawling;
 
     /// <inheritdoc/>
-    public override bool HasActiveOperations => _isCrawling;
+    public override bool HasActiveOperations => _isCrawling || _isAutoCrawling;
 
     public override string TabName => "의상검색";
 
@@ -189,15 +196,21 @@ public class CostumeTabController : BaseTabController
         if (_cboServer.Items.Count > 0)
             _cboServer.SelectedIndex = 0;
 
-        // Crawl start button
-        _btnCrawlStart = new ToolStripButton
+        // Auto crawl toggle button
+        _btnAutoCrawl = new ToolStripButton
         {
-            Text = "수집 시작",
+            Text = "자동 수집",
             BackColor = _colors.Accent,
             ForeColor = _colors.AccentText,
-            ToolTipText = "의상 데이터 전체 수집"
+            ToolTipText = "자동 증분 수집 시작/중지 (5분 주기)"
         };
-        _btnCrawlStart.Click += async (s, e) => await StartCrawlAsync();
+        _btnAutoCrawl.Click += (s, e) =>
+        {
+            if (_isAutoCrawling)
+                StopAutoCrawl();
+            else
+                StartAutoCrawl();
+        };
 
         // Crawl stop button
         _btnCrawlStop = new ToolStripButton
@@ -206,7 +219,7 @@ public class CostumeTabController : BaseTabController
             Enabled = false,
             ToolTipText = "수집 중지"
         };
-        _btnCrawlStop.Click += (s, e) => CancelCrawl();
+        _btnCrawlStop.Click += (s, e) => StopAutoCrawl();
 
         // === Search section ===
 
@@ -282,11 +295,11 @@ public class CostumeTabController : BaseTabController
             Alignment = ToolStripItemAlignment.Right
         };
 
-        // Build strip: [Server▼] | 시작 중지 | 아이템:[__]  스톤:[__]  가격:[__]~[__] | 검색   [Progress][Status]→
+        // Build strip: [Server▼] | 자동수집 중지 | 아이템:[__]  스톤:[__]  가격:[__]~[__] | 검색   [Progress][Status]→
         var labelMargin = new Padding(6, 1, 0, 2);
         strip.Items.Add(_cboServer);
         strip.Items.Add(new ToolStripSeparator());
-        strip.Items.Add(_btnCrawlStart);
+        strip.Items.Add(_btnAutoCrawl);
         strip.Items.Add(_btnCrawlStop);
         strip.Items.Add(new ToolStripSeparator());
         strip.Items.Add(new ToolStripLabel("아이템:") { Margin = labelMargin });
@@ -936,298 +949,27 @@ public class CostumeTabController : BaseTabController
 
     #region Crawling
 
-    private async Task StartCrawlAsync()
-    {
-        var selectedServer = _cboServer.SelectedItem as Server;
-        if (selectedServer == null)
-        {
-            MessageBox.Show("서버를 선택해주세요.", "입력 오류",
-                MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
-        // Check if we can resume from a previous incomplete session
-        bool isResuming = false;
-        var existingItems = new List<DealItem>();
-        int resumeFromPage = 1;
-        int resumeMaxEndPage = CrawlMaxPages;
-
-        if (_currentSession != null && !_currentSession.IsComplete
-            && _currentSession.ServerId == selectedServer.Id
-            && _currentSession.LastCrawledPage > 0)
-        {
-            // Incomplete session for same server - offer resume
-            var remaining = _currentSession.TotalServerPages > 0
-                ? $" (남은 페이지: {_currentSession.TotalServerPages - _currentSession.LastCrawledPage})"
-                : "";
-
-            var btnResume = new TaskDialogButton("이어서 수집");
-            var btnNew = new TaskDialogButton("처음부터 수집");
-            var btnCancel = new TaskDialogButton("수집 취소");
-
-            var page = new TaskDialogPage
-            {
-                Caption = "데이터 수집",
-                Heading = "이전 수집을 이어서 진행하시겠습니까?",
-                Text = $"이전 수집이 {_currentSession.LastCrawledPage}페이지에서 중단되었습니다.{remaining}\n" +
-                       $"현재 {_currentSession.TotalItems}건이 수집된 상태입니다.",
-                Buttons = { btnResume, btnNew, btnCancel }
-            };
-
-            var result = TaskDialog.ShowDialog(_tabPage.FindForm()!, page);
-
-            if (result == btnCancel) return;
-
-            if (result == btnResume)
-            {
-                isResuming = true;
-                existingItems.AddRange(_currentSession.Items);
-                resumeFromPage = _currentSession.LastCrawledPage + 1;
-                if (_currentSession.TotalServerPages > 0)
-                    resumeMaxEndPage = Math.Min(CrawlMaxPages, _currentSession.TotalServerPages);
-            }
-        }
-        else if (_currentSession != null && _currentSession.IsComplete)
-        {
-            // Complete session exists - confirm overwrite
-            var confirm = MessageBox.Show(
-                $"이전 수집 데이터가 있습니다. ({_currentSession.TotalItems}건, {_currentSession.CrawledAt:yyyy-MM-dd HH:mm})\n" +
-                $"새로 수집하시겠습니까?",
-                "데이터 수집",
-                MessageBoxButtons.YesNo, MessageBoxIcon.Question);
-            if (confirm != DialogResult.Yes) return;
-        }
-
-        _crawlCts = new CancellationTokenSource();
-        var ct = _crawlCts.Token;
-        SetCrawlingState(true);
-
-        var allItems = new List<DealItem>(existingItems);
-        int currentPage = resumeFromPage;
-        int maxEndPage = resumeMaxEndPage;
-        int totalCount = 0;
-        var startTime = DateTime.Now;
-        int pagesCompleted = 0;
-
-        if (isResuming)
-        {
-            _lblCrawlStatus.Text = $"{resumeFromPage}페이지부터 이어서 수집...";
-        }
-
-        _crawlProgressBar.Value = 0;
-        _crawlProgressBar.Visible = true;
-
-        try
-        {
-            while (currentPage <= maxEndPage)
-            {
-                ct.ThrowIfCancellationRequested();
-
-                // Update progress
-                int totalPages = maxEndPage < CrawlMaxPages ? maxEndPage : 0;
-                if (totalPages > 0)
-                {
-                    int progressPercent = (int)((currentPage - 1) * 100.0 / totalPages);
-                    _crawlProgressBar.Value = Math.Min(progressPercent, 100);
-                }
-
-                // Calculate ETA
-                string etaText = "";
-                var remainingPages = maxEndPage - currentPage + 1;
-                double avgTimePerPage;
-
-                if (pagesCompleted > 0)
-                {
-                    var elapsed = DateTime.Now - startTime;
-                    avgTimePerPage = elapsed.TotalSeconds / pagesCompleted;
-                }
-                else
-                {
-                    avgTimePerPage = (ItemsPerPage * CrawlItemDelayMs + CrawlPageDelayMs) / 1000.0;
-                }
-
-                var etaSeconds = (int)(avgTimePerPage * remainingPages);
-                if (etaSeconds >= 60)
-                    etaText = $" (약 {etaSeconds / 60}분 {etaSeconds % 60}초 남음)";
-                else if (etaSeconds > 0)
-                    etaText = $" (약 {etaSeconds}초 남음)";
-
-                var pageDisplay = totalPages > 0 ? $"{currentPage}/{totalPages}" : $"{currentPage}/?";
-                _lblCrawlStatus.Text = $"{pageDisplay} 수집 중... ({allItems.Count}건){etaText}";
-
-                // Crawl page
-                var (items, count) = await CrawlPageAsync(selectedServer.Id, currentPage, ct);
-                totalCount = count;
-
-                // Update max end page based on actual total
-                int actualTotalPages = (int)Math.Ceiling((double)totalCount / ItemsPerPage);
-                if (actualTotalPages > 0)
-                {
-                    maxEndPage = Math.Min(CrawlMaxPages, actualTotalPages);
-                }
-
-                // Tag items with page number
-                foreach (var item in items)
-                {
-                    item.CrawledPage = currentPage;
-                }
-
-                allItems.AddRange(items);
-                pagesCompleted++;
-
-                // Update progress bar with actual total
-                if (maxEndPage > 0 && maxEndPage < CrawlMaxPages)
-                {
-                    int progress = (int)(currentPage * 100.0 / maxEndPage);
-                    _crawlProgressBar.Value = Math.Min(progress, 100);
-                }
-
-                currentPage++;
-
-                // Wait before next page
-                if (currentPage <= maxEndPage)
-                {
-                    _lblCrawlStatus.Text = $"대기 중... ({CrawlPageDelayMs / 1000}초)";
-                    await Task.Delay(CrawlPageDelayMs, ct);
-                }
-            }
-
-            // Crawl completed - save to JSON
-            _crawlProgressBar.Value = 100;
-            _lblCrawlStatus.Text = "저장 중...";
-
-            var session = new CrawlSession
-            {
-                SearchTerm = CrawlSearchTerm,
-                ServerName = selectedServer.Name,
-                ServerId = selectedServer.Id,
-                CrawledAt = DateTime.Now,
-                TotalPages = currentPage - 1,
-                TotalItems = allItems.Count,
-                Items = allItems,
-                LastCrawledPage = currentPage - 1,
-                TotalServerPages = maxEndPage
-            };
-
-            await _crawlDataService.SaveAsync(session);
-            _currentSession = session;
-            _btnSearch.Enabled = true;
-
-            var totalElapsed = DateTime.Now - startTime;
-            var elapsedText = totalElapsed.TotalSeconds >= 60
-                ? $"{(int)totalElapsed.TotalMinutes}분 {(int)totalElapsed.TotalSeconds % 60}초"
-                : $"{(int)totalElapsed.TotalSeconds}초";
-
-            _lblCrawlStatus.Text = $"완료: {allItems.Count}건 ({elapsedText})";
-            UpdateStatusBar();
-        }
-        catch (OperationCanceledException)
-        {
-            _lblCrawlStatus.Text = $"중지됨: {allItems.Count}건";
-
-            // Save partial results with resume info
-            SavePartialSession(selectedServer, allItems, currentPage - 1, maxEndPage);
-        }
-        catch (RateLimitException rateLimitEx)
-        {
-            _lblCrawlStatus.Text = $"API 제한: {rateLimitEx.UnlockTimeText} 이후 이용 가능";
-            _lblCrawlStatus.ForeColor = _colors.SaleColor;
-
-            // Save partial results with resume info
-            SavePartialSession(selectedServer, allItems, currentPage - 1, maxEndPage);
-
-            MessageBox.Show(
-                $"GNJOY API 요청 제한이 적용되었습니다.\n\n" +
-                $"이용 가능 시간: {rateLimitEx.UnlockTimeText}\n" +
-                $"수집 진행: {currentPage - 1}페이지, {allItems.Count}건\n\n" +
-                $"다음 수집 시 이어서 진행할 수 있습니다.",
-                "API 요청 제한",
-                MessageBoxButtons.OK, MessageBoxIcon.Warning);
-        }
-        catch (Exception ex)
-        {
-            _lblCrawlStatus.Text = $"오류: {ex.Message}";
-            Debug.WriteLine($"[CostumeTab] Crawl error: {ex}");
-
-            // Save partial results with resume info on error too
-            SavePartialSession(selectedServer, allItems, currentPage - 1, maxEndPage);
-        }
-        finally
-        {
-            _crawlProgressBar.Visible = false;
-            SetCrawlingState(false);
-        }
-    }
-
-    private async Task<(List<DealItem> items, int totalCount)> CrawlPageAsync(
-        int serverId, int page, CancellationToken ct)
-    {
-        var items = new List<DealItem>();
-        int totalCount = 0;
-
-        try
-        {
-            var result = await _gnjoyClient.SearchItemDealsWithCountAsync(CrawlSearchTerm, serverId, page, ct);
-
-            if (result.TotalCount > 0 && result.Items != null)
-            {
-                totalCount = result.TotalCount;
-
-                foreach (var item in result.Items)
-                {
-                    ct.ThrowIfCancellationRequested();
-
-                    // Fetch detail info for items with detail params
-                    if (item.MapId.HasValue && !string.IsNullOrEmpty(item.Ssi))
-                    {
-                        try
-                        {
-                            var detail = await _gnjoyClient.FetchItemDetailAsync(
-                                item.ServerId, item.MapId.Value, item.Ssi, ct);
-
-                            if (detail != null)
-                            {
-                                item.ApplyDetailInfo(detail);
-                            }
-                        }
-                        catch (OperationCanceledException) { throw; }
-                        catch (Exception ex)
-                        {
-                            Debug.WriteLine($"[CostumeTab] Detail fetch failed: {ex.Message}");
-                        }
-                    }
-
-                    item.ComputeFields();
-                    items.Add(item);
-
-                    // 1 second delay per item
-                    await Task.Delay(CrawlItemDelayMs, ct);
-                }
-            }
-        }
-        catch (OperationCanceledException) { throw; }
-        catch (RateLimitException) { throw; }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"[CostumeTab] Page crawl error: {ex.Message}");
-        }
-
-        return (items, totalCount);
-    }
-
-    private void CancelCrawl()
-    {
-        _crawlCts?.Cancel();
-        _lblCrawlStatus.Text = "중지 요청됨...";
-    }
-
     private void SetCrawlingState(bool crawling)
     {
         _isCrawling = crawling;
-        _cboServer.Enabled = !crawling;
-        _btnCrawlStart.Enabled = !crawling;
-        _btnCrawlStop.Enabled = crawling;
+        _cboServer.Enabled = !crawling && !_isAutoCrawling;
+        _btnAutoCrawl.Enabled = !crawling || _isAutoCrawling;
+        _btnCrawlStop.Enabled = crawling || _isAutoCrawling;
         _btnSearch.Enabled = !crawling && _currentSession != null;
+
+        // Update auto-crawl button appearance
+        if (_isAutoCrawling)
+        {
+            _btnAutoCrawl.Text = "자동 수집 중";
+            _btnAutoCrawl.BackColor = _colors.SaleColor;
+            _btnAutoCrawl.ForeColor = Color.White;
+        }
+        else
+        {
+            _btnAutoCrawl.Text = "자동 수집";
+            _btnAutoCrawl.BackColor = _colors.Accent;
+            _btnAutoCrawl.ForeColor = _colors.AccentText;
+        }
     }
 
     /// <summary>
@@ -1257,6 +999,271 @@ public class CostumeTabController : BaseTabController
         _btnSearch.Enabled = true;
         UpdateStatusBar();
     }
+
+    #region Auto / Incremental Crawl
+
+    private void StartAutoCrawl()
+    {
+        var selectedServer = _cboServer.SelectedItem as Server;
+        if (selectedServer == null)
+        {
+            MessageBox.Show("서버를 선택해주세요.", "입력 오류",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        _isAutoCrawling = true;
+        SetCrawlingState(_isCrawling);
+
+        _autoCrawlTimer = new System.Windows.Forms.Timer { Interval = AutoCrawlIntervalMs };
+        _autoCrawlTimer.Tick += async (s, e) =>
+        {
+            if (!_isCrawling)
+                await RunIncrementalCrawlAsync();
+        };
+
+        // Immediately run the first crawl
+        _ = RunIncrementalCrawlAsync();
+        _autoCrawlTimer.Start();
+    }
+
+    private void StopAutoCrawl()
+    {
+        _isAutoCrawling = false;
+        _autoCrawlTimer?.Stop();
+        _autoCrawlTimer?.Dispose();
+        _autoCrawlTimer = null;
+
+        if (_isCrawling)
+        {
+            _crawlCts?.Cancel();
+            _lblCrawlStatus.Text = "자동 수집 중지됨";
+        }
+        else
+        {
+            _lblCrawlStatus.Text = "자동 수집 중지됨";
+        }
+
+        SetCrawlingState(false);
+        UpdateStatusBar();
+    }
+
+    private async Task RunIncrementalCrawlAsync()
+    {
+        var selectedServer = _cboServer.SelectedItem as Server;
+        if (selectedServer == null) return;
+
+        // If no existing session, fall back to full crawl mode
+        bool isIncremental = _currentSession?.Items != null && _currentSession.Items.Count > 0
+            && _currentSession.ServerId == selectedServer.Id;
+
+        // Build SSI dictionary from existing session for incremental mode
+        var existingBySsi = new Dictionary<string, DealItem>();
+        if (isIncremental)
+        {
+            foreach (var item in _currentSession!.Items)
+            {
+                if (!string.IsNullOrEmpty(item.Ssi))
+                    existingBySsi.TryAdd(item.Ssi, item);
+            }
+        }
+
+        _crawlCts = new CancellationTokenSource();
+        var ct = _crawlCts.Token;
+        SetCrawlingState(true);
+
+        var allItems = new List<DealItem>();
+        int newCount = 0, updatedCount = 0, pageItemCount = 0, pageNewCount = 0;
+        int currentPage = 1;
+        int maxEndPage = CrawlMaxPages;
+        int totalCount = 0;
+        var startTime = DateTime.Now;
+
+        _crawlProgressBar.Value = 0;
+        _crawlProgressBar.Visible = true;
+
+        var modeLabel = isIncremental ? "증분" : "전체";
+
+        try
+        {
+            while (currentPage <= maxEndPage)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                // Update progress
+                if (maxEndPage < CrawlMaxPages && maxEndPage > 0)
+                {
+                    int progressPercent = (int)((currentPage - 1) * 100.0 / maxEndPage);
+                    _crawlProgressBar.Value = Math.Min(progressPercent, 100);
+                }
+
+                _lblCrawlStatus.Text = $"{modeLabel} {currentPage}/{(maxEndPage < CrawlMaxPages ? maxEndPage.ToString() : "?")} " +
+                    $"수집 중... (신규 {newCount}건, 갱신 {updatedCount}건)";
+
+                // Fetch page listing
+                var result = await _gnjoyClient.SearchItemDealsWithCountAsync(
+                    CrawlSearchTerm, selectedServer.Id, currentPage, ct);
+
+                if (result.TotalCount > 0 && result.Items != null)
+                {
+                    totalCount = result.TotalCount;
+                    int actualTotalPages = (int)Math.Ceiling((double)totalCount / ItemsPerPage);
+                    if (actualTotalPages > 0)
+                        maxEndPage = Math.Min(CrawlMaxPages, actualTotalPages);
+
+                    pageItemCount = result.Items.Count;
+                    pageNewCount = 0;
+
+                    foreach (var item in result.Items)
+                    {
+                        ct.ThrowIfCancellationRequested();
+
+                        if (isIncremental && !string.IsNullOrEmpty(item.Ssi)
+                            && existingBySsi.TryGetValue(item.Ssi, out var existing))
+                        {
+                            // Known item: reuse detail info, update price/quantity
+                            existing.Price = item.Price;
+                            existing.PriceFormatted = null; // force recompute
+                            existing.Quantity = item.Quantity;
+                            existing.CrawledAt = DateTime.Now;
+                            existing.CrawledPage = currentPage;
+                            existing.ComputeFields();
+                            allItems.Add(existing);
+                            updatedCount++;
+                            // No delay — no detail request needed
+                        }
+                        else
+                        {
+                            // New item: fetch detail info
+                            if (item.MapId.HasValue && !string.IsNullOrEmpty(item.Ssi))
+                            {
+                                try
+                                {
+                                    var detail = await _gnjoyClient.FetchItemDetailAsync(
+                                        item.ServerId, item.MapId.Value, item.Ssi, ct);
+                                    if (detail != null)
+                                        item.ApplyDetailInfo(detail);
+                                }
+                                catch (OperationCanceledException) { throw; }
+                                catch (Exception ex)
+                                {
+                                    Debug.WriteLine($"[CostumeTab] Incremental detail fetch failed: {ex.Message}");
+                                }
+
+                                await Task.Delay(NewItemDetailDelayMs, ct);
+                            }
+
+                            item.CrawledPage = currentPage;
+                            item.ComputeFields();
+                            allItems.Add(item);
+                            newCount++;
+                            pageNewCount++;
+                        }
+                    }
+                }
+                else if (currentPage == 1)
+                {
+                    // No results on first page — nothing to do
+                    break;
+                }
+
+                // Update progress bar
+                if (maxEndPage > 0 && maxEndPage < CrawlMaxPages)
+                {
+                    int progress = (int)(currentPage * 100.0 / maxEndPage);
+                    _crawlProgressBar.Value = Math.Min(progress, 100);
+                }
+
+                currentPage++;
+
+                // Adaptive page delay: high new-item ratio → slower (avoid 429)
+                if (currentPage <= maxEndPage)
+                {
+                    bool highNewRatio = pageItemCount > 0 && pageNewCount * 2 >= pageItemCount;
+                    var pageDelay = highNewRatio ? PageDelaySlowMs : PageDelayFastMs;
+                    await Task.Delay(pageDelay, ct);
+                }
+            }
+
+            // Save session — items not in allItems are automatically removed
+            _crawlProgressBar.Value = 100;
+            _lblCrawlStatus.Text = "저장 중...";
+
+            int previousCount = _currentSession?.Items?.Count ?? 0;
+            int removedCount = Math.Max(0, previousCount - updatedCount);
+
+            var session = new CrawlSession
+            {
+                SearchTerm = CrawlSearchTerm,
+                ServerName = selectedServer.Name,
+                ServerId = selectedServer.Id,
+                CrawledAt = DateTime.Now,
+                TotalPages = currentPage - 1,
+                TotalItems = allItems.Count,
+                Items = allItems,
+                LastCrawledPage = currentPage - 1,
+                TotalServerPages = maxEndPage,
+                IsIncremental = isIncremental
+            };
+
+            await _crawlDataService.SaveAsync(session);
+            _currentSession = session;
+            _btnSearch.Enabled = true;
+
+            var totalElapsed = DateTime.Now - startTime;
+            var elapsedText = totalElapsed.TotalSeconds >= 60
+                ? $"{(int)totalElapsed.TotalMinutes}분 {(int)totalElapsed.TotalSeconds % 60}초"
+                : $"{(int)totalElapsed.TotalSeconds}초";
+
+            _lastCrawlFinishedAt = DateTime.Now;
+
+            var removedText = isIncremental && removedCount > 0 ? $", 제거 {removedCount}건" : "";
+            _lblCrawlStatus.Text = $"완료: {allItems.Count}건 (신규 {newCount}건{removedText}, {elapsedText})";
+            UpdateStatusBar();
+        }
+        catch (OperationCanceledException)
+        {
+            _lblCrawlStatus.Text = $"중지됨: {allItems.Count}건";
+
+            if (allItems.Count > 0)
+                SavePartialSession(selectedServer, allItems, currentPage - 1, maxEndPage);
+        }
+        catch (RateLimitException rateLimitEx)
+        {
+            _lblCrawlStatus.Text = $"API 제한: {rateLimitEx.UnlockTimeText} 이후 이용 가능";
+            _lblCrawlStatus.ForeColor = _colors.SaleColor;
+
+            if (allItems.Count > 0)
+                SavePartialSession(selectedServer, allItems, currentPage - 1, maxEndPage);
+
+            // Stop auto-crawl on rate limit
+            if (_isAutoCrawling)
+                StopAutoCrawl();
+
+            MessageBox.Show(
+                $"GNJOY API 요청 제한이 적용되었습니다.\n\n" +
+                $"이용 가능 시간: {rateLimitEx.UnlockTimeText}\n" +
+                $"수집 진행: {currentPage - 1}페이지, {allItems.Count}건\n\n" +
+                $"자동 수집이 중지되었습니다.",
+                "API 요청 제한",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+        catch (Exception ex)
+        {
+            _lblCrawlStatus.Text = $"오류: {ex.Message}";
+            Debug.WriteLine($"[CostumeTab] Incremental crawl error: {ex}");
+
+            if (allItems.Count > 0)
+                SavePartialSession(selectedServer, allItems, currentPage - 1, maxEndPage);
+        }
+        finally
+        {
+            _crawlProgressBar.Visible = false;
+            SetCrawlingState(false);
+        }
+    }
+
+    #endregion
 
     #endregion
 
@@ -1353,12 +1360,29 @@ public class CostumeTabController : BaseTabController
         {
             await TryLoadLatestDataAsync();
         }
+
+        // Resume auto-crawl timer if it was running
+        if (_isAutoCrawling && _autoCrawlTimer != null && !_autoCrawlTimer.Enabled)
+        {
+            _autoCrawlTimer.Start();
+        }
     }
 
     /// <inheritdoc/>
     public override string? OnDeactivated()
     {
         base.OnDeactivated();
+
+        // Pause auto-crawl timer on tab switch (will resume on OnActivated)
+        if (_isAutoCrawling)
+        {
+            _autoCrawlTimer?.Stop();
+            if (_isCrawling)
+            {
+                try { _crawlCts?.Cancel(); } catch (ObjectDisposedException) { }
+            }
+            return "자동 수집이 일시정지되었습니다. 탭 복귀 시 재개됩니다.";
+        }
 
         if (_isCrawling)
         {
@@ -1391,7 +1415,8 @@ public class CostumeTabController : BaseTabController
         }
 
         var timeStr = _currentSession.CrawledAt.ToString("yyyy-MM-dd HH:mm");
-        _lblStatus.Text = $"{_currentSession.ServerName}  |  {timeStr} 수집  |  {_currentSession.TotalItems}건";
+        var autoCrawlText = _isAutoCrawling ? "  |  자동 수집 중" : "";
+        _lblStatus.Text = $"{_currentSession.ServerName}  |  {timeStr} 수집  |  {_currentSession.TotalItems}건{autoCrawlText}";
     }
 
     #endregion
@@ -1414,10 +1439,10 @@ public class CostumeTabController : BaseTabController
             _cboServer.BackColor = colors.Grid;
             _cboServer.ForeColor = colors.Text;
         }
-        if (_btnCrawlStart != null)
+        if (_btnAutoCrawl != null && !_isAutoCrawling)
         {
-            _btnCrawlStart.BackColor = colors.Accent;
-            _btnCrawlStart.ForeColor = colors.AccentText;
+            _btnAutoCrawl.BackColor = colors.Accent;
+            _btnAutoCrawl.ForeColor = colors.AccentText;
         }
         if (_lblCrawlStatus != null)
         {
@@ -1537,6 +1562,7 @@ public class CostumeTabController : BaseTabController
     {
         if (disposing)
         {
+            StopAutoCrawl();
             _crawlCts?.Cancel();
             _crawlCts?.Dispose();
         }
