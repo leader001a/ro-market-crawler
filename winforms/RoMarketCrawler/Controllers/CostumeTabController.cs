@@ -973,8 +973,22 @@ public class CostumeTabController : BaseTabController
     }
 
     /// <summary>
-    /// Save partial crawl results so the user can resume later
+    /// 증분 크롤링 중단 시, 아직 순회하지 않은 페이지의 기존 아이템을 allItems에 병합하여 데이터 손실 방지
     /// </summary>
+    private static void MergeRemainingItems(bool isIncremental, List<DealItem> allItems, Dictionary<string, DealItem> existingBySsi)
+    {
+        if (!isIncremental || existingBySsi.Count == 0) return;
+
+        var processedSsis = new HashSet<string>(
+            allItems.Where(i => !string.IsNullOrEmpty(i.Ssi)).Select(i => i.Ssi!));
+
+        foreach (var kvp in existingBySsi)
+        {
+            if (!processedSsis.Contains(kvp.Key))
+                allItems.Add(kvp.Value);
+        }
+    }
+
     private void SavePartialSession(Server server, List<DealItem> items, int lastPage, int totalServerPages)
     {
         if (items.Count == 0) return;
@@ -1223,6 +1237,7 @@ public class CostumeTabController : BaseTabController
         }
         catch (OperationCanceledException)
         {
+            MergeRemainingItems(isIncremental, allItems, existingBySsi);
             _lblCrawlStatus.Text = $"중지됨: {allItems.Count}건";
 
             if (allItems.Count > 0)
@@ -1230,6 +1245,7 @@ public class CostumeTabController : BaseTabController
         }
         catch (RateLimitException rateLimitEx)
         {
+            MergeRemainingItems(isIncremental, allItems, existingBySsi);
             _lblCrawlStatus.Text = $"API 제한: {rateLimitEx.UnlockTimeText} 이후 이용 가능";
             _lblCrawlStatus.ForeColor = _colors.SaleColor;
 
@@ -1250,6 +1266,7 @@ public class CostumeTabController : BaseTabController
         }
         catch (Exception ex)
         {
+            MergeRemainingItems(isIncremental, allItems, existingBySsi);
             _lblCrawlStatus.Text = $"오류: {ex.Message}";
             Debug.WriteLine($"[CostumeTab] Incremental crawl error: {ex}");
 
