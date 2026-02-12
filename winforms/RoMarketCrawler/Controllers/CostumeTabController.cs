@@ -36,8 +36,9 @@ public class CostumeTabController : BaseTabController
 
     #region UI Controls
 
-    // Toolbar
-    private ToolStrip _toolStrip = null!;
+    // Toolbars
+    private ToolStrip _crawlStrip = null!;
+    private ToolStrip _searchStrip = null!;
 
     // Crawl bar controls
     private ToolStripComboBox _cboServer = null!;
@@ -139,34 +140,42 @@ public class CostumeTabController : BaseTabController
     {
         var scale = _baseFontSize / 12f;
 
+        var stripHeight = Math.Max((int)(32 * scale), 28);
+
         _mainPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 4,
+            RowCount = 5,
             Padding = new Padding(5)
         };
         _mainPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, Math.Max((int)(32 * scale), 28)));   // Row 0: Toolbar
-        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));                                // Row 1: Grid
-        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, (int)(55 * scale)));                 // Row 2: Pagination
-        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, Math.Max((int)(26 * scale), 22)));   // Row 3: Status
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, stripHeight));                        // Row 0: Crawl bar
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, stripHeight));                        // Row 1: Search bar
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));                                 // Row 2: Grid
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, (int)(55 * scale)));                  // Row 3: Pagination
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, Math.Max((int)(26 * scale), 22)));    // Row 4: Status
 
-        _toolStrip = CreateToolStrip();
+        _crawlStrip = CreateCrawlStrip();
+        _searchStrip = CreateSearchStrip();
         _dgvResults = CreateResultsGrid();
         var paginationPanel = CreatePaginationPanel();
         _lblStatus = CreateStatusLabel();
         _lblStatus.Text = "서버를 선택하고 데이터 수집을 시작하세요.";
 
-        _mainPanel.Controls.Add(_toolStrip, 0, 0);
-        _mainPanel.Controls.Add(_dgvResults, 0, 1);
-        _mainPanel.Controls.Add(paginationPanel, 0, 2);
-        _mainPanel.Controls.Add(_lblStatus, 0, 3);
+        _mainPanel.Controls.Add(_crawlStrip, 0, 0);
+        _mainPanel.Controls.Add(_searchStrip, 0, 1);
+        _mainPanel.Controls.Add(_dgvResults, 0, 2);
+        _mainPanel.Controls.Add(paginationPanel, 0, 3);
+        _mainPanel.Controls.Add(_lblStatus, 0, 4);
 
         _tabPage.Controls.Add(_mainPanel);
     }
 
-    private ToolStrip CreateToolStrip()
+    /// <summary>
+    /// Row 0: 수집 바 — [서버▼] [자동 수집] [중지]  [███ 진행바] 상태텍스트
+    /// </summary>
+    private ToolStrip CreateCrawlStrip()
     {
         var scale = _baseFontSize / 12f;
 
@@ -175,8 +184,6 @@ public class CostumeTabController : BaseTabController
             GripStyle = ToolStripGripStyle.Hidden,
             BackColor = _colors.Panel
         };
-
-        // === Crawl section ===
 
         // Server combo
         _cboServer = new ToolStripComboBox
@@ -200,8 +207,9 @@ public class CostumeTabController : BaseTabController
             if (_isAutoCrawling)
                 StopAutoCrawl();
             _currentSession = null;
+            _allFilteredResults.Clear();
             _btnSearch.Enabled = false;
-            await TryLoadLatestDataAsync();
+            await TryLoadLatestDataAsync(autoDisplay: true);
         };
 
         // Auto crawl toggle button
@@ -229,7 +237,47 @@ public class CostumeTabController : BaseTabController
         };
         _btnCrawlStop.Click += (s, e) => StopAutoCrawl();
 
-        // === Search section ===
+        // Progress bar (right-aligned)
+        _crawlProgressBar = new ToolStripProgressBar
+        {
+            Minimum = 0,
+            Maximum = 100,
+            Value = 0,
+            Visible = false,
+            Alignment = ToolStripItemAlignment.Right,
+            Size = new Size((int)(150 * scale), 16)
+        };
+
+        // Status label (right-aligned)
+        _lblCrawlStatus = new ToolStripLabel
+        {
+            Text = "",
+            Alignment = ToolStripItemAlignment.Right
+        };
+
+        // Layout: [서버▼] | [자동 수집] [중지]                    [진행바] [상태] →
+        strip.Items.Add(_cboServer);
+        strip.Items.Add(new ToolStripSeparator());
+        strip.Items.Add(_btnAutoCrawl);
+        strip.Items.Add(_btnCrawlStop);
+        strip.Items.Add(_crawlProgressBar);
+        strip.Items.Add(_lblCrawlStatus);
+
+        return strip;
+    }
+
+    /// <summary>
+    /// Row 1: 검색 바 — 아이템:[____] 스톤:[____] 가격:[____]~[____] [검색]
+    /// </summary>
+    private ToolStrip CreateSearchStrip()
+    {
+        var scale = _baseFontSize / 12f;
+
+        var strip = new ToolStrip
+        {
+            GripStyle = ToolStripGripStyle.Hidden,
+            BackColor = _colors.Panel
+        };
 
         // Item name filter
         _txtFilterItemName = new ToolStripTextBox
@@ -257,22 +305,26 @@ public class CostumeTabController : BaseTabController
         _txtFilterMinPrice = new ToolStripTextBox
         {
             AutoSize = false,
-            Width = (int)(100 * scale),
+            Width = (int)(140 * scale),
             BackColor = _colors.Grid,
             ForeColor = _colors.Text,
             ToolTipText = "최소 가격"
         };
         _txtFilterMinPrice.KeyDown += SearchFilter_KeyDown;
+        _txtFilterMinPrice.KeyPress += PriceTextBox_KeyPress;
+        _txtFilterMinPrice.TextChanged += PriceTextBox_TextChanged;
 
         _txtFilterMaxPrice = new ToolStripTextBox
         {
             AutoSize = false,
-            Width = (int)(100 * scale),
+            Width = (int)(140 * scale),
             BackColor = _colors.Grid,
             ForeColor = _colors.Text,
             ToolTipText = "최대 가격"
         };
         _txtFilterMaxPrice.KeyDown += SearchFilter_KeyDown;
+        _txtFilterMaxPrice.KeyPress += PriceTextBox_KeyPress;
+        _txtFilterMaxPrice.TextChanged += PriceTextBox_TextChanged;
 
         // Search button
         _btnSearch = new ToolStripButton
@@ -285,31 +337,8 @@ public class CostumeTabController : BaseTabController
         };
         _btnSearch.Click += (s, e) => ExecuteLocalSearch();
 
-        // Progress bar (right-aligned)
-        _crawlProgressBar = new ToolStripProgressBar
-        {
-            Minimum = 0,
-            Maximum = 100,
-            Value = 0,
-            Visible = false,
-            Alignment = ToolStripItemAlignment.Right,
-            Size = new Size(120, 16)
-        };
-
-        // Status label (right-aligned)
-        _lblCrawlStatus = new ToolStripLabel
-        {
-            Text = "",
-            Alignment = ToolStripItemAlignment.Right
-        };
-
-        // Build strip: [Server▼] | 자동수집 중지 | 아이템:[__]  스톤:[__]  가격:[__]~[__] | 검색   [Progress][Status]→
+        // Layout: 아이템:[____] 스톤:[____] 가격:[____]~[____] | [검색]
         var labelMargin = new Padding(6, 1, 0, 2);
-        strip.Items.Add(_cboServer);
-        strip.Items.Add(new ToolStripSeparator());
-        strip.Items.Add(_btnAutoCrawl);
-        strip.Items.Add(_btnCrawlStop);
-        strip.Items.Add(new ToolStripSeparator());
         strip.Items.Add(new ToolStripLabel("아이템:") { Margin = labelMargin });
         strip.Items.Add(_txtFilterItemName);
         strip.Items.Add(new ToolStripLabel("스톤:") { Margin = labelMargin });
@@ -320,8 +349,6 @@ public class CostumeTabController : BaseTabController
         strip.Items.Add(_txtFilterMaxPrice);
         strip.Items.Add(new ToolStripSeparator());
         strip.Items.Add(_btnSearch);
-        strip.Items.Add(_crawlProgressBar);
-        strip.Items.Add(_lblCrawlStatus);
 
         return strip;
     }
@@ -1108,7 +1135,7 @@ public class CostumeTabController : BaseTabController
         _crawlProgressBar.Value = 0;
         _crawlProgressBar.Visible = true;
 
-        var modeLabel = isIncremental ? "증분" : "전체";
+        // (modeLabel removed — user-facing status no longer shows crawl mode)
 
         try
         {
@@ -1123,9 +1150,8 @@ public class CostumeTabController : BaseTabController
                     _crawlProgressBar.Value = Math.Min(progressPercent, 100);
                 }
 
-                var cacheText = cacheHitCount > 0 ? $", 캐시 {cacheHitCount}건" : "";
-                _lblCrawlStatus.Text = $"{modeLabel} {currentPage}/{(maxEndPage < CrawlMaxPages ? maxEndPage.ToString() : "?")} " +
-                    $"수집 중... (신규 {newCount}건, 갱신 {updatedCount}건{cacheText})";
+                _lblCrawlStatus.Text = $"{currentPage}/{(maxEndPage < CrawlMaxPages ? maxEndPage.ToString() : "?")} " +
+                    $"수집 중... ({allItems.Count}건)";
 
                 // Fetch page listing
                 var result = await _gnjoyClient.SearchItemDealsWithCountAsync(
@@ -1156,6 +1182,7 @@ public class CostumeTabController : BaseTabController
                             existing.CrawledPage = currentPage;
                             existing.ComputeFields();
                             allItems.Add(existing);
+                            existingBySsi.Remove(item.Ssi); // remove so live session won't duplicate
                             updatedCount++;
                             // No delay — no detail request needed
                         }
@@ -1216,6 +1243,27 @@ public class CostumeTabController : BaseTabController
                     _crawlProgressBar.Value = Math.Min(progress, 100);
                 }
 
+                // Update live session so search works during crawl
+                // Include not-yet-crawled items from previous session
+                var liveItems = allItems.ToList();
+                if (isIncremental && existingBySsi.Count > 0)
+                {
+                    liveItems.AddRange(existingBySsi.Values);
+                }
+                _currentSession = new CrawlSession
+                {
+                    SearchTerm = CrawlSearchTerm,
+                    ServerName = selectedServer.Name,
+                    ServerId = selectedServer.Id,
+                    CrawledAt = DateTime.Now,
+                    TotalPages = currentPage,
+                    TotalItems = liveItems.Count,
+                    Items = liveItems,
+                    LastCrawledPage = currentPage,
+                    TotalServerPages = maxEndPage
+                };
+                _btnSearch.Enabled = true;
+
                 currentPage++;
 
                 // Adaptive page delay: high new-item ratio → slower (avoid 429)
@@ -1257,6 +1305,9 @@ public class CostumeTabController : BaseTabController
             _crawlDataService.SaveDetailCache(selectedServer.Id, detailCache, activeSsis);
             detailCacheSaved = true;
 
+            // Clean up old timestamped files only after successful complete crawl
+            _crawlDataService.CleanupOldTimestampedFiles(CrawlSearchTerm, selectedServer.Name);
+
             var totalElapsed = DateTime.Now - startTime;
             var elapsedText = totalElapsed.TotalSeconds >= 60
                 ? $"{(int)totalElapsed.TotalMinutes}분 {(int)totalElapsed.TotalSeconds % 60}초"
@@ -1264,10 +1315,21 @@ public class CostumeTabController : BaseTabController
 
             _lastCrawlFinishedAt = DateTime.Now;
 
-            var removedText = isIncremental && removedCount > 0 ? $", 제거 {removedCount}건" : "";
-            var cacheHitText = cacheHitCount > 0 ? $", 캐시 {cacheHitCount}건" : "";
-            _lblCrawlStatus.Text = $"완료: {allItems.Count}건 (신규 {newCount}건{cacheHitText}{removedText}, {elapsedText})";
+            var nextText = "";
+            if (_isAutoCrawling)
+            {
+                var nextTime = _lastCrawlFinishedAt.AddMilliseconds(AutoCrawlIntervalMs);
+                nextText = $" | 다음 수집: {nextTime:HH:mm}";
+            }
+            _lblCrawlStatus.Text = $"완료: {allItems.Count}건 ({elapsedText}){nextText}";
             UpdateStatusBar();
+
+            // Restart timer from now so next crawl is exactly 5 min after completion
+            if (_isAutoCrawling && _autoCrawlTimer != null)
+            {
+                _autoCrawlTimer.Stop();
+                _autoCrawlTimer.Start();
+            }
         }
         catch (OperationCanceledException)
         {
@@ -1331,6 +1393,52 @@ public class CostumeTabController : BaseTabController
             e.Handled = true;
             e.SuppressKeyPress = true;
             ExecuteLocalSearch();
+        }
+    }
+
+    private void PriceTextBox_KeyPress(object? sender, KeyPressEventArgs e)
+    {
+        // Allow only digits, backspace, and control characters (Ctrl+A, Ctrl+C, Ctrl+V, etc.)
+        if (!char.IsDigit(e.KeyChar) && !char.IsControl(e.KeyChar))
+        {
+            e.Handled = true;
+        }
+    }
+
+    private bool _isPriceFormatting = false;
+    private void PriceTextBox_TextChanged(object? sender, EventArgs e)
+    {
+        if (_isPriceFormatting || sender is not ToolStripTextBox txt) return;
+        _isPriceFormatting = true;
+        try
+        {
+            var raw = txt.Text.Replace(",", "").Trim();
+            if (string.IsNullOrEmpty(raw))
+            {
+                _isPriceFormatting = false;
+                return;
+            }
+            // Keep only digits
+            raw = new string(raw.Where(char.IsDigit).ToArray());
+            if (raw.Length == 0)
+            {
+                txt.Text = "";
+                _isPriceFormatting = false;
+                return;
+            }
+            if (long.TryParse(raw, out var value))
+            {
+                var formatted = value.ToString("N0");
+                if (txt.Text != formatted)
+                {
+                    txt.Text = formatted;
+                    txt.SelectionStart = txt.Text.Length;
+                }
+            }
+        }
+        finally
+        {
+            _isPriceFormatting = false;
         }
     }
 
@@ -1411,10 +1519,8 @@ public class CostumeTabController : BaseTabController
     {
         base.OnActivated();
 
-        if (_currentSession == null)
-        {
-            await TryLoadLatestDataAsync();
-        }
+        // Always try to load and display data on tab activation
+        await TryLoadLatestDataAsync(autoDisplay: true);
 
         // Resume auto-crawl timer if it was running
         if (_isAutoCrawling && _autoCrawlTimer != null && !_autoCrawlTimer.Enabled)
@@ -1447,17 +1553,30 @@ public class CostumeTabController : BaseTabController
         return null;
     }
 
-    private async Task TryLoadLatestDataAsync()
+    private async Task TryLoadLatestDataAsync(bool autoDisplay = false)
     {
         var selectedServer = _cboServer.SelectedItem as Server;
         if (selectedServer == null) return;
+
+        // Skip reload if same session is already loaded
+        if (_currentSession != null && autoDisplay && _allFilteredResults.Count > 0
+            && _currentSession.ServerName == selectedServer.Name)
+        {
+            return;
+        }
 
         var session = await _crawlDataService.LoadLatestAsync(CrawlSearchTerm, selectedServer.Name);
         if (session != null)
         {
             _currentSession = session;
             _btnSearch.Enabled = true;
+
+            var timeStr = session.CrawledAt.ToString("MM-dd HH:mm");
+            _lblCrawlStatus.Text = $"저장된 데이터: {session.TotalItems}건 ({timeStr} 수집)";
             UpdateStatusBar();
+
+            if (autoDisplay)
+                ExecuteLocalSearch();
         }
     }
 
@@ -1484,11 +1603,9 @@ public class CostumeTabController : BaseTabController
 
         if (_dgvResults != null) ApplyDataGridViewStyle(_dgvResults);
 
-        // Toolbar
-        if (_toolStrip != null)
-        {
-            _toolStrip.BackColor = colors.Panel;
-        }
+        // Toolbars
+        if (_crawlStrip != null) _crawlStrip.BackColor = colors.Panel;
+        if (_searchStrip != null) _searchStrip.BackColor = colors.Panel;
         if (_cboServer != null)
         {
             _cboServer.BackColor = colors.Grid;
@@ -1577,8 +1694,8 @@ public class CostumeTabController : BaseTabController
         if (_cboServer != null) _cboServer.Width = (int)(100 * scale);
         if (_txtFilterItemName != null) _txtFilterItemName.Width = (int)(120 * scale);
         if (_txtFilterStone != null) _txtFilterStone.Width = (int)(120 * scale);
-        if (_txtFilterMinPrice != null) _txtFilterMinPrice.Width = (int)(70 * scale);
-        if (_txtFilterMaxPrice != null) _txtFilterMaxPrice.Width = (int)(70 * scale);
+        if (_txtFilterMinPrice != null) _txtFilterMinPrice.Width = (int)(140 * scale);
+        if (_txtFilterMaxPrice != null) _txtFilterMaxPrice.Width = (int)(140 * scale);
 
         // Pagination controls
         var btnHeight = (int)(28 * scale);
@@ -1601,11 +1718,13 @@ public class CostumeTabController : BaseTabController
         }
 
         // Row heights
-        if (_mainPanel != null && _mainPanel.RowStyles.Count >= 4)
+        if (_mainPanel != null && _mainPanel.RowStyles.Count >= 5)
         {
-            _mainPanel.RowStyles[0].Height = Math.Max((int)(32 * scale), 28);  // Toolbar
-            _mainPanel.RowStyles[2].Height = (int)(55 * scale);                // Pagination
-            _mainPanel.RowStyles[3].Height = Math.Max((int)(26 * scale), 22);  // Status
+            var stripHeight = Math.Max((int)(32 * scale), 28);
+            _mainPanel.RowStyles[0].Height = stripHeight;                       // Crawl bar
+            _mainPanel.RowStyles[1].Height = stripHeight;                       // Search bar
+            _mainPanel.RowStyles[3].Height = (int)(55 * scale);                // Pagination
+            _mainPanel.RowStyles[4].Height = Math.Max((int)(26 * scale), 22);  // Status
         }
     }
 

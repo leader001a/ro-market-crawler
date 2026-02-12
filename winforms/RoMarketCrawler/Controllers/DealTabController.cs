@@ -29,6 +29,7 @@ public class DealTabController : BaseTabController
     private readonly IItemIndexService _itemIndexService;
     private readonly IMonitoringService _monitoringService;
     private readonly ISettingsService _settingsService;
+    private readonly CrawlDataService _crawlDataService;
 
     #endregion
 
@@ -100,6 +101,7 @@ public class DealTabController : BaseTabController
         _itemIndexService = GetService<IItemIndexService>();
         _monitoringService = GetService<IMonitoringService>();
         _settingsService = GetService<ISettingsService>();
+        _crawlDataService = GetService<CrawlDataService>();
         _dealBindingSource = new BindingSource { DataSource = _searchResults };
     }
 
@@ -796,6 +798,8 @@ public class DealTabController : BaseTabController
         {
             _progressDealSearch.Visible = false;
             SetDealSearchingState(false);
+            _cts?.Dispose();
+            _cts = null;
         }
     }
 
@@ -807,8 +811,13 @@ public class DealTabController : BaseTabController
     {
         bool IsCurrentSearch() => searchId == _currentSearchId && !cancellationToken.IsCancellationRequested;
 
+        // Load persistent detail cache
+        var serverId = equipmentItems.FirstOrDefault()?.ServerId ?? 0;
+        var detailCache = serverId > 0 ? _crawlDataService.LoadDetailCache(serverId) : new();
+
         var total = equipmentItems.Count;
         var loaded = 0;
+        var cacheHits = 0;
 
         foreach (var item in equipmentItems)
         {
@@ -816,18 +825,38 @@ public class DealTabController : BaseTabController
 
             try
             {
-                var detail = await _gnjoyClient.FetchItemDetailAsync(
-                    item.ServerId,
-                    item.MapId!.Value,
-                    item.Ssi!,
-                    cancellationToken);
-
-                if (detail != null && IsCurrentSearch())
+                // Check cache first
+                if (!string.IsNullOrEmpty(item.Ssi) && detailCache.TryGetValue(item.Ssi, out var cachedDetail))
                 {
-                    item.ApplyDetailInfo(detail);
+                    item.ApplyDetailInfo(cachedDetail);
+                    loaded++;
+                    cacheHits++;
+                    // No delay for cache hits
                 }
+                else
+                {
+                    var detail = await _gnjoyClient.FetchItemDetailAsync(
+                        item.ServerId,
+                        item.MapId!.Value,
+                        item.Ssi!,
+                        cancellationToken);
 
-                loaded++;
+                    if (detail != null && IsCurrentSearch())
+                    {
+                        item.ApplyDetailInfo(detail);
+                        // Save to cache
+                        if (!string.IsNullOrEmpty(item.Ssi))
+                            detailCache[item.Ssi] = detail;
+                    }
+
+                    loaded++;
+
+                    // Delay between API requests only
+                    if (loaded < total && IsCurrentSearch())
+                    {
+                        await Task.Delay(DetailRequestDelayMs, cancellationToken);
+                    }
+                }
 
                 // Update progress
                 if (IsCurrentSearch() && _tabPage.IsHandleCreated)
@@ -842,12 +871,6 @@ public class DealTabController : BaseTabController
                         }
                     });
                 }
-
-                // Delay between requests to prevent rate limiting
-                if (loaded < total && IsCurrentSearch())
-                {
-                    await Task.Delay(DetailRequestDelayMs, cancellationToken);
-                }
             }
             catch (RateLimitException)
             {
@@ -860,7 +883,13 @@ public class DealTabController : BaseTabController
             }
         }
 
-        Debug.WriteLine($"[DealTabController] Loaded {loaded}/{total} item details sequentially");
+        // Save cache after loading completes
+        if (serverId > 0 && detailCache.Count > 0)
+        {
+            _crawlDataService.SaveDetailCache(serverId, detailCache);
+        }
+
+        Debug.WriteLine($"[DealTabController] Loaded {loaded}/{total} item details (cache hits: {cacheHits})");
     }
 
     private bool IsEquipmentItem(DealItem item)

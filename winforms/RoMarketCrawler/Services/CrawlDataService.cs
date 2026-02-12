@@ -29,13 +29,12 @@ public class CrawlDataService
     }
 
     /// <summary>
-    /// Save crawl session to JSON file
-    /// Filename: {searchTerm}_{serverName}_{datetime}.json
+    /// Save crawl session to a fixed file per search term + server.
+    /// Filename: {searchTerm}_{serverName}.json (single file, always overwritten)
     /// </summary>
     public async Task SaveAsync(CrawlSession session)
     {
-        var timestamp = session.CrawledAt.ToString("yyyy-MM-dd_HHmmss");
-        var fileName = $"{SanitizeFileName(session.SearchTerm)}_{SanitizeFileName(session.ServerName)}_{timestamp}.json";
+        var fileName = $"{SanitizeFileName(session.SearchTerm)}_{SanitizeFileName(session.ServerName)}.json";
         var filePath = Path.Combine(_crawlDir, fileName);
 
         var json = JsonSerializer.Serialize(session, _jsonOptions);
@@ -44,10 +43,26 @@ public class CrawlDataService
     }
 
     /// <summary>
-    /// Load the most recent crawl session for a search term and server
+    /// Clean up old timestamped crawl files (from previous version).
+    /// Call only after a complete crawl finishes.
+    /// </summary>
+    public void CleanupOldTimestampedFiles(string searchTerm, string serverName)
+    {
+        CleanupOldFiles(searchTerm, serverName);
+    }
+
+    /// <summary>
+    /// Load the crawl session for a search term and server
     /// </summary>
     public async Task<CrawlSession?> LoadLatestAsync(string searchTerm, string serverName)
     {
+        // Try fixed filename first
+        var fileName = $"{SanitizeFileName(searchTerm)}_{SanitizeFileName(serverName)}.json";
+        var filePath = Path.Combine(_crawlDir, fileName);
+        if (File.Exists(filePath))
+            return await LoadFromFileAsync(filePath);
+
+        // Fallback: try old timestamped files for migration
         var files = GetSavedFiles(searchTerm, serverName);
         if (files.Count == 0) return null;
 
@@ -144,11 +159,12 @@ public class CrawlDataService
                 item.DisplayName?.Contains(filter.ItemName, StringComparison.OrdinalIgnoreCase) == true);
         }
 
-        // Filter by card/enchant (search in SlotInfo)
+        // Filter by card/enchant (search in SlotInfo and RandomOptions)
         if (!string.IsNullOrWhiteSpace(filter.CardEnchant))
         {
             results = results.Where(item =>
-                item.SlotInfo?.Any(s => s?.Contains(filter.CardEnchant, StringComparison.OrdinalIgnoreCase) == true) == true);
+                item.SlotInfo?.Any(s => s?.Contains(filter.CardEnchant, StringComparison.OrdinalIgnoreCase) == true) == true ||
+                item.RandomOptions?.Any(s => s?.Contains(filter.CardEnchant, StringComparison.OrdinalIgnoreCase) == true) == true);
         }
 
         // Filter by price range
@@ -246,6 +262,32 @@ public class CrawlDataService
         => Path.Combine(_crawlDir, $"detail_cache_{serverId}.json");
 
     #endregion
+
+    /// <summary>
+    /// Delete old timestamped crawl files for a search term + server.
+    /// Keeps only the fixed-name file.
+    /// </summary>
+    private void CleanupOldFiles(string searchTerm, string serverName)
+    {
+        try
+        {
+            var prefix = SanitizeFileName(searchTerm) + "_" + SanitizeFileName(serverName) + "_";
+            var files = Directory.GetFiles(_crawlDir, $"{prefix}*.json");
+            foreach (var file in files)
+            {
+                try
+                {
+                    File.Delete(file);
+                    Debug.WriteLine($"[CrawlDataService] Cleaned up old file: {Path.GetFileName(file)}");
+                }
+                catch { }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[CrawlDataService] Cleanup error: {ex.Message}");
+        }
+    }
 
     private static string SanitizeFileName(string name)
     {
