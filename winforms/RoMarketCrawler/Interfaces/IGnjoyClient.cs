@@ -80,20 +80,4 @@ public interface IGnjoyClient : IDisposable
         int serverId,
         CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Fetch price history with 2-step approach using fallback names
-    /// </summary>
-    Task<PriceStatistics?> FetchPriceHistoryWithFallbackAsync(
-        string primaryName,
-        string? fallbackName,
-        int serverId,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Fetch price statistics for multiple items in parallel
-    /// </summary>
-    Task<Dictionary<string, PriceStatistics>> FetchMultiplePriceHistoryAsync(
-        IEnumerable<string> itemNames,
-        int serverId,
-        CancellationToken cancellationToken = default);
 }

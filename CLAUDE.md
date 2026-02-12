@@ -1,5 +1,38 @@
 # Claude Code 프로젝트 규칙
 
+## 버전 관리 규칙
+
+### 버전 형식
+
+`Major.Minor.Patch` (예: 1.1.2)
+
+- **Major**: 전체 구조 변경, 호환되지 않는 대규모 변경
+- **Minor**: 새로운 기능 추가, 기존 기능의 큰 변경
+- **Patch**: 버그 수정, 문구 수정, 소규모 개선
+
+### 버전 변경 시 수정 대상
+
+`winforms/RoMarketCrawler/RoMarketCrawler.csproj`의 3개 항목을 함께 변경:
+
+```xml
+<Version>X.Y.Z</Version>
+<AssemblyVersion>X.Y.Z.0</AssemblyVersion>
+<FileVersion>X.Y.Z.0</FileVersion>
+```
+
+### 릴리스 절차
+
+1. 버전 번호 변경 (csproj)
+2. 빌드: `dotnet publish ... -c Release -o ./publish`
+3. SHA256 계산: `sha256sum ./publish/RoMarketCrawler.exe`
+4. 커밋 및 푸시
+5. `gh release create v{버전}` 으로 릴리스 생성 (태그 형식: `v1.1.2`)
+
+### 주의사항
+
+- 바이너리가 변경되면 반드시 버전을 올려야 함 (자동 업데이트가 버전 비교 방식이므로, 같은 버전으로 재배포하면 기존 사용자에게 업데이트가 전달되지 않음)
+- 코드 변경 없이 문서(md, txt)만 변경한 경우에는 버전을 올리지 않아도 됨
+
 ## 릴리스 노트 작성 규칙
 
 수동으로 `gh release create` 또는 `gh release edit`로 릴리스를 작성할 때 아래 규칙을 따릅니다.

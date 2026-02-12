@@ -1130,6 +1130,7 @@ public class CostumeTabController : BaseTabController
         SetCrawlingState(true);
 
         var allItems = new List<DealItem>();
+        var seenSsis = new HashSet<string>();
         int newCount = 0, updatedCount = 0, cacheHitCount = 0, pageItemCount = 0, pageNewCount = 0;
         int currentPage = 1;
         int maxEndPage = CrawlMaxPages;
@@ -1175,6 +1176,10 @@ public class CostumeTabController : BaseTabController
                     foreach (var item in result.Items)
                     {
                         ct.ThrowIfCancellationRequested();
+
+                        // Skip duplicate SSI (items can shift between pages during long crawls)
+                        if (!string.IsNullOrEmpty(item.Ssi) && !seenSsis.Add(item.Ssi))
+                            continue;
 
                         if (isIncremental && !string.IsNullOrEmpty(item.Ssi)
                             && existingBySsi.TryGetValue(item.Ssi, out var existing))

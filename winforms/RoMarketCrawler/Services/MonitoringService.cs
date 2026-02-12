@@ -42,6 +42,10 @@ namespace RoMarketCrawler.Services
         // GNJOY price data is updated daily, but we refresh every 3 hours to ensure freshness
         private const int PriceStatsCacheExpirationHours = 3;
 
+        // Shorter cache expiration for failed lookups (null results) in minutes
+        // Prevents transient HTTP errors from poisoning the cache for 3 hours
+        private const int PriceStatsNullCacheExpirationMinutes = 5;
+
         // Session-level cache for price statistics (yesterday/weekly averages) with TTL
         // Key: "{priceListMatch}|{priceServerId}", Value: (PriceStatistics, CachedAt timestamp)
         // Avoids duplicate API calls when same item name is monitored across different servers
@@ -733,18 +737,23 @@ namespace RoMarketCrawler.Services
                             if (_priceStatsCache.TryGetValue(statsCacheKey, out var cached))
                             {
                                 var cacheAge = DateTime.Now - cached.CachedAt;
-                                if (cacheAge.TotalHours < PriceStatsCacheExpirationHours)
+                                // Null results (errors/no data) expire faster to recover from transient failures
+                                var isExpired = cached.Stats == null
+                                    ? cacheAge.TotalMinutes >= PriceStatsNullCacheExpirationMinutes
+                                    : cacheAge.TotalHours >= PriceStatsCacheExpirationHours;
+
+                                if (!isExpired)
                                 {
                                     // Cache is still valid
                                     stats = cached.Stats;
                                     cacheHit = true;
-                                    Debug.WriteLine($"[MonitoringService] Using cached stats for '{priceListMatch}' (age: {cacheAge.TotalMinutes:F0}min): Yesterday={stats?.YesterdayAvgPrice:N0}, Week={stats?.Week7AvgPrice:N0}");
+                                    Debug.WriteLine($"[MonitoringService] Using cached stats for '{priceListMatch}' (age: {cacheAge.TotalMinutes:F0}min, null={cached.Stats == null}): Yesterday={stats?.YesterdayAvgPrice:N0}, Week={stats?.Week7AvgPrice:N0}");
                                 }
                                 else
                                 {
                                     // Cache expired, remove stale entry
                                     _priceStatsCache.TryRemove(statsCacheKey, out _);
-                                    Debug.WriteLine($"[MonitoringService] Cache expired for '{priceListMatch}' (age: {cacheAge.TotalHours:F1}h > {PriceStatsCacheExpirationHours}h), refreshing...");
+                                    Debug.WriteLine($"[MonitoringService] Cache expired for '{priceListMatch}' (age: {cacheAge.TotalMinutes:F0}min, null={cached.Stats == null}), refreshing...");
                                 }
                             }
 
@@ -756,8 +765,9 @@ namespace RoMarketCrawler.Services
                                     priceServerId,
                                     cancellationToken);
                                 // Cache the result with timestamp for TTL management
+                                // Null results will expire after 5 minutes (not 3 hours) to recover from transient errors
                                 _priceStatsCache[statsCacheKey] = (stats, DateTime.Now);
-                                Debug.WriteLine($"[MonitoringService] Fetched and cached stats for '{priceListMatch}': Yesterday={stats?.YesterdayAvgPrice:N0}, Week={stats?.Week7AvgPrice:N0}");
+                                Debug.WriteLine($"[MonitoringService] Fetched and cached stats for '{priceListMatch}' (null={stats == null}): Yesterday={stats?.YesterdayAvgPrice:N0}, Week={stats?.Week7AvgPrice:N0}");
                             }
                         }
                         else
