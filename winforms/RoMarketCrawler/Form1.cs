@@ -66,6 +66,7 @@ public partial class Form1 : Form
     private float _baseFontSize = 12f;
     private readonly string _settingsFilePath;
     private List<string> _dealSearchHistory = new();
+    private List<CostumeSearchEntry> _costumeSearchHistory = new();
     private bool _isSoundMuted = false;
     private AlarmSoundType _selectedAlarmSound = AlarmSoundType.SystemSound;
     private int _alarmIntervalSeconds = 5;
@@ -133,6 +134,8 @@ public partial class Form1 : Form
 
         // Initialize settings in controllers
         _dealTabController.LoadSearchHistory(_dealSearchHistory);
+        _costumeTabController.LoadCostumeSearchHistory(_costumeSearchHistory);
+        _costumeTabController.LoadAlarmSettings(_isSoundMuted, _selectedAlarmSound, _alarmIntervalSeconds);
         _monitorTabController.LoadAlarmSettings(_isSoundMuted, _selectedAlarmSound, _alarmIntervalSeconds);
     }
 
@@ -156,6 +159,12 @@ public partial class Form1 : Form
             ShowItemDetailForm(dealItem);
         };
 
+        _costumeTabController.CostumeSearchHistoryChanged += (s, history) =>
+        {
+            _costumeSearchHistory = history;
+            SaveSettings();
+        };
+
         // MonitorTabController events
         _monitorTabController.SettingsChanged += (s, e) =>
         {
@@ -165,6 +174,9 @@ public partial class Form1 : Form
             _selectedAlarmSound = sound;
             _alarmIntervalSeconds = interval;
             SaveSettings();
+
+            // Sync alarm settings to costume tab
+            _costumeTabController.LoadAlarmSettings(_isSoundMuted, _selectedAlarmSound, _alarmIntervalSeconds);
         };
 
     }
@@ -1090,6 +1102,7 @@ public partial class Form1 : Form
                     _selectedAlarmSound = settings.AlarmSound;
                     _alarmIntervalSeconds = settings.AlarmIntervalSeconds;
                     _dealSearchHistory = settings.DealSearchHistory ?? new List<string>();
+                    _costumeSearchHistory = settings.CostumeSearchHistory ?? new List<CostumeSearchEntry>();
                     _hideUsageNotice = settings.HideUsageNotice;
                     _apiLockoutUntil = settings.ApiLockoutUntil;
                     Debug.WriteLine($"[Form1] LoadSettings: Loaded {_dealSearchHistory.Count} search history items");
@@ -1129,6 +1142,7 @@ public partial class Form1 : Form
                 AlarmSound = _selectedAlarmSound,
                 AlarmIntervalSeconds = _alarmIntervalSeconds,
                 DealSearchHistory = _dealSearchHistory,
+                CostumeSearchHistory = _costumeSearchHistory,
                 HideUsageNotice = _hideUsageNotice,
                 ApiLockoutUntil = _apiLockoutUntil
             };

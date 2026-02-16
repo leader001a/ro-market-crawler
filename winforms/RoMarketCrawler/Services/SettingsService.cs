@@ -143,6 +143,18 @@ public class SettingsService : ISettingsService
     }
 
     /// <inheritdoc/>
+    public List<CostumeSearchEntry> CostumeSearchHistory
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return new List<CostumeSearchEntry>(_settings.CostumeSearchHistory);
+            }
+        }
+    }
+
+    /// <inheritdoc/>
     public bool HideDealSearchGuide
     {
         get { lock (_lock) return _settings.HideDealSearchGuide; }
@@ -218,6 +230,7 @@ public class SettingsService : ISettingsService
                     AlarmSound = _settings.AlarmSound,
                     AlarmIntervalSeconds = _settings.AlarmIntervalSeconds,
                     DealSearchHistory = new List<string>(_settings.DealSearchHistory),
+                    CostumeSearchHistory = new List<CostumeSearchEntry>(_settings.CostumeSearchHistory),
                     HideDealSearchGuide = _settings.HideDealSearchGuide
                 };
                 _isDirty = false;

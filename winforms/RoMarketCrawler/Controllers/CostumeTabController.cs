@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 using RoMarketCrawler.Controls;
 using RoMarketCrawler.Exceptions;
 using RoMarketCrawler.Helpers;
@@ -60,6 +61,13 @@ public class CostumeTabController : BaseTabController
     private Label _lblStatus = null!;
     private TableLayoutPanel _mainPanel = null!;
 
+    // Search history
+    private FlowLayoutPanel _pnlSearchHistory = null!;
+
+    // Monitor panel
+    private Panel _monitorPanel = null!;
+    private DataGridView _dgvWatch = null!;
+
     #endregion
 
     #region Events
@@ -68,6 +76,11 @@ public class CostumeTabController : BaseTabController
     /// Raised when an item detail form needs to be shown
     /// </summary>
     public event EventHandler<DealItem>? ShowItemDetail;
+
+    /// <summary>
+    /// Raised when costume search history is modified
+    /// </summary>
+    public event EventHandler<List<CostumeSearchEntry>>? CostumeSearchHistoryChanged;
 
     #endregion
 
@@ -111,6 +124,19 @@ public class CostumeTabController : BaseTabController
     private bool _isAutoCrawling = false;
     private DateTime _lastCrawlFinishedAt;
 
+    // Search history
+    private const int MaxCostumeSearchHistoryCount = 10;
+    private List<CostumeSearchEntry> _costumeSearchHistory = new();
+
+    // Costume monitor
+    private CostumeMonitorConfig _costumeMonitorConfig = new();
+    private readonly string _costumeMonitorConfigPath;
+    private List<(CostumeWatchItem Watch, List<DealItem> Matches)> _watchAlarmResults = new();
+    private System.Windows.Forms.Timer? _alarmTimer;
+    private bool _isSoundMuted = false;
+    private AlarmSoundType _selectedAlarmSound = AlarmSoundType.SystemSound;
+    private int _alarmIntervalSeconds = 5;
+
     #endregion
 
     /// <summary>
@@ -129,6 +155,10 @@ public class CostumeTabController : BaseTabController
         _crawlDataService = GetService<CrawlDataService>();
         _itemIndexService = GetService<IItemIndexService>();
         _resultBindingSource = new BindingSource { DataSource = _searchResults };
+
+        var dataDir = Path.Combine(AppContext.BaseDirectory, "Data");
+        Directory.CreateDirectory(dataDir);
+        _costumeMonitorConfigPath = Path.Combine(dataDir, "CostumeMonitorConfig.json");
     }
 
     /// <summary>
@@ -146,30 +176,44 @@ public class CostumeTabController : BaseTabController
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 5,
+            RowCount = 7,
             Padding = new Padding(5)
         };
         _mainPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, stripHeight));                        // Row 0: Crawl bar
         _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, stripHeight));                        // Row 1: Search bar
-        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));                                 // Row 2: Grid
-        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, (int)(55 * scale)));                  // Row 3: Pagination
-        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, Math.Max((int)(26 * scale), 22)));    // Row 4: Status
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));                                  // Row 2: Search history (dynamic)
+        var monitorTitleH = (int)(30 * scale);
+        var monitorHeaderH = Math.Max((int)(32 * scale), 28);
+        var monitorRowH = Math.Max((int)(26 * scale), 22);
+        var monitorInitialH = monitorTitleH + monitorHeaderH + (WatchGridMinRows * monitorRowH) + 12;
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, monitorInitialH));                    // Row 3: Monitor panel
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));                                 // Row 4: Grid
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, (int)(55 * scale)));                  // Row 5: Pagination
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, Math.Max((int)(26 * scale), 22)));    // Row 6: Status
 
         _crawlStrip = CreateCrawlStrip();
         _searchStrip = CreateSearchStrip();
+        _pnlSearchHistory = CreateSearchHistoryPanel();
+        _monitorPanel = CreateMonitorPanel();
         _dgvResults = CreateResultsGrid();
         var paginationPanel = CreatePaginationPanel();
         _lblStatus = CreateStatusLabel();
         _lblStatus.Text = "서버를 선택하고 데이터 수집을 시작하세요.";
+        _lblStatus.Click += LblStatus_Click;
 
         _mainPanel.Controls.Add(_crawlStrip, 0, 0);
         _mainPanel.Controls.Add(_searchStrip, 0, 1);
-        _mainPanel.Controls.Add(_dgvResults, 0, 2);
-        _mainPanel.Controls.Add(paginationPanel, 0, 3);
-        _mainPanel.Controls.Add(_lblStatus, 0, 4);
+        _mainPanel.Controls.Add(_pnlSearchHistory, 0, 2);
+        _mainPanel.Controls.Add(_monitorPanel, 0, 3);
+        _mainPanel.Controls.Add(_dgvResults, 0, 4);
+        _mainPanel.Controls.Add(paginationPanel, 0, 5);
+        _mainPanel.Controls.Add(_lblStatus, 0, 6);
 
         _tabPage.Controls.Add(_mainPanel);
+
+        // Load costume monitor config
+        _ = LoadCostumeMonitorConfigAsync();
     }
 
     /// <summary>
@@ -1333,6 +1377,9 @@ public class CostumeTabController : BaseTabController
             _lblCrawlStatus.Text = $"완료: {allItems.Count}건 ({elapsedText}){nextText}";
             UpdateStatusBar();
 
+            // Check watch conditions after crawl completes
+            CheckWatchConditions();
+
             // Restart timer from now so next crawl is exactly 5 min after completion
             if (_isAutoCrawling && _autoCrawlTimer != null)
             {
@@ -1522,6 +1569,591 @@ public class CostumeTabController : BaseTabController
         _totalPages = (int)Math.Ceiling((double)_totalCount / PageSize);
         _currentPage = 1;
         DisplayCurrentPage();
+
+        // Add to search history if there's a meaningful filter
+        if (!string.IsNullOrEmpty(filter.CardEnchant) || !string.IsNullOrEmpty(filter.ItemName))
+        {
+            AddToCostumeSearchHistory(filter.CardEnchant, filter.ItemName);
+        }
+    }
+
+    #endregion
+
+    #region Search History
+
+    private FlowLayoutPanel CreateSearchHistoryPanel()
+    {
+        var panel = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            WrapContents = true,
+            BackColor = _colors.Panel,
+            Padding = new Padding(5, 2, 5, 2),
+            Margin = new Padding(0)
+        };
+
+        var lblHistoryTitle = new Label
+        {
+            Text = "최근검색:",
+            AutoSize = true,
+            ForeColor = _colors.TextMuted,
+            Margin = new Padding(0, 3, 5, 0)
+        };
+        panel.Controls.Add(lblHistoryTitle);
+
+        return panel;
+    }
+
+    /// <summary>
+    /// Set search history (loaded from settings)
+    /// </summary>
+    public void LoadCostumeSearchHistory(List<CostumeSearchEntry> history)
+    {
+        _costumeSearchHistory = history ?? new List<CostumeSearchEntry>();
+        if (_pnlSearchHistory != null)
+        {
+            UpdateCostumeSearchHistoryPanel();
+        }
+    }
+
+    private void AddToCostumeSearchHistory(string? stoneName, string? itemName)
+    {
+        if (string.IsNullOrWhiteSpace(stoneName) && string.IsNullOrWhiteSpace(itemName)) return;
+
+        var entry = new CostumeSearchEntry
+        {
+            StoneName = string.IsNullOrWhiteSpace(stoneName) ? null : stoneName.Trim(),
+            ItemName = string.IsNullOrWhiteSpace(itemName) ? null : itemName.Trim()
+        };
+
+        // Remove duplicate
+        _costumeSearchHistory.RemoveAll(h =>
+            string.Equals(h.StoneName, entry.StoneName, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(h.ItemName, entry.ItemName, StringComparison.OrdinalIgnoreCase));
+
+        _costumeSearchHistory.Insert(0, entry);
+
+        while (_costumeSearchHistory.Count > MaxCostumeSearchHistoryCount)
+            _costumeSearchHistory.RemoveAt(_costumeSearchHistory.Count - 1);
+
+        UpdateCostumeSearchHistoryPanel();
+        CostumeSearchHistoryChanged?.Invoke(this, _costumeSearchHistory);
+    }
+
+    private void UpdateCostumeSearchHistoryPanel()
+    {
+        if (_pnlSearchHistory == null) return;
+
+        // Keep title label, remove history buttons
+        while (_pnlSearchHistory.Controls.Count > 1)
+        {
+            var ctrl = _pnlSearchHistory.Controls[1];
+            _pnlSearchHistory.Controls.RemoveAt(1);
+            ctrl.Dispose();
+        }
+
+        foreach (var entry in _costumeSearchHistory)
+        {
+            var btn = new Label
+            {
+                Text = entry.DisplayText,
+                AutoSize = true,
+                ForeColor = _colors.Accent,
+                Cursor = Cursors.Hand,
+                Margin = new Padding(0, 3, 10, 0),
+                Tag = entry
+            };
+            btn.Click += (s, e) =>
+            {
+                if (s is Label lbl && lbl.Tag is CostumeSearchEntry hist)
+                {
+                    _txtFilterStone.Text = hist.StoneName ?? "";
+                    _txtFilterItemName.Text = hist.ItemName ?? "";
+                    ExecuteLocalSearch();
+                }
+            };
+            btn.MouseEnter += (s, e) => { if (s is Label lbl) lbl.Font = new Font(lbl.Font, FontStyle.Underline); };
+            btn.MouseLeave += (s, e) => { if (s is Label lbl) lbl.Font = new Font(lbl.Font, FontStyle.Regular); };
+            _pnlSearchHistory.Controls.Add(btn);
+        }
+
+        var hasHistory = _costumeSearchHistory.Count > 0;
+        _pnlSearchHistory.Visible = hasHistory;
+
+        if (_pnlSearchHistory.Parent is TableLayoutPanel tableLayout && tableLayout.RowStyles.Count > 2)
+        {
+            tableLayout.RowStyles[2].Height = hasHistory ? 28 : 0;
+        }
+    }
+
+    #endregion
+
+    #region Costume Monitor
+
+    private Panel CreateMonitorPanel()
+    {
+        var scale = _baseFontSize / 12f;
+
+        var panel = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = _colors.Panel,
+            Padding = new Padding(5, 2, 5, 2)
+        };
+
+        // Title bar with buttons
+        var titleBar = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            Height = (int)(28 * scale),
+            BackColor = _colors.Panel,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            Padding = new Padding(0)
+        };
+
+        var lblTitle = new Label
+        {
+            Text = "의상 감시",
+            AutoSize = true,
+            ForeColor = _colors.Text,
+            Font = new Font("Malgun Gothic", _baseFontSize, FontStyle.Bold),
+            Margin = new Padding(0, 4, 10, 0)
+        };
+        titleBar.Controls.Add(lblTitle);
+
+        var btnAdd = new Button
+        {
+            Text = "+ 추가",
+            AutoSize = true,
+            FlatStyle = FlatStyle.Flat,
+            BackColor = _colors.Accent,
+            ForeColor = _colors.AccentText,
+            Margin = new Padding(0, 1, 5, 0),
+            Padding = new Padding(4, 0, 4, 0),
+            Height = (int)(24 * scale)
+        };
+        btnAdd.FlatAppearance.BorderSize = 0;
+        btnAdd.Click += (s, e) => AddWatchItem();
+        titleBar.Controls.Add(btnAdd);
+
+        var btnMute = new Button
+        {
+            Text = "음소거",
+            AutoSize = true,
+            FlatStyle = FlatStyle.Flat,
+            ForeColor = _colors.Text,
+            BackColor = _colors.Grid,
+            Margin = new Padding(0, 1, 0, 0),
+            Padding = new Padding(4, 0, 4, 0),
+            Height = (int)(24 * scale),
+            Tag = "MuteButton"
+        };
+        btnMute.FlatAppearance.BorderColor = _colors.Border;
+        btnMute.FlatAppearance.BorderSize = 1;
+        btnMute.Click += (s, e) =>
+        {
+            _isSoundMuted = !_isSoundMuted;
+            UpdateMuteButton(btnMute);
+
+            if (_isSoundMuted && _alarmTimer != null)
+                _alarmTimer.Stop();
+        };
+        titleBar.Controls.Add(btnMute);
+
+        // DataGridView for watch items
+        _dgvWatch = new DataGridView
+        {
+            Dock = DockStyle.Fill,
+            AllowUserToAddRows = false,
+            AllowUserToDeleteRows = false,
+            AllowUserToResizeRows = false,
+            RowHeadersVisible = false,
+            AutoGenerateColumns = false,
+            SelectionMode = DataGridViewSelectionMode.CellSelect,
+            MultiSelect = false,
+            AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCells,
+            ScrollBars = ScrollBars.Vertical
+        };
+        ApplyDataGridViewStyle(_dgvWatch);
+
+        _dgvWatch.Columns.AddRange(new DataGridViewColumn[]
+        {
+            new DataGridViewTextBoxColumn
+            {
+                Name = "ItemName",
+                HeaderText = "의상명",
+                DataPropertyName = "ItemName",
+                MinimumWidth = 100,
+                AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
+                FillWeight = 35
+            },
+            new DataGridViewTextBoxColumn
+            {
+                Name = "StoneName",
+                HeaderText = "스톤명",
+                DataPropertyName = "StoneName",
+                MinimumWidth = 100,
+                AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
+                FillWeight = 35
+            },
+            new DataGridViewTextBoxColumn
+            {
+                Name = "WatchPrice",
+                HeaderText = "감시가",
+                DataPropertyName = "WatchPrice",
+                MinimumWidth = 80,
+                AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
+                FillWeight = 20,
+                DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleRight }
+            },
+            new DataGridViewButtonColumn
+            {
+                Name = "Delete",
+                HeaderText = "",
+                Text = "X",
+                UseColumnTextForButtonValue = true,
+                MinimumWidth = 35,
+                Width = 35,
+                AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
+                FlatStyle = FlatStyle.Flat
+            }
+        });
+
+        _dgvWatch.CellEndEdit += DgvWatch_CellEndEdit;
+        _dgvWatch.CellFormatting += DgvWatch_CellFormatting;
+        _dgvWatch.CellClick += DgvWatch_CellClick;
+        _dgvWatch.EditingControlShowing += DgvWatch_EditingControlShowing;
+
+        // WinForms Dock order: Fill first, then Top (last added gets priority)
+        panel.Controls.Add(_dgvWatch);
+        panel.Controls.Add(titleBar);
+
+        return panel;
+    }
+
+    private void UpdateMuteButton(Button btn)
+    {
+        if (_isSoundMuted)
+        {
+            btn.Text = "음소거 해제";
+            btn.ForeColor = _colors.SaleColor;
+        }
+        else
+        {
+            btn.Text = "음소거";
+            btn.ForeColor = _colors.Text;
+        }
+    }
+
+    private void AddWatchItem()
+    {
+        _costumeMonitorConfig.Items.Add(new CostumeWatchItem
+        {
+            StoneName = "",
+            ItemName = "",
+            WatchPrice = 0,
+            AddedAt = DateTime.Now
+        });
+
+        RefreshWatchGrid();
+        UpdateMonitorPanelHeight();
+        _ = SaveCostumeMonitorConfigAsync();
+
+        // Focus the new row's StoneName cell for editing
+        if (_dgvWatch.Rows.Count > 0)
+        {
+            var lastRow = _dgvWatch.Rows.Count - 1;
+            _dgvWatch.CurrentCell = _dgvWatch.Rows[lastRow].Cells["ItemName"];
+            _dgvWatch.BeginEdit(true);
+        }
+    }
+
+    private void RefreshWatchGrid()
+    {
+        _dgvWatch.DataSource = null;
+        _dgvWatch.DataSource = new BindingSource { DataSource = _costumeMonitorConfig.Items };
+        _dgvWatch.Refresh();
+    }
+
+    private void DgvWatch_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
+    {
+        if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
+        var colName = _dgvWatch.Columns[e.ColumnIndex].Name;
+
+        if (colName == "WatchPrice" && e.Value is long price)
+        {
+            e.Value = price.ToString("N0");
+            e.FormattingApplied = true;
+        }
+    }
+
+    private void DgvWatch_CellClick(object? sender, DataGridViewCellEventArgs e)
+    {
+        if (e.RowIndex < 0) return;
+        var colName = _dgvWatch.Columns[e.ColumnIndex].Name;
+
+        if (colName == "Delete")
+        {
+            if (e.RowIndex < _costumeMonitorConfig.Items.Count)
+            {
+                _costumeMonitorConfig.Items.RemoveAt(e.RowIndex);
+                RefreshWatchGrid();
+                UpdateMonitorPanelHeight();
+                _ = SaveCostumeMonitorConfigAsync();
+
+                // Stop alarm if no more items
+                if (_costumeMonitorConfig.Items.Count == 0)
+                    StopAlarm();
+            }
+        }
+    }
+
+    private void DgvWatch_CellEndEdit(object? sender, DataGridViewCellEventArgs e)
+    {
+        if (e.RowIndex < 0 || e.RowIndex >= _costumeMonitorConfig.Items.Count) return;
+
+        var colName = _dgvWatch.Columns[e.ColumnIndex].Name;
+        var item = _costumeMonitorConfig.Items[e.RowIndex];
+        var cell = _dgvWatch.Rows[e.RowIndex].Cells[e.ColumnIndex];
+
+        if (colName == "WatchPrice")
+        {
+            // Parse price from formatted string
+            var rawText = cell.Value?.ToString()?.Replace(",", "").Trim() ?? "0";
+            if (long.TryParse(rawText, out var price))
+            {
+                item.WatchPrice = price;
+                cell.Value = price; // Store as long, CellFormatting will display it formatted
+            }
+        }
+
+        _ = SaveCostumeMonitorConfigAsync();
+    }
+
+    private void DgvWatch_EditingControlShowing(object? sender, DataGridViewEditingControlShowingEventArgs e)
+    {
+        if (_dgvWatch.CurrentCell == null) return;
+        var colName = _dgvWatch.Columns[_dgvWatch.CurrentCell.ColumnIndex].Name;
+
+        if (colName == "WatchPrice" && e.Control is TextBox txt)
+        {
+            // Show raw number when editing
+            if (_dgvWatch.CurrentCell.Value is long price)
+            {
+                txt.Text = price > 0 ? price.ToString() : "";
+            }
+
+            txt.KeyPress -= WatchPriceKeyPress;
+            txt.KeyPress += WatchPriceKeyPress;
+        }
+    }
+
+    private void WatchPriceKeyPress(object? sender, KeyPressEventArgs e)
+    {
+        if (!char.IsDigit(e.KeyChar) && !char.IsControl(e.KeyChar))
+            e.Handled = true;
+    }
+
+    private const int WatchGridMinRows = 5;
+
+    private void UpdateMonitorPanelHeight()
+    {
+        // Always show both panel and grid (empty grid shows header + empty rows)
+        _monitorPanel.Visible = true;
+        _dgvWatch.Visible = true;
+
+        if (_mainPanel != null && _mainPanel.RowStyles.Count > 3)
+        {
+            var scale = _baseFontSize / 12f;
+            var titleHeight = (int)(30 * scale);
+            var headerHeight = Math.Max((int)(32 * scale), 28);
+            var rowHeight = Math.Max((int)(26 * scale), 22);
+            var visibleRows = Math.Max(_costumeMonitorConfig.Items.Count, WatchGridMinRows);
+            var gridHeight = headerHeight + (visibleRows * rowHeight) + 4; // +4 for border
+            _mainPanel.RowStyles[3].Height = titleHeight + gridHeight + 8;
+
+            // Sync DataGridView header height
+            _dgvWatch.ColumnHeadersHeight = headerHeight;
+        }
+    }
+
+    /// <summary>
+    /// Check watch conditions against current crawl data
+    /// </summary>
+    private void CheckWatchConditions()
+    {
+        if (_costumeMonitorConfig.Items.Count == 0 || _currentSession?.Items == null) return;
+
+        _watchAlarmResults.Clear();
+
+        foreach (var watch in _costumeMonitorConfig.Items)
+        {
+            if (!watch.Enabled) continue;
+            if (string.IsNullOrWhiteSpace(watch.StoneName) && string.IsNullOrWhiteSpace(watch.ItemName)) continue;
+            if (watch.WatchPrice <= 0) continue;
+
+            var matches = _currentSession.Items.Where(item =>
+            {
+                // Check stone name match
+                bool stoneMatch = string.IsNullOrWhiteSpace(watch.StoneName) ||
+                    (item.SlotInfo != null && item.SlotInfo.Any(s =>
+                        s.Contains(watch.StoneName, StringComparison.OrdinalIgnoreCase)));
+
+                // Check item name match
+                bool itemMatch = string.IsNullOrWhiteSpace(watch.ItemName) ||
+                    (!string.IsNullOrEmpty(item.ItemName) &&
+                     item.ItemName.Contains(watch.ItemName, StringComparison.OrdinalIgnoreCase));
+
+                return stoneMatch && itemMatch && item.Price <= watch.WatchPrice;
+            }).ToList();
+
+            if (matches.Count > 0)
+            {
+                _watchAlarmResults.Add((watch, matches));
+            }
+        }
+
+        if (_watchAlarmResults.Count > 0)
+        {
+            var totalMatches = _watchAlarmResults.Sum(r => r.Matches.Count);
+            _lblStatus.ForeColor = _colors.SaleColor;
+            _lblStatus.Text = $"!! 감시 조건 일치: {totalMatches}건 발견";
+            _lblStatus.Cursor = Cursors.Hand;
+            StartAlarm();
+        }
+        else
+        {
+            _lblStatus.Cursor = Cursors.Default;
+            StopAlarm();
+        }
+    }
+
+    private void StartAlarm()
+    {
+        if (_isSoundMuted) return;
+
+        if (_alarmTimer == null)
+        {
+            _alarmTimer = new System.Windows.Forms.Timer
+            {
+                Interval = _alarmIntervalSeconds * 1000
+            };
+            _alarmTimer.Tick += AlarmTimer_Tick;
+        }
+
+        // Play immediately on first trigger
+        PlayAlarmSound();
+
+        _alarmTimer.Interval = _alarmIntervalSeconds * 1000;
+        _alarmTimer.Start();
+    }
+
+    private void StopAlarm()
+    {
+        _alarmTimer?.Stop();
+    }
+
+    private void AlarmTimer_Tick(object? sender, EventArgs e)
+    {
+        if (_isSoundMuted || _watchAlarmResults.Count == 0)
+        {
+            StopAlarm();
+            return;
+        }
+        PlayAlarmSound();
+    }
+
+    private void PlayAlarmSound()
+    {
+        if (_selectedAlarmSound == AlarmSoundType.SystemSound)
+            System.Media.SystemSounds.Exclamation.Play();
+        else
+            AlarmSoundService.PlaySound(_selectedAlarmSound);
+    }
+
+    private void LblStatus_Click(object? sender, EventArgs e)
+    {
+        if (_watchAlarmResults.Count == 0) return;
+
+        // Show all matched items from all watch conditions
+        var allMatches = _watchAlarmResults.SelectMany(r => r.Matches).Distinct().ToList();
+
+        _allFilteredResults.Clear();
+        _allFilteredResults.AddRange(allMatches);
+        _totalCount = _allFilteredResults.Count;
+        _totalPages = (int)Math.Ceiling((double)_totalCount / PageSize);
+        _currentPage = 1;
+        DisplayCurrentPage();
+
+        _lblStatus.ForeColor = _colors.SaleColor;
+        _lblStatus.Text = $"!! 감시 조건 일치: {allMatches.Count}건 표시 중";
+    }
+
+    /// <summary>
+    /// Load alarm settings from Form1 (shared global settings)
+    /// </summary>
+    public void LoadAlarmSettings(bool isMuted, AlarmSoundType sound, int intervalSeconds)
+    {
+        _isSoundMuted = isMuted;
+        _selectedAlarmSound = sound;
+        _alarmIntervalSeconds = intervalSeconds;
+
+        // Update mute button UI
+        if (_monitorPanel != null)
+        {
+            foreach (Control ctrl in _monitorPanel.Controls)
+            {
+                if (ctrl is FlowLayoutPanel flow)
+                {
+                    foreach (Control c in flow.Controls)
+                    {
+                        if (c is Button btn && btn.Tag is "MuteButton")
+                            UpdateMuteButton(btn);
+                    }
+                }
+            }
+        }
+    }
+
+    private async Task LoadCostumeMonitorConfigAsync()
+    {
+        try
+        {
+            if (!File.Exists(_costumeMonitorConfigPath)) return;
+
+            var json = await File.ReadAllTextAsync(_costumeMonitorConfigPath);
+            var config = JsonSerializer.Deserialize<CostumeMonitorConfig>(json);
+            if (config != null)
+            {
+                _costumeMonitorConfig = config;
+                RefreshWatchGrid();
+                UpdateMonitorPanelHeight();
+                Debug.WriteLine($"[CostumeTab] Loaded {config.Items.Count} watch items");
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[CostumeTab] Failed to load costume monitor config: {ex.Message}");
+        }
+    }
+
+    private async Task SaveCostumeMonitorConfigAsync()
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(_costumeMonitorConfig, new JsonSerializerOptions
+            {
+                WriteIndented = true
+            });
+            await File.WriteAllTextAsync(_costumeMonitorConfigPath, json);
+            Debug.WriteLine($"[CostumeTab] Saved {_costumeMonitorConfig.Items.Count} watch items");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[CostumeTab] Failed to save costume monitor config: {ex.Message}");
+        }
     }
 
     #endregion
@@ -1620,6 +2252,38 @@ public class CostumeTabController : BaseTabController
         base.ApplyTheme(colors);
 
         if (_dgvResults != null) ApplyDataGridViewStyle(_dgvResults);
+        if (_dgvWatch != null) ApplyDataGridViewStyle(_dgvWatch);
+
+        // Search history panel
+        if (_pnlSearchHistory != null)
+        {
+            _pnlSearchHistory.BackColor = colors.Panel;
+            if (_pnlSearchHistory.Controls.Count > 0 && _pnlSearchHistory.Controls[0] is Label titleLbl)
+                titleLbl.ForeColor = colors.TextMuted;
+            for (int i = 1; i < _pnlSearchHistory.Controls.Count; i++)
+            {
+                if (_pnlSearchHistory.Controls[i] is Label histLbl)
+                    histLbl.ForeColor = colors.Accent;
+            }
+        }
+
+        // Monitor panel
+        if (_monitorPanel != null)
+        {
+            _monitorPanel.BackColor = colors.Panel;
+            foreach (Control ctrl in _monitorPanel.Controls)
+            {
+                if (ctrl is FlowLayoutPanel flow)
+                {
+                    flow.BackColor = colors.Panel;
+                    foreach (Control c in flow.Controls)
+                    {
+                        if (c is Label lbl) lbl.ForeColor = colors.Text;
+                        if (c is Button btn && btn.Tag is "MuteButton") UpdateMuteButton(btn);
+                    }
+                }
+            }
+        }
 
         // Toolbars
         if (_crawlStrip != null) _crawlStrip.BackColor = colors.Panel;
@@ -1736,14 +2400,18 @@ public class CostumeTabController : BaseTabController
         }
 
         // Row heights
-        if (_mainPanel != null && _mainPanel.RowStyles.Count >= 5)
+        if (_mainPanel != null && _mainPanel.RowStyles.Count >= 7)
         {
             var stripHeight = Math.Max((int)(32 * scale), 28);
             _mainPanel.RowStyles[0].Height = stripHeight;                       // Crawl bar
             _mainPanel.RowStyles[1].Height = stripHeight;                       // Search bar
-            _mainPanel.RowStyles[3].Height = (int)(55 * scale);                // Pagination
-            _mainPanel.RowStyles[4].Height = Math.Max((int)(26 * scale), 22);  // Status
+            // Row 2 (search history) and Row 3 (monitor) are dynamically sized
+            _mainPanel.RowStyles[5].Height = (int)(55 * scale);                // Pagination
+            _mainPanel.RowStyles[6].Height = Math.Max((int)(26 * scale), 22);  // Status
         }
+
+        // Refresh monitor panel height
+        UpdateMonitorPanelHeight();
     }
 
     #endregion
@@ -1775,6 +2443,8 @@ public class CostumeTabController : BaseTabController
             StopAutoCrawl();
             _crawlCts?.Cancel();
             _crawlCts?.Dispose();
+            _alarmTimer?.Stop();
+            _alarmTimer?.Dispose();
         }
         base.Dispose(disposing);
     }

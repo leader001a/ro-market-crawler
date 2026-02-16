@@ -44,6 +44,11 @@ public interface ISettingsService
     List<string> DealSearchHistory { get; }
 
     /// <summary>
+    /// Costume search history
+    /// </summary>
+    List<CostumeSearchEntry> CostumeSearchHistory { get; }
+
+    /// <summary>
     /// Whether to hide the deal search guide popup
     /// </summary>
     bool HideDealSearchGuide { get; set; }
