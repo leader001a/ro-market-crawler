@@ -50,6 +50,10 @@ public class ItemDetailForm : Form
     private RichTextBox _rtbItemDesc = null!;
     private RichTextBox _rtbSlotInfo = null!;
     private RichTextBox _rtbRandomOptions = null!;
+    private TableLayoutPanel _mainPanel = null!;
+    private Panel _relatedItemsCard = null!;
+    private FlowLayoutPanel _relatedItemsFlow = null!;
+    private bool _updatingRelatedHeight;
 
     public ItemDetailForm(DealItem item, ItemIndexService? itemIndexService = null, ThemeType theme = ThemeType.Dark, float baseFontSize = 12f)
     {
@@ -66,9 +70,6 @@ public class ItemDetailForm : Form
         _imageCacheDir = Path.Combine(dataDir, "ItemImages");
         Directory.CreateDirectory(_imageCacheDir);
 
-        // TEST: Write startup log
-        try { File.WriteAllText(Path.Combine(_imageCacheDir, "startup_test.log"), $"ItemDetailForm created at {DateTime.Now}"); } catch { }
-
         ApplyThemeColors();
         InitializeUI();
 
@@ -81,7 +82,10 @@ public class ItemDetailForm : Form
                 ApplyDarkModeToForm();
             }
             await LoadDataAsync();
+            UpdateRelatedItemsHeight();
         };
+
+        Resize += (s, e) => UpdateRelatedItemsHeight();
     }
 
     private void ApplyDarkModeToForm()
@@ -170,18 +174,19 @@ public class ItemDetailForm : Form
         var headerHeight = (int)(140 * fontScale);
         var randomOptionsHeight = (int)(175 * fontScale);
 
-        var mainPanel = new TableLayoutPanel
+        _mainPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 3,
+            RowCount = 4,
             Padding = new Padding(15),
             BackColor = ThemeBackground,
             CellBorderStyle = TableLayoutPanelCellBorderStyle.None
         };
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, headerHeight));  // Top: Header
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));   // Middle: Content (+50 from removed bottom)
-        mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, randomOptionsHeight)); // Random Options (+50)
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, headerHeight));  // Top: Header
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));   // Middle: Content
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, randomOptionsHeight)); // Random Options
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));    // Related Items (hidden initially)
 
         // === TOP: Header card (image + name + basic info + price) ===
         var headerCard = CreateCard(new Size(0, 130));
@@ -248,7 +253,7 @@ public class ItemDetailForm : Form
         headerLayout.Controls.Add(infoPanel, 1, 0);
 
         headerCard.Controls.Add(headerLayout);
-        mainPanel.Controls.Add(headerCard, 0, 0);
+        _mainPanel.Controls.Add(headerCard, 0, 0);
 
         // === MIDDLE: Content area (left: desc, right: enchants) ===
         var contentPanel = new TableLayoutPanel
@@ -311,7 +316,7 @@ public class ItemDetailForm : Form
 
         contentPanel.Controls.Add(slotCard, 1, 0);
 
-        mainPanel.Controls.Add(contentPanel, 0, 1);
+        _mainPanel.Controls.Add(contentPanel, 0, 1);
 
         // === ROW 2: Random options card (separate bottom section) ===
         var optionsCard = CreateCard(new Size(0, 0));
@@ -335,9 +340,39 @@ public class ItemDetailForm : Form
         _rtbRandomOptions.Text = "로딩중...";
         optionsCard.Controls.Add(_rtbRandomOptions);
 
-        mainPanel.Controls.Add(optionsCard, 0, 2);
+        _mainPanel.Controls.Add(optionsCard, 0, 2);
 
-        Controls.Add(mainPanel);
+        // === ROW 3: Related items card (hidden initially, shown if related items found) ===
+        _relatedItemsCard = CreateCard(new Size(0, 0));
+        _relatedItemsCard.Dock = DockStyle.Fill;
+        _relatedItemsCard.Margin = new Padding(0, 10, 0, 0);
+        _relatedItemsCard.Visible = false;
+
+        var relatedTitle = new Label
+        {
+            Text = "연관 아이템",
+            Font = new Font("Malgun Gothic", _baseFontSize, FontStyle.Bold),
+            ForeColor = ThemeText,
+            Location = new Point(15, 8),
+            AutoSize = true
+        };
+        _relatedItemsCard.Controls.Add(relatedTitle);
+
+        _relatedItemsFlow = new FlowLayoutPanel
+        {
+            Location = new Point(15, 32),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
+            Size = new Size(_relatedItemsCard.Width - 30, _relatedItemsCard.Height - 40),
+            BackColor = ThemeCard,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true,
+            AutoScroll = true
+        };
+        _relatedItemsCard.Controls.Add(_relatedItemsFlow);
+
+        _mainPanel.Controls.Add(_relatedItemsCard, 0, 3);
+
+        Controls.Add(_mainPanel);
     }
 
     private Panel CreateCard(Size size)
@@ -394,6 +429,7 @@ public class ItemDetailForm : Form
             LoadDetailInfo();
             var itemDescTask = LoadItemDescriptionAsync();
             await Task.WhenAll(imageTask, itemDescTask);
+            LoadRelatedItems();
         }
         catch (Exception ex)
         {
@@ -689,6 +725,116 @@ public class ItemDetailForm : Form
         // Scroll to top
         _rtbRandomOptions.SelectionStart = 0;
         _rtbRandomOptions.ScrollToCaret();
+    }
+
+    private void LoadRelatedItems()
+    {
+        if (_itemIndexService == null || !_itemIndexService.IsLoaded || IsDisposed) return;
+
+        var baseItemName = _item.GetBaseItemName();
+        if (string.IsNullOrWhiteSpace(baseItemName) || baseItemName.Length < 2) return;
+
+        var effectiveItemId = _item.GetEffectiveItemId();
+
+        // Search for items whose description (ItemText) mentions this item's name
+        var searchResults = _itemIndexService.SearchItems(baseItemName, 999, 0, 50, searchDescription: true);
+
+        var relatedItems = searchResults
+            .Where(k => k.ItemText?.Contains(baseItemName, StringComparison.OrdinalIgnoreCase) == true
+                && (!effectiveItemId.HasValue || k.ItemConst != effectiveItemId.Value))
+            .GroupBy(k => k.ScreenName ?? k.Name ?? k.ItemConst.ToString(), StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.OrderBy(k => k.ItemConst).First())
+            .ToList();
+
+        if (relatedItems.Count == 0) return;
+
+        // Show the related items panel with initial height estimate
+        // Actual height will be refined by UpdateRelatedItemsHeight() after layout
+        var scale = _baseFontSize / 12f;
+        _relatedItemsCard.Visible = true;
+        _mainPanel.RowStyles[3] = new RowStyle(SizeType.Absolute, (int)(80 * scale));
+
+        foreach (var kafraItem in relatedItems)
+        {
+            var displayName = kafraItem.ScreenName ?? kafraItem.Name ?? $"Item {kafraItem.ItemConst}";
+            var link = new LinkLabel
+            {
+                Text = displayName,
+                Font = new Font("Malgun Gothic", _baseFontSize - 1),
+                AutoSize = true,
+                LinkColor = ThemeTextHighlight,
+                ActiveLinkColor = ThemeAccent,
+                VisitedLinkColor = ThemeTextHighlight,
+                Margin = new Padding(4, 2, 4, 2),
+                Tag = kafraItem
+            };
+            link.LinkClicked += RelatedItemLink_Clicked;
+            _relatedItemsFlow.Controls.Add(link);
+        }
+    }
+
+    private void UpdateRelatedItemsHeight()
+    {
+        if (!_relatedItemsCard.Visible || _relatedItemsFlow.Controls.Count == 0) return;
+        if (_updatingRelatedHeight) return;
+        _updatingRelatedHeight = true;
+        try
+        {
+            // Get available width for flow content
+            var flowWidth = _relatedItemsFlow.ClientSize.Width;
+            if (flowWidth <= 0)
+                flowWidth = _mainPanel.ClientSize.Width - _mainPanel.Padding.Horizontal -
+                            _relatedItemsCard.Margin.Horizontal - 30; // 30 = flow Location.X(15) + right margin(15)
+            if (flowWidth <= 0) return;
+
+            // Manually calculate wrapping height using TextRenderer for accurate font measurement
+            int currentX = 0;
+            int currentRowHeight = 0;
+            int totalHeight = 0;
+
+            foreach (Control ctrl in _relatedItemsFlow.Controls)
+            {
+                var textSize = TextRenderer.MeasureText(ctrl.Text, ctrl.Font);
+                var itemWidth = textSize.Width + ctrl.Margin.Horizontal + 8;
+                var itemHeight = textSize.Height + ctrl.Margin.Vertical + 4;
+
+                if (currentX > 0 && currentX + itemWidth > flowWidth)
+                {
+                    totalHeight += currentRowHeight;
+                    currentX = 0;
+                    currentRowHeight = 0;
+                }
+
+                currentX += itemWidth;
+                currentRowHeight = Math.Max(currentRowHeight, itemHeight);
+            }
+            totalHeight += currentRowHeight; // Last row
+
+            if (totalHeight <= 0) return;
+
+            var scale = _baseFontSize / 12f;
+            // Card overhead: margin-top(10) + flow.Top(32) + card.Padding.Bottom(15) + AutoScroll/rounding buffer
+            var cardOverhead = (int)(72 * scale);
+            var maxFlowHeight = (int)(200 * scale);
+            var minFlowHeight = (int)(30 * scale);
+            var flowHeight = Math.Max(Math.Min(totalHeight, maxFlowHeight), minFlowHeight);
+
+            var newRowHeight = cardOverhead + flowHeight;
+            _mainPanel.RowStyles[3] = new RowStyle(SizeType.Absolute, newRowHeight);
+        }
+        finally
+        {
+            _updatingRelatedHeight = false;
+        }
+    }
+
+    private void RelatedItemLink_Clicked(object? sender, LinkLabelLinkClickedEventArgs e)
+    {
+        if (sender is not LinkLabel link || link.Tag is not KafraItem kafraItem) return;
+
+        var indexService = _itemIndexService as ItemIndexService;
+        var infoForm = new ItemInfoForm(kafraItem, indexService, _theme, _baseFontSize);
+        infoForm.Show(this);
     }
 
     private void LoadTitleBarIcon()

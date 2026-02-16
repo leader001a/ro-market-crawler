@@ -20,6 +20,7 @@ public class ItemIndexService : IItemIndexService
     // In-memory index
     private Dictionary<int, KafraItemDto> _itemsById = new();
     private Dictionary<string, int> _idByScreenName = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<int> _canonicalIds = new();
     private ItemIndexMetadata _metadata = new();
     private readonly object _indexLock = new();
 
@@ -90,13 +91,10 @@ public class ItemIndexService : IItemIndexService
                     if (int.TryParse(kvp.Key, out var id))
                     {
                         _itemsById[id] = kvp.Value;
-                        if (!string.IsNullOrEmpty(kvp.Value.ScreenName))
-                        {
-                            _idByScreenName[kvp.Value.ScreenName] = kvp.Value.Id;
-                        }
                     }
                 }
 
+                BuildCanonicalIds();
                 _isLoaded = true;
             }
 
@@ -190,22 +188,12 @@ public class ItemIndexService : IItemIndexService
             // Run index building and saving on background thread to avoid UI freezing
             await Task.Run(async () =>
             {
-                // Build name lookup dictionary
-                var newIdByScreenName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                foreach (var item in newItems.Values)
-                {
-                    if (!string.IsNullOrEmpty(item.ScreenName))
-                    {
-                        newIdByScreenName[item.ScreenName] = item.Id;
-                    }
-                }
-
                 // Apply to in-memory index
                 lock (_indexLock)
                 {
                     _itemsById = newItems;
                     _metadata = newMetadata;
-                    _idByScreenName = newIdByScreenName;
+                    BuildCanonicalIds();
                     _isLoaded = true;
                 }
 
@@ -344,6 +332,10 @@ public class ItemIndexService : IItemIndexService
         {
             foreach (var item in _itemsById.Values)
             {
+                // Skip duplicate items (same ScreenName, keep lowest ID only)
+                if (!_canonicalIds.Contains(item.Id))
+                    continue;
+
                 // Type filter (999 = all types)
                 if (!allTypes && !itemTypes.Contains(item.Type))
                     continue;
@@ -394,6 +386,10 @@ public class ItemIndexService : IItemIndexService
             {
                 if (results.Count >= take) break;
 
+                // Skip duplicate items (same ScreenName, keep lowest ID only)
+                if (!_canonicalIds.Contains(item.Id))
+                    continue;
+
                 // Type filter (999 = all types)
                 if (!allTypes && !itemTypes.Contains(item.Type))
                     continue;
@@ -426,6 +422,35 @@ public class ItemIndexService : IItemIndexService
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Build canonical ID set: for each ScreenName, keep only the lowest ID (newest version).
+    /// Must be called inside _indexLock.
+    /// </summary>
+    private void BuildCanonicalIds()
+    {
+        var nameToLowestId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in _itemsById.Values)
+        {
+            if (string.IsNullOrEmpty(item.ScreenName))
+                continue;
+
+            if (!nameToLowestId.TryGetValue(item.ScreenName, out var existingId) || item.Id < existingId)
+                nameToLowestId[item.ScreenName] = item.Id;
+        }
+
+        _canonicalIds = new HashSet<int>(nameToLowestId.Values);
+
+        // Items without ScreenName are always canonical
+        foreach (var item in _itemsById.Values)
+        {
+            if (string.IsNullOrEmpty(item.ScreenName))
+                _canonicalIds.Add(item.Id);
+        }
+
+        // Update name lookup to point to canonical IDs
+        _idByScreenName = nameToLowestId;
     }
 
     /// <summary>
