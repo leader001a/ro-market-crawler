@@ -20,7 +20,7 @@ public class CostumeTabController : BaseTabController
     private const string CrawlSearchTerm = "의상";
     private const int ItemsPerPage = 10;
     private const int CrawlMaxPages = 1000;             // Safety limit
-    private const int PageDelaySlowMs = 5000;            // 5s — 신규 비율 높을 때 (429 방지)
+    private const int PageDelaySlowMs = 2000;            // 2s — 신규 비율 높을 때 (429 방지)
     private const int PageDelayFastMs = 1500;            // 1.5s — 신규 비율 낮을 때
     private const int NewItemDetailDelayMs = 1000;       // 1s — 신규 아이템 상세요청 후 딜레이
     private const int AutoCrawlIntervalMs = 300_000;     // 5분 자동 반복 주기
