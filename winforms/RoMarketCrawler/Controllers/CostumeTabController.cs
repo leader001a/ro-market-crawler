@@ -256,7 +256,8 @@ public class CostumeTabController : BaseTabController
         _topBarLayout.Controls.Add(searchAreaPanel, 1, 0);
 
         // Content layout (1 col × 3 rows)
-        var topBarHeight = stripHeight + 28;  // strip + search history max
+        // Top bar height: crawl strip + crawl status strip (both ~stripHeight each)
+        var topBarHeight = stripHeight * 2;
         _contentLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -1760,12 +1761,14 @@ public class CostumeTabController : BaseTabController
 
         _pnlSearchHistory.Visible = hasHistory;
 
-        // Update top bar height to accommodate search history
+        // Update top bar height: max of left (crawl strip + status strip) and right (search strip + history)
         if (_contentLayout != null && _contentLayout.RowStyles.Count > 0)
         {
             var scale = _baseFontSize / 12f;
             var stripHeight = Math.Max((int)(32 * scale), 28);
-            _contentLayout.RowStyles[0].Height = stripHeight + (hasHistory ? 28 : 0);
+            var leftHeight = stripHeight * 2;                          // crawl strip + crawl status
+            var rightHeight = stripHeight + (hasHistory ? 28 : 0);     // search strip + history
+            _contentLayout.RowStyles[0].Height = Math.Max(leftHeight, rightHeight);
         }
     }
 
@@ -2637,7 +2640,9 @@ public class CostumeTabController : BaseTabController
         {
             var stripHeight = Math.Max((int)(32 * scale), 28);
             var hasHistory = _pnlSearchHistory != null && _pnlSearchHistory.Visible;
-            _contentLayout.RowStyles[0].Height = stripHeight + (hasHistory ? 28 : 0);  // Top bar
+            var leftHeight = stripHeight * 2;
+            var rightHeight = stripHeight + (hasHistory ? 28 : 0);
+            _contentLayout.RowStyles[0].Height = Math.Max(leftHeight, rightHeight);    // Top bar
             _contentLayout.RowStyles[2].Height = (int)(55 * scale);                    // Pagination
         }
 
