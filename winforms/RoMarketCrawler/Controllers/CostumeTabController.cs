@@ -23,7 +23,7 @@ public class CostumeTabController : BaseTabController
     private const int PageDelaySlowMs = 2000;            // 2s — 신규 비율 높을 때 (429 방지)
     private const int PageDelayFastMs = 1500;            // 1.5s — 신규 비율 낮을 때
     private const int NewItemDetailDelayMs = 1000;       // 1s — 신규 아이템 상세요청 후 딜레이
-    private const int AutoCrawlIntervalMs = 300_000;     // 5분 자동 반복 주기
+    private const int AutoCrawlIntervalMs = 10_000;      // 10초 자동 반복 주기 (수집 완료 후 즉시 재시작)
 
     #endregion
 
@@ -63,6 +63,7 @@ public class CostumeTabController : BaseTabController
     private DataGridView _dgvResults = null!;
     private readonly BindingSource _resultBindingSource;
     private Label _lblStatus = null!;
+    private Label _lblLastCrawlInfo = null!;
     private TableLayoutPanel _mainPanel = null!;
     private TableLayoutPanel _contentLayout = null!;
     private TableLayoutPanel _rightInnerLayout = null!;
@@ -196,7 +197,9 @@ public class CostumeTabController : BaseTabController
         {
             Dock = DockStyle.Bottom,
             GripStyle = ToolStripGripStyle.Hidden,
-            BackColor = _colors.Panel
+            BackColor = _colors.Panel,
+            CanOverflow = false,
+            LayoutStyle = ToolStripLayoutStyle.Flow
         };
         _crawlStatusStrip.Items.Add(_crawlProgressBar);
         _crawlStatusStrip.Items.Add(_lblCrawlStatus);
@@ -211,8 +214,21 @@ public class CostumeTabController : BaseTabController
             BackColor = _colors.Background
         };
         _crawlStrip.Dock = DockStyle.Top;
-        crawlAreaPanel.Controls.Add(_crawlStatusStrip);  // Bottom dock
-        crawlAreaPanel.Controls.Add(_crawlStrip);         // Top dock
+        _lblLastCrawlInfo = new Label
+        {
+            Text = "",
+            Dock = DockStyle.Bottom,
+            AutoSize = false,
+            Height = 20,
+            ForeColor = _colors.TextMuted,
+            TextAlign = ContentAlignment.BottomLeft,
+            Padding = new Padding(5, 0, 0, 0),
+            Font = new Font("Malgun Gothic", _baseFontSize)
+        };
+        // Dock order: last added docks first
+        crawlAreaPanel.Controls.Add(_crawlStatusStrip);   // Bottom (above _lblLastCrawlInfo)
+        crawlAreaPanel.Controls.Add(_lblLastCrawlInfo);   // Bottom (very bottom)
+        crawlAreaPanel.Controls.Add(_crawlStrip);          // Top dock
 
         // Right column panel: search strip (Top) + search history (Top)
         var searchAreaPanel = new Panel
@@ -235,8 +251,8 @@ public class CostumeTabController : BaseTabController
             Margin = new Padding(0),
             Padding = new Padding(0)
         };
-        _topBarLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20));
-        _topBarLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 80));
+        _topBarLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
+        _topBarLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 75));
         _topBarLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         ApplyTableLayoutPanelStyle(_topBarLayout);
 
@@ -255,9 +271,11 @@ public class CostumeTabController : BaseTabController
         _topBarLayout.Controls.Add(crawlAreaPanel, 0, 0);
         _topBarLayout.Controls.Add(searchAreaPanel, 1, 0);
 
+        paginationPanel.BackColor = _colors.Panel;
+
         // Content layout (1 col × 3 rows)
         // Top bar height: crawl strip + crawl status strip (both ~stripHeight each)
-        var topBarHeight = stripHeight * 2;
+        var topBarHeight = stripHeight * 2 + 20;
         _contentLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -1446,13 +1464,8 @@ public class CostumeTabController : BaseTabController
 
             _lastCrawlFinishedAt = DateTime.Now;
 
-            var nextText = "";
-            if (_isAutoCrawling)
-            {
-                var nextTime = _lastCrawlFinishedAt.AddMilliseconds(AutoCrawlIntervalMs);
-                nextText = $" | 다음 수집: {nextTime:HH:mm}";
-            }
-            _lblCrawlStatus.Text = $"완료: 기존 {updatedCount} / 신규 {newCount}건 ({elapsedText}){nextText}";
+            _lblCrawlStatus.Text = $"완료: 기존 {updatedCount} / 신규 {newCount}건 ({elapsedText})";
+            _lblLastCrawlInfo.Text = $"마지막 수집: {_lastCrawlFinishedAt:yyyy-MM-dd HH:mm} | {allItems.Count}건";
             UpdateStatusBar();
 
             // Check watch conditions after crawl completes
@@ -1469,9 +1482,11 @@ public class CostumeTabController : BaseTabController
         {
             MergeRemainingItems(isIncremental, allItems, existingBySsi);
             _lblCrawlStatus.Text = $"중지됨: 기존 {updatedCount} / 신규 {newCount}건";
-
             if (allItems.Count > 0)
+            {
+                _lblLastCrawlInfo.Text = $"마지막 수집: {DateTime.Now:yyyy-MM-dd HH:mm} (중지) | {allItems.Count}건";
                 SavePartialSession(selectedServer, allItems, currentPage - 1, maxEndPage);
+            }
         }
         catch (RateLimitException rateLimitEx)
         {
@@ -1765,7 +1780,7 @@ public class CostumeTabController : BaseTabController
         {
             var scale = _baseFontSize / 12f;
             var stripHeight = Math.Max((int)(32 * scale), 28);
-            var leftHeight = stripHeight * 2;                          // crawl strip + crawl status
+            var leftHeight = stripHeight * 2 + 20;                     // crawl strip + last crawl info + crawl status
             var rightHeight = stripHeight + (hasHistory ? 28 : 0);     // search strip + history
             _contentLayout.RowStyles[0].Height = Math.Max(leftHeight, rightHeight);
         }
@@ -1860,19 +1875,33 @@ public class CostumeTabController : BaseTabController
         _dgvWatch.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
         _dgvWatch.ColumnHeadersHeight = _watchGridHeaderHeight;
         _dgvWatch.RowTemplate.Height = _watchGridRowHeight;
+        _dgvWatch.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
 
         _dgvWatch.Columns.AddRange(new DataGridViewColumn[]
         {
             new DataGridViewButtonColumn
             {
-                Name = "Status",
-                HeaderText = "상태",
-                Text = "-",
+                Name = "ViewMatch",
+                HeaderText = "",
+                Text = "",
                 UseColumnTextForButtonValue = false,
-                MinimumWidth = 60,
-                Width = 70,
+                MinimumWidth = 80,
+                Width = 80,
                 AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
                 FlatStyle = FlatStyle.Flat,
+                DefaultCellStyle = new DataGridViewCellStyle
+                {
+                    Alignment = DataGridViewContentAlignment.MiddleCenter
+                }
+            },
+            new DataGridViewTextBoxColumn
+            {
+                Name = "Status",
+                HeaderText = "상태",
+                ReadOnly = true,
+                MinimumWidth = 80,
+                Width = 90,
+                AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
                 DefaultCellStyle = new DataGridViewCellStyle
                 {
                     Alignment = DataGridViewContentAlignment.MiddleCenter
@@ -1922,6 +1951,7 @@ public class CostumeTabController : BaseTabController
         _dgvWatch.CellEndEdit += DgvWatch_CellEndEdit;
         _dgvWatch.CellFormatting += DgvWatch_CellFormatting;
         _dgvWatch.CellClick += DgvWatch_CellClick;
+        _dgvWatch.CellPainting += DgvWatch_CellPainting;
         _dgvWatch.EditingControlShowing += DgvWatch_EditingControlShowing;
         _dgvWatch.RowLeave += DgvWatch_RowLeave;
         _dgvWatch.Leave += DgvWatch_Leave;
@@ -2015,18 +2045,49 @@ public class CostumeTabController : BaseTabController
         {
             var watch = _costumeMonitorConfig.Items[i];
             var result = _watchAlarmResults.FirstOrDefault(r => r.Watch == watch);
-            var cell = _dgvWatch.Rows[i].Cells["Status"];
+            var row = _dgvWatch.Rows[i];
+            var statusCell = row.Cells["Status"];
+            var viewCell = row.Cells["ViewMatch"];
 
             if (result.Matches != null && result.Matches.Count > 0)
             {
-                cell.Value = $"{result.Matches.Count}건";
-                cell.Style.ForeColor = _colors.SaleColor;
+                statusCell.Value = $"{result.Matches.Count}건 매칭";
+                viewCell.Value = "매칭 조회";
+                if (viewCell is DataGridViewButtonCell btnCell)
+                    btnCell.FlatStyle = FlatStyle.Standard;
+                viewCell.Style.BackColor = Color.White;
+                viewCell.Style.ForeColor = Color.FromArgb(180, 40, 40);
+                viewCell.Style.Font = new Font("Malgun Gothic", _baseFontSize, FontStyle.Bold);
+                // Highlight entire row
+                row.DefaultCellStyle.BackColor = Color.FromArgb(180, 40, 40);
+                row.DefaultCellStyle.ForeColor = Color.White;
+                row.DefaultCellStyle.Font = new Font("Malgun Gothic", _baseFontSize, FontStyle.Bold);
             }
             else
             {
-                cell.Value = "-";
-                cell.Style.ForeColor = _colors.TextMuted;
+                statusCell.Value = "-";
+                viewCell.Value = "";
+                if (viewCell is DataGridViewButtonCell btnCell)
+                    btnCell.FlatStyle = FlatStyle.Flat;
+                viewCell.Style = new DataGridViewCellStyle();
+                row.DefaultCellStyle.BackColor = _colors.Grid;
+                row.DefaultCellStyle.ForeColor = _colors.Text;
+                row.DefaultCellStyle.Font = new Font("Malgun Gothic", _baseFontSize);
             }
+        }
+    }
+
+    private void DgvWatch_CellPainting(object? sender, DataGridViewCellPaintingEventArgs e)
+    {
+        if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
+        if (_dgvWatch.Columns[e.ColumnIndex].Name != "ViewMatch") return;
+
+        // Hide button rendering when cell has no value (no matches)
+        var val = e.Value?.ToString();
+        if (string.IsNullOrEmpty(val))
+        {
+            e.PaintBackground(e.ClipBounds, e.State.HasFlag(DataGridViewElementStates.Selected));
+            e.Handled = true;
         }
     }
 
@@ -2047,7 +2108,7 @@ public class CostumeTabController : BaseTabController
         if (e.RowIndex < 0) return;
         var colName = _dgvWatch.Columns[e.ColumnIndex].Name;
 
-        if (colName == "Status")
+        if (colName == "ViewMatch")
         {
             if (e.RowIndex < _costumeMonitorConfig.Items.Count)
             {
@@ -2445,12 +2506,15 @@ public class CostumeTabController : BaseTabController
             _currentSession = session;
             _btnSearch.Enabled = true;
 
-            var timeStr = session.CrawledAt.ToString("MM-dd HH:mm");
-            _lblCrawlStatus.Text = $"저장된 데이터: {session.TotalItems}건 ({timeStr} 수집)";
+            _lblLastCrawlInfo.Text = $"마지막 수집: {session.CrawledAt:yyyy-MM-dd HH:mm} | {session.TotalItems}건";
+            _lblCrawlStatus.Text = "";
             UpdateStatusBar();
 
             if (autoDisplay)
                 ExecuteLocalSearch();
+
+            // Check watch conditions against loaded data
+            CheckWatchConditions();
         }
     }
 
@@ -2580,6 +2644,11 @@ public class CostumeTabController : BaseTabController
         if (_btnNext10 != null) ApplyRoundedButtonStyle(_btnNext10, false);
         if (_btnLast != null) ApplyRoundedButtonStyle(_btnLast, false);
         if (_lblPageInfo != null) _lblPageInfo.ForeColor = colors.TextMuted;
+        if (_lblLastCrawlInfo != null)
+        {
+            _lblLastCrawlInfo.ForeColor = colors.TextMuted;
+            _lblLastCrawlInfo.BackColor = colors.Background;
+        }
     }
 
     public override void UpdateFontSize(float baseFontSize)
@@ -2639,7 +2708,7 @@ public class CostumeTabController : BaseTabController
         {
             var stripHeight = Math.Max((int)(32 * scale), 28);
             var hasHistory = _pnlSearchHistory != null && _pnlSearchHistory.Visible;
-            var leftHeight = stripHeight * 2;
+            var leftHeight = stripHeight * 2 + 20;
             var rightHeight = stripHeight + (hasHistory ? 28 : 0);
             _contentLayout.RowStyles[0].Height = Math.Max(leftHeight, rightHeight);    // Top bar
             _contentLayout.RowStyles[2].Height = (int)(55 * scale);                    // Pagination
