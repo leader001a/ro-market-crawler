@@ -1279,8 +1279,7 @@ public class CostumeTabController : BaseTabController
                     _crawlProgressBar.Value = Math.Min(progressPercent, 100);
                 }
 
-                _lblCrawlStatus.Text = $"{currentPage}/{(maxEndPage < CrawlMaxPages ? maxEndPage.ToString() : "?")} " +
-                    $"수집 중... ({allItems.Count}건)";
+                _lblCrawlStatus.Text = $"{currentPage}/{(maxEndPage < CrawlMaxPages ? maxEndPage.ToString() : "?")} 수집 중...";
 
                 // Fetch page listing
                 var result = await _gnjoyClient.SearchItemDealsWithCountAsync(
@@ -1453,7 +1452,7 @@ public class CostumeTabController : BaseTabController
                 var nextTime = _lastCrawlFinishedAt.AddMilliseconds(AutoCrawlIntervalMs);
                 nextText = $" | 다음 수집: {nextTime:HH:mm}";
             }
-            _lblCrawlStatus.Text = $"완료: {allItems.Count}건 ({elapsedText}){nextText}";
+            _lblCrawlStatus.Text = $"완료: 기존 {updatedCount} / 신규 {newCount}건 ({elapsedText}){nextText}";
             UpdateStatusBar();
 
             // Check watch conditions after crawl completes
@@ -1469,7 +1468,7 @@ public class CostumeTabController : BaseTabController
         catch (OperationCanceledException)
         {
             MergeRemainingItems(isIncremental, allItems, existingBySsi);
-            _lblCrawlStatus.Text = $"중지됨: {allItems.Count}건";
+            _lblCrawlStatus.Text = $"중지됨: 기존 {updatedCount} / 신규 {newCount}건";
 
             if (allItems.Count > 0)
                 SavePartialSession(selectedServer, allItems, currentPage - 1, maxEndPage);
