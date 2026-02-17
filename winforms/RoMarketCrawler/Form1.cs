@@ -764,6 +764,57 @@ public partial class Form1 : Form
 
         _menuStrip.Items.Add(toolsMenu);
 
+        // Alarm settings menu (top-level)
+        var alarmMenu = new ToolStripMenuItem("알림(&A)") { ForeColor = ThemeText };
+
+        // Sound items (flat - directly in alarmMenu)
+        var lblSound = new ToolStripMenuItem("알림 소리") { ForeColor = ThemeTextMuted, Enabled = false };
+        alarmMenu.DropDownItems.Add(lblSound);
+        var sounds = new (AlarmSoundType type, string name)[]
+        {
+            (AlarmSoundType.SystemSound, "시스템"),
+            (AlarmSoundType.Chime, "차임벨"),
+            (AlarmSoundType.DingDong, "딩동"),
+            (AlarmSoundType.Rising, "상승음"),
+            (AlarmSoundType.Alert, "알림음")
+        };
+        foreach (var (type, name) in sounds)
+        {
+            var item = new ToolStripMenuItem("  " + name)
+            {
+                Tag = type,
+                Checked = _selectedAlarmSound == type
+            };
+            item.Click += AlarmSoundMenuItem_Click;
+            alarmMenu.DropDownItems.Add(item);
+        }
+
+        alarmMenu.DropDownItems.Add(new ToolStripSeparator());
+
+        // Interval items (flat - directly in alarmMenu)
+        var lblInterval = new ToolStripMenuItem("알림 간격") { ForeColor = ThemeTextMuted, Enabled = false };
+        alarmMenu.DropDownItems.Add(lblInterval);
+        var intervals = new[] { 1, 3, 5, 10, 30 };
+        foreach (var sec in intervals)
+        {
+            var item = new ToolStripMenuItem("  " + $"{sec}초")
+            {
+                Tag = sec,
+                Checked = _alarmIntervalSeconds == sec
+            };
+            item.Click += AlarmIntervalMenuItem_Click;
+            alarmMenu.DropDownItems.Add(item);
+        }
+
+        // Prevent menu from closing when selecting items
+        alarmMenu.DropDown.Closing += (s, e) =>
+        {
+            if (e.CloseReason == ToolStripDropDownCloseReason.ItemClicked)
+                e.Cancel = true;
+        };
+
+        _menuStrip.Items.Add(alarmMenu);
+
         // Help menu
         var helpMenu = new ToolStripMenuItem("도움말(&H)") { ForeColor = ThemeText };
 
@@ -798,6 +849,59 @@ public partial class Form1 : Form
     private void CloseAllItemInfoForms()
     {
         _itemTabController.CloseAllItemInfoForms();
+    }
+
+    private void AlarmSoundMenuItem_Click(object? sender, EventArgs e)
+    {
+        if (sender is not ToolStripMenuItem clicked) return;
+        if (clicked.Tag is not AlarmSoundType soundType) return;
+
+        _selectedAlarmSound = soundType;
+
+        // Update check marks on sound items only
+        if (clicked.OwnerItem is ToolStripMenuItem parent)
+        {
+            foreach (ToolStripMenuItem item in parent.DropDownItems.OfType<ToolStripMenuItem>())
+                if (item.Tag is AlarmSoundType t)
+                    item.Checked = t == soundType;
+        }
+
+        PlayAlarmSound();
+        SyncAlarmSettingsToControllers();
+        SaveSettings();
+    }
+
+    private void AlarmIntervalMenuItem_Click(object? sender, EventArgs e)
+    {
+        if (sender is not ToolStripMenuItem clicked) return;
+        if (clicked.Tag is not int interval) return;
+
+        _alarmIntervalSeconds = interval;
+
+        // Update check marks on interval items only
+        if (clicked.OwnerItem is ToolStripMenuItem parent)
+        {
+            foreach (ToolStripMenuItem item in parent.DropDownItems.OfType<ToolStripMenuItem>())
+                if (item.Tag is int v)
+                    item.Checked = v == interval;
+        }
+
+        SyncAlarmSettingsToControllers();
+        SaveSettings();
+    }
+
+    private void PlayAlarmSound()
+    {
+        if (_selectedAlarmSound == AlarmSoundType.SystemSound)
+            System.Media.SystemSounds.Exclamation.Play();
+        else
+            AlarmSoundService.PlaySound(_selectedAlarmSound);
+    }
+
+    private void SyncAlarmSettingsToControllers()
+    {
+        _monitorTabController.LoadAlarmSettings(_isSoundMuted, _selectedAlarmSound, _alarmIntervalSeconds);
+        _costumeTabController.LoadAlarmSettings(_isSoundMuted, _selectedAlarmSound, _alarmIntervalSeconds);
     }
 
     private void ShowHelpGuide(HelpGuideForm.HelpSection section = HelpGuideForm.HelpSection.Overview)

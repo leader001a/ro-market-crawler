@@ -668,6 +668,8 @@ public partial class Form1
         public override Color MenuItemSelected => Color.FromArgb(60, 60, 70);
         public override Color MenuItemSelectedGradientBegin => Color.FromArgb(60, 60, 70);
         public override Color MenuItemSelectedGradientEnd => Color.FromArgb(60, 60, 70);
+        public override Color MenuItemPressedGradientBegin => Color.FromArgb(50, 50, 60);
+        public override Color MenuItemPressedGradientEnd => Color.FromArgb(50, 50, 60);
         public override Color MenuItemBorder => Color.FromArgb(70, 130, 200);
         public override Color MenuBorder => Color.FromArgb(55, 55, 65);
         public override Color ToolStripDropDownBackground => Color.FromArgb(40, 40, 48);
@@ -1213,4 +1215,5 @@ public partial class Form1
     }
 
     #endregion
+
 }

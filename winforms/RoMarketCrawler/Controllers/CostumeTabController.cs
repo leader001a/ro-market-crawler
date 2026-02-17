@@ -38,8 +38,6 @@ public class CostumeTabController : BaseTabController
     #region UI Controls
 
     // Toolbars
-    private ToolStrip _crawlStrip = null!;
-    private ToolStrip _searchStrip = null!;
 
     // Crawl bar controls
     private ToolStripComboBox _cboServer = null!;
@@ -48,7 +46,13 @@ public class CostumeTabController : BaseTabController
     private ToolStripProgressBar _crawlProgressBar = null!;
     private ToolStripLabel _lblCrawlStatus = null!;
 
+    // Crawl status strip (below search bar)
+    private ToolStrip _crawlStatusStrip = null!;
+    private ToolStrip _crawlStrip = null!;
+    private TableLayoutPanel _topBarLayout = null!;
+
     // Search bar controls
+    private ToolStrip _searchStrip = null!;
     private ToolStripTextBox _txtFilterItemName = null!;
     private ToolStripTextBox _txtFilterStone = null!;
     private ToolStripTextBox _txtFilterMinPrice = null!;
@@ -60,6 +64,8 @@ public class CostumeTabController : BaseTabController
     private readonly BindingSource _resultBindingSource;
     private Label _lblStatus = null!;
     private TableLayoutPanel _mainPanel = null!;
+    private TableLayoutPanel _contentLayout = null!;
+    private TableLayoutPanel _rightInnerLayout = null!;
 
     // Search history
     private FlowLayoutPanel _pnlSearchHistory = null!;
@@ -67,6 +73,8 @@ public class CostumeTabController : BaseTabController
     // Monitor panel
     private Panel _monitorPanel = null!;
     private DataGridView _dgvWatch = null!;
+    private ToolStripLabel _lblMonitorTitle = null!;
+    private ToolStripButton _btnMute = null!;
 
     #endregion
 
@@ -172,43 +180,120 @@ public class CostumeTabController : BaseTabController
 
         var stripHeight = Math.Max((int)(32 * scale), 28);
 
-        _mainPanel = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 1,
-            RowCount = 7,
-            Padding = new Padding(5)
-        };
-        _mainPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, stripHeight));                        // Row 0: Crawl bar
-        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, stripHeight));                        // Row 1: Search bar
-        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));                                  // Row 2: Search history (dynamic)
-        var monitorTitleH = (int)(30 * scale);
-        var monitorHeaderH = Math.Max((int)(32 * scale), 28);
-        var monitorRowH = Math.Max((int)(26 * scale), 22);
-        var monitorInitialH = monitorTitleH + monitorHeaderH + (WatchGridMinRows * monitorRowH) + 12;
-        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, monitorInitialH));                    // Row 3: Monitor panel
-        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));                                 // Row 4: Grid
-        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, (int)(55 * scale)));                  // Row 5: Pagination
-        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, Math.Max((int)(26 * scale), 22)));    // Row 6: Status
-
+        // Create controls first so height constants are initialized
         _crawlStrip = CreateCrawlStrip();
         _searchStrip = CreateSearchStrip();
         _pnlSearchHistory = CreateSearchHistoryPanel();
-        _monitorPanel = CreateMonitorPanel();
+        _monitorPanel = CreateMonitorPanel(); // Sets _monitorTitleBarHeight, _watchGridHeaderHeight, _watchGridRowHeight
         _dgvResults = CreateResultsGrid();
         var paginationPanel = CreatePaginationPanel();
         _lblStatus = CreateStatusLabel();
         _lblStatus.Text = "서버를 선택하고 데이터 수집을 시작하세요.";
         _lblStatus.Click += LblStatus_Click;
 
-        _mainPanel.Controls.Add(_crawlStrip, 0, 0);
-        _mainPanel.Controls.Add(_searchStrip, 0, 1);
-        _mainPanel.Controls.Add(_pnlSearchHistory, 0, 2);
-        _mainPanel.Controls.Add(_monitorPanel, 0, 3);
-        _mainPanel.Controls.Add(_dgvResults, 0, 4);
-        _mainPanel.Controls.Add(paginationPanel, 0, 5);
-        _mainPanel.Controls.Add(_lblStatus, 0, 6);
+        // Crawl status strip (progress bar + status label)
+        _crawlStatusStrip = new ToolStrip
+        {
+            Dock = DockStyle.Bottom,
+            GripStyle = ToolStripGripStyle.Hidden,
+            BackColor = _colors.Panel
+        };
+        _crawlStatusStrip.Items.Add(_crawlProgressBar);
+        _crawlStatusStrip.Items.Add(_lblCrawlStatus);
+
+        // Top bar: 2 columns (crawl | search+history)
+        // Left column panel: crawl strip (Top) + crawl status (Bottom)
+        var crawlAreaPanel = new Panel
+        {
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0, 0, 1, 0),
+            Padding = new Padding(0),
+            BackColor = _colors.Background
+        };
+        _crawlStrip.Dock = DockStyle.Top;
+        crawlAreaPanel.Controls.Add(_crawlStatusStrip);  // Bottom dock
+        crawlAreaPanel.Controls.Add(_crawlStrip);         // Top dock
+
+        // Right column panel: search strip (Top) + search history (Top)
+        var searchAreaPanel = new Panel
+        {
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0),
+            Padding = new Padding(0),
+            BackColor = _colors.Background
+        };
+        _pnlSearchHistory.Dock = DockStyle.Top;
+        _searchStrip.Dock = DockStyle.Top;
+        searchAreaPanel.Controls.Add(_pnlSearchHistory);  // added first → docked below
+        searchAreaPanel.Controls.Add(_searchStrip);        // added second → docked above
+
+        _topBarLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            Margin = new Padding(0),
+            Padding = new Padding(0)
+        };
+        _topBarLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20));
+        _topBarLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 80));
+        _topBarLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        ApplyTableLayoutPanelStyle(_topBarLayout);
+
+        // Draw vertical grid line between columns (like DataGridView column divider)
+        _topBarLayout.CellPaint += (s, e) =>
+        {
+            if (e.Column == 0)
+            {
+                var gridColor = _currentTheme == ThemeType.Dark ? _colors.Border : SystemColors.ControlDark;
+                using var pen = new Pen(gridColor);
+                var x = e.CellBounds.Right - 1;
+                e.Graphics.DrawLine(pen, x, e.CellBounds.Top, x, e.CellBounds.Bottom);
+            }
+        };
+
+        _topBarLayout.Controls.Add(crawlAreaPanel, 0, 0);
+        _topBarLayout.Controls.Add(searchAreaPanel, 1, 0);
+
+        // Content layout (1 col × 3 rows)
+        var topBarHeight = stripHeight + 28;  // strip + search history max
+        _contentLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 3,
+            Margin = new Padding(0),
+            Padding = new Padding(0)
+        };
+        _contentLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        _contentLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, topBarHeight));                       // Row 0: Top bar (crawl+status | search+history)
+        _contentLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));                                 // Row 1: Grid (Fill)
+        _contentLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, (int)(55 * scale)));                  // Row 2: Pagination
+
+        ApplyTableLayoutPanelStyle(_contentLayout);
+
+        _contentLayout.Controls.Add(_topBarLayout, 0, 0);
+        _contentLayout.Controls.Add(_dgvResults, 0, 1);
+        _contentLayout.Controls.Add(paginationPanel, 0, 2);
+
+        // Main panel: 1 col × 3 rows (monitor / spacer / search)
+        _mainPanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 3,
+            Padding = new Padding(5)
+        };
+        _mainPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 75));              // Row 0: Search
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 6));              // Row 1: Spacer
+        _mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 25));              // Row 2: Monitor
+
+        ApplyTableLayoutPanelStyle(_mainPanel);
+
+        _mainPanel.Controls.Add(_contentLayout, 0, 0);
+        // Row 1 is spacer (empty)
+        _mainPanel.Controls.Add(_monitorPanel, 0, 2);
 
         _tabPage.Controls.Add(_mainPanel);
 
@@ -217,7 +302,7 @@ public class CostumeTabController : BaseTabController
     }
 
     /// <summary>
-    /// Row 0: 수집 바 — [서버▼] [자동 수집] [중지]  [███ 진행바] 상태텍스트
+    /// Create crawl strip with server selector, auto-crawl button, stop button
     /// </summary>
     private ToolStrip CreateCrawlStrip()
     {
@@ -225,11 +310,11 @@ public class CostumeTabController : BaseTabController
 
         var strip = new ToolStrip
         {
+            Dock = DockStyle.Fill,
             GripStyle = ToolStripGripStyle.Hidden,
             BackColor = _colors.Panel
         };
 
-        // Server combo
         _cboServer = new ToolStripComboBox
         {
             DropDownStyle = ComboBoxStyle.DropDownList,
@@ -256,7 +341,6 @@ public class CostumeTabController : BaseTabController
             await TryLoadLatestDataAsync(autoDisplay: true);
         };
 
-        // Auto crawl toggle button
         _btnAutoCrawl = new ToolStripButton
         {
             Text = "자동 수집",
@@ -272,7 +356,6 @@ public class CostumeTabController : BaseTabController
                 StartAutoCrawl();
         };
 
-        // Crawl stop button
         _btnCrawlStop = new ToolStripButton
         {
             Text = "중지",
@@ -281,37 +364,30 @@ public class CostumeTabController : BaseTabController
         };
         _btnCrawlStop.Click += (s, e) => StopAutoCrawl();
 
-        // Progress bar (right-aligned)
         _crawlProgressBar = new ToolStripProgressBar
         {
             Minimum = 0,
             Maximum = 100,
             Value = 0,
             Visible = false,
-            Alignment = ToolStripItemAlignment.Right,
             Size = new Size((int)(150 * scale), 16)
         };
 
-        // Status label (right-aligned)
         _lblCrawlStatus = new ToolStripLabel
         {
-            Text = "",
-            Alignment = ToolStripItemAlignment.Right
+            Text = ""
         };
 
-        // Layout: [서버▼] | [자동 수집] [중지]                    [진행바] [상태] →
         strip.Items.Add(_cboServer);
         strip.Items.Add(new ToolStripSeparator());
         strip.Items.Add(_btnAutoCrawl);
         strip.Items.Add(_btnCrawlStop);
-        strip.Items.Add(_crawlProgressBar);
-        strip.Items.Add(_lblCrawlStatus);
 
         return strip;
     }
 
     /// <summary>
-    /// Row 1: 검색 바 — 아이템:[____] 스톤:[____] 가격:[____]~[____] [검색]
+    /// 검색 바 — 아이템:[____] 스톤:[____] 가격:[____]~[____] [검색]
     /// </summary>
     private ToolStrip CreateSearchStrip()
     {
@@ -319,6 +395,7 @@ public class CostumeTabController : BaseTabController
 
         var strip = new ToolStrip
         {
+            Dock = DockStyle.Fill,
             GripStyle = ToolStripGripStyle.Hidden,
             BackColor = _colors.Panel
         };
@@ -402,6 +479,7 @@ public class CostumeTabController : BaseTabController
         var dgv = new DataGridView
         {
             Dock = DockStyle.Fill,
+            Margin = new Padding(0),
             ReadOnly = true,
             AllowUserToAddRows = false,
             AllowUserToDeleteRows = false,
@@ -1679,11 +1757,15 @@ public class CostumeTabController : BaseTabController
         }
 
         var hasHistory = _costumeSearchHistory.Count > 0;
+
         _pnlSearchHistory.Visible = hasHistory;
 
-        if (_pnlSearchHistory.Parent is TableLayoutPanel tableLayout && tableLayout.RowStyles.Count > 2)
+        // Update top bar height to accommodate search history
+        if (_contentLayout != null && _contentLayout.RowStyles.Count > 0)
         {
-            tableLayout.RowStyles[2].Height = hasHistory ? 28 : 0;
+            var scale = _baseFontSize / 12f;
+            var stripHeight = Math.Max((int)(32 * scale), 28);
+            _contentLayout.RowStyles[0].Height = stripHeight + (hasHistory ? 28 : 0);
         }
     }
 
@@ -1691,81 +1773,74 @@ public class CostumeTabController : BaseTabController
 
     #region Costume Monitor
 
+    private int _monitorTitleBarHeight;
+    private int _watchGridHeaderHeight;
+    private int _watchGridRowHeight;
+
     private Panel CreateMonitorPanel()
     {
         var scale = _baseFontSize / 12f;
+
+        // Pre-calculate all heights used consistently everywhere
+        _monitorTitleBarHeight = Math.Max((int)(34 * scale), 30);
+        _watchGridHeaderHeight = Math.Max((int)(28 * scale), 24);
+        _watchGridRowHeight = Math.Max((int)(28 * scale), 24);
 
         var panel = new Panel
         {
             Dock = DockStyle.Fill,
             BackColor = _colors.Panel,
-            Padding = new Padding(5, 2, 5, 2)
+            Padding = new Padding(0),
+            Margin = new Padding(0)
         };
 
-        // Title bar with buttons
-        var titleBar = new FlowLayoutPanel
+        // Title bar (ToolStrip for consistent button style with crawl strip)
+        var titleBar = new ToolStrip
         {
             Dock = DockStyle.Top,
-            Height = (int)(28 * scale),
-            BackColor = _colors.Panel,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false,
-            Padding = new Padding(0)
+            GripStyle = ToolStripGripStyle.Hidden,
+            BackColor = _colors.Panel
         };
 
-        var lblTitle = new Label
+        _lblMonitorTitle = new ToolStripLabel
         {
-            Text = "의상 감시",
-            AutoSize = true,
-            ForeColor = _colors.Text,
-            Font = new Font("Malgun Gothic", _baseFontSize, FontStyle.Bold),
-            Margin = new Padding(0, 4, 10, 0)
+            Text = GetMonitorTitleText(),
+            ForeColor = _colors.TextMuted
         };
-        titleBar.Controls.Add(lblTitle);
+        titleBar.Items.Add(_lblMonitorTitle);
+        titleBar.Items.Add(new ToolStripSeparator());
 
-        var btnAdd = new Button
+        var btnAdd = new ToolStripButton
         {
             Text = "+ 추가",
-            AutoSize = true,
-            FlatStyle = FlatStyle.Flat,
             BackColor = _colors.Accent,
             ForeColor = _colors.AccentText,
-            Margin = new Padding(0, 1, 5, 0),
-            Padding = new Padding(4, 0, 4, 0),
-            Height = (int)(24 * scale)
+            ToolTipText = "감시 항목 추가"
         };
-        btnAdd.FlatAppearance.BorderSize = 0;
         btnAdd.Click += (s, e) => AddWatchItem();
-        titleBar.Controls.Add(btnAdd);
+        titleBar.Items.Add(btnAdd);
+        titleBar.Items.Add(new ToolStripSeparator());
 
-        var btnMute = new Button
+        _btnMute = new ToolStripButton
         {
-            Text = "음소거",
-            AutoSize = true,
-            FlatStyle = FlatStyle.Flat,
-            ForeColor = _colors.Text,
-            BackColor = _colors.Grid,
-            Margin = new Padding(0, 1, 0, 0),
-            Padding = new Padding(4, 0, 4, 0),
-            Height = (int)(24 * scale),
-            Tag = "MuteButton"
+            Text = _isSoundMuted ? "음소거 해제" : "음소거",
+            ForeColor = _isSoundMuted ? _colors.SaleColor : _colors.Text,
+            ToolTipText = "알람 음소거 토글"
         };
-        btnMute.FlatAppearance.BorderColor = _colors.Border;
-        btnMute.FlatAppearance.BorderSize = 1;
-        btnMute.Click += (s, e) =>
+        _btnMute.Click += (s, e) =>
         {
             _isSoundMuted = !_isSoundMuted;
-            UpdateMuteButton(btnMute);
-
+            UpdateMuteButton();
             if (_isSoundMuted && _alarmTimer != null)
                 _alarmTimer.Stop();
         };
-        titleBar.Controls.Add(btnMute);
+        titleBar.Items.Add(_btnMute);
 
-        // DataGridView for watch items
+        // DataGridView for watch items — Fill to use all available space in left panel
         _dgvWatch = new DataGridView
         {
             Dock = DockStyle.Fill,
+            Margin = new Padding(0),
             AllowUserToAddRows = false,
             AllowUserToDeleteRows = false,
             AllowUserToResizeRows = false,
@@ -1773,13 +1848,34 @@ public class CostumeTabController : BaseTabController
             AutoGenerateColumns = false,
             SelectionMode = DataGridViewSelectionMode.CellSelect,
             MultiSelect = false,
-            AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCells,
             ScrollBars = ScrollBars.Vertical
         };
         ApplyDataGridViewStyle(_dgvWatch);
+        // Set height properties AFTER ApplyDataGridViewStyle:
+        // ApplyDarkTheme sets ColumnHeadersBorderStyle=Single which resets
+        // ColumnHeadersHeightSizeMode, causing our height settings to be lost.
+        _dgvWatch.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None;
+        _dgvWatch.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
+        _dgvWatch.ColumnHeadersHeight = _watchGridHeaderHeight;
+        _dgvWatch.RowTemplate.Height = _watchGridRowHeight;
 
         _dgvWatch.Columns.AddRange(new DataGridViewColumn[]
         {
+            new DataGridViewButtonColumn
+            {
+                Name = "Status",
+                HeaderText = "상태",
+                Text = "-",
+                UseColumnTextForButtonValue = false,
+                MinimumWidth = 60,
+                Width = 70,
+                AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
+                FlatStyle = FlatStyle.Flat,
+                DefaultCellStyle = new DataGridViewCellStyle
+                {
+                    Alignment = DataGridViewContentAlignment.MiddleCenter
+                }
+            },
             new DataGridViewTextBoxColumn
             {
                 Name = "ItemName",
@@ -1787,7 +1883,7 @@ public class CostumeTabController : BaseTabController
                 DataPropertyName = "ItemName",
                 MinimumWidth = 100,
                 AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
-                FillWeight = 35
+                FillWeight = 30
             },
             new DataGridViewTextBoxColumn
             {
@@ -1796,7 +1892,7 @@ public class CostumeTabController : BaseTabController
                 DataPropertyName = "StoneName",
                 MinimumWidth = 100,
                 AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
-                FillWeight = 35
+                FillWeight = 30
             },
             new DataGridViewTextBoxColumn
             {
@@ -1805,7 +1901,7 @@ public class CostumeTabController : BaseTabController
                 DataPropertyName = "WatchPrice",
                 MinimumWidth = 80,
                 AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
-                FillWeight = 20,
+                FillWeight = 18,
                 DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleRight }
             },
             new DataGridViewButtonColumn
@@ -1825,56 +1921,111 @@ public class CostumeTabController : BaseTabController
         _dgvWatch.CellFormatting += DgvWatch_CellFormatting;
         _dgvWatch.CellClick += DgvWatch_CellClick;
         _dgvWatch.EditingControlShowing += DgvWatch_EditingControlShowing;
+        _dgvWatch.RowLeave += DgvWatch_RowLeave;
+        _dgvWatch.Leave += DgvWatch_Leave;
+        _dgvWatch.DataError += (s, e) => e.ThrowException = false;
 
-        // WinForms Dock order: Fill first, then Top (last added gets priority)
+        // WinForms Dock order: last added is docked first.
+        // Both are Dock=Top: titleBar (added last) goes to top, _dgvWatch below it.
         panel.Controls.Add(_dgvWatch);
         panel.Controls.Add(titleBar);
 
         return panel;
     }
 
-    private void UpdateMuteButton(Button btn)
+    private string GetMonitorTitleText()
     {
+        var count = _costumeMonitorConfig.Items.Count;
+        var countText = count > 0 ? $" ({count}개)" : "";
+        var alarmText = _watchAlarmResults.Count > 0
+            ? $"  ⚠ {_watchAlarmResults.Sum(r => r.Matches.Count)}건 발견"
+            : "";
+        return $"의상 감시{countText}{alarmText}";
+    }
+
+    private void UpdateMonitorTitleText()
+    {
+        if (_lblMonitorTitle == null) return;
+        _lblMonitorTitle.Text = GetMonitorTitleText();
+        _lblMonitorTitle.ForeColor = _watchAlarmResults.Count > 0 ? _colors.SaleColor : _colors.TextMuted;
+    }
+
+    private void UpdateMuteButton()
+    {
+        if (_btnMute == null) return;
         if (_isSoundMuted)
         {
-            btn.Text = "음소거 해제";
-            btn.ForeColor = _colors.SaleColor;
+            _btnMute.Text = "음소거 해제";
+            _btnMute.ForeColor = _colors.SaleColor;
         }
         else
         {
-            btn.Text = "음소거";
-            btn.ForeColor = _colors.Text;
+            _btnMute.Text = "음소거";
+            _btnMute.ForeColor = _colors.Text;
         }
     }
 
+    private bool _isAddingWatchItem = false;
+
     private void AddWatchItem()
     {
-        _costumeMonitorConfig.Items.Add(new CostumeWatchItem
+        _isAddingWatchItem = true;
+        try
         {
-            StoneName = "",
-            ItemName = "",
-            WatchPrice = 0,
-            AddedAt = DateTime.Now
-        });
+            _costumeMonitorConfig.Items.Add(new CostumeWatchItem
+            {
+                StoneName = "",
+                ItemName = "",
+                WatchPrice = 0,
+                AddedAt = DateTime.Now
+            });
 
-        RefreshWatchGrid();
-        UpdateMonitorPanelHeight();
-        _ = SaveCostumeMonitorConfigAsync();
+            RefreshWatchGrid();
+            UpdateMonitorPanelHeight();
+            UpdateMonitorTitleText();
 
-        // Focus the new row's StoneName cell for editing
-        if (_dgvWatch.Rows.Count > 0)
+            // Focus the new row for editing
+            if (_dgvWatch.Rows.Count > 0)
+            {
+                var lastRow = _dgvWatch.Rows.Count - 1;
+                _dgvWatch.CurrentCell = _dgvWatch.Rows[lastRow].Cells["ItemName"];
+                _dgvWatch.BeginEdit(true);
+            }
+        }
+        finally
         {
-            var lastRow = _dgvWatch.Rows.Count - 1;
-            _dgvWatch.CurrentCell = _dgvWatch.Rows[lastRow].Cells["ItemName"];
-            _dgvWatch.BeginEdit(true);
+            _isAddingWatchItem = false;
         }
     }
 
     private void RefreshWatchGrid()
     {
+        _dgvWatch.CancelEdit();
         _dgvWatch.DataSource = null;
         _dgvWatch.DataSource = new BindingSource { DataSource = _costumeMonitorConfig.Items };
         _dgvWatch.Refresh();
+        UpdateWatchStatusColumn();
+    }
+
+    private void UpdateWatchStatusColumn()
+    {
+        for (int i = 0; i < _dgvWatch.Rows.Count && i < _costumeMonitorConfig.Items.Count; i++)
+        {
+            var watch = _costumeMonitorConfig.Items[i];
+            var result = _watchAlarmResults.FirstOrDefault(r => r.Watch == watch);
+            var cell = _dgvWatch.Rows[i].Cells["Status"];
+
+            if (result.Matches != null && result.Matches.Count > 0)
+            {
+                cell.Value = $"{result.Matches.Count}건";
+                cell.Style.ForeColor = _colors.SaleColor;
+            }
+            else
+            {
+                cell.Value = "-";
+                cell.Style.ForeColor = _colors.TextMuted;
+            }
+        }
     }
 
     private void DgvWatch_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
@@ -1894,16 +2045,30 @@ public class CostumeTabController : BaseTabController
         if (e.RowIndex < 0) return;
         var colName = _dgvWatch.Columns[e.ColumnIndex].Name;
 
-        if (colName == "Delete")
+        if (colName == "Status")
+        {
+            if (e.RowIndex < _costumeMonitorConfig.Items.Count)
+            {
+                var watch = _costumeMonitorConfig.Items[e.RowIndex];
+                var result = _watchAlarmResults.FirstOrDefault(r => r.Watch == watch);
+                if (result.Matches != null && result.Matches.Count > 0)
+                {
+                    var form = new CostumeWatchMatchForm(watch, result.Matches, _currentTheme, _baseFontSize);
+                    form.ShowItemDetail += (s, item) => ShowItemDetail?.Invoke(this, item);
+                    form.ShowDialog(_tabPage.FindForm());
+                }
+            }
+        }
+        else if (colName == "Delete")
         {
             if (e.RowIndex < _costumeMonitorConfig.Items.Count)
             {
                 _costumeMonitorConfig.Items.RemoveAt(e.RowIndex);
                 RefreshWatchGrid();
                 UpdateMonitorPanelHeight();
+                UpdateMonitorTitleText();
                 _ = SaveCostumeMonitorConfigAsync();
 
-                // Stop alarm if no more items
                 if (_costumeMonitorConfig.Items.Count == 0)
                     StopAlarm();
             }
@@ -1930,6 +2095,45 @@ public class CostumeTabController : BaseTabController
         }
 
         _ = SaveCostumeMonitorConfigAsync();
+
+        // Re-check watch conditions with updated criteria
+        if (_currentSession?.Items != null)
+            CheckWatchConditions();
+        else
+            UpdateWatchStatusColumn();
+    }
+
+    private void DgvWatch_RowLeave(object? sender, DataGridViewCellEventArgs e)
+    {
+        if (_isAddingWatchItem) return;
+        CleanupEmptyWatchItems();
+    }
+
+    private void DgvWatch_Leave(object? sender, EventArgs e)
+    {
+        if (_isAddingWatchItem) return;
+        CleanupEmptyWatchItems();
+    }
+
+    private void CleanupEmptyWatchItems()
+    {
+        var removed = _costumeMonitorConfig.Items.RemoveAll(item =>
+            string.IsNullOrWhiteSpace(item.ItemName) && string.IsNullOrWhiteSpace(item.StoneName));
+
+        if (removed > 0)
+        {
+            _dgvWatch.BeginInvoke(() =>
+            {
+                RefreshWatchGrid();
+                UpdateMonitorPanelHeight();
+                UpdateMonitorTitleText();
+
+                if (_costumeMonitorConfig.Items.Count == 0)
+                    StopAlarm();
+
+                _ = SaveCostumeMonitorConfigAsync();
+            });
+        }
     }
 
     private void DgvWatch_EditingControlShowing(object? sender, DataGridViewEditingControlShowingEventArgs e)
@@ -1937,46 +2141,63 @@ public class CostumeTabController : BaseTabController
         if (_dgvWatch.CurrentCell == null) return;
         var colName = _dgvWatch.Columns[_dgvWatch.CurrentCell.ColumnIndex].Name;
 
-        if (colName == "WatchPrice" && e.Control is TextBox txt)
+        if (e.Control is TextBox txt)
         {
-            // Show raw number when editing
-            if (_dgvWatch.CurrentCell.Value is long price)
-            {
-                txt.Text = price > 0 ? price.ToString() : "";
-            }
-
             txt.KeyPress -= WatchPriceKeyPress;
-            txt.KeyPress += WatchPriceKeyPress;
+            txt.TextChanged -= WatchPriceTextChanged;
+
+            if (colName == "WatchPrice")
+            {
+                txt.ImeMode = ImeMode.Disable;
+                txt.KeyPress += WatchPriceKeyPress;
+                txt.TextChanged += WatchPriceTextChanged;
+
+                // Show formatted number when entering edit
+                if (_dgvWatch.CurrentCell.Value is long price && price > 0)
+                    txt.Text = price.ToString("N0");
+            }
+            else
+            {
+                txt.ImeMode = ImeMode.NoControl;
+            }
         }
     }
 
     private void WatchPriceKeyPress(object? sender, KeyPressEventArgs e)
     {
-        if (!char.IsDigit(e.KeyChar) && !char.IsControl(e.KeyChar))
+        if (!char.IsDigit(e.KeyChar) && e.KeyChar != ',' && e.KeyChar != '\b' && !char.IsControl(e.KeyChar))
             e.Handled = true;
     }
 
-    private const int WatchGridMinRows = 5;
+    private bool _isFormattingWatchPrice = false;
+    private void WatchPriceTextChanged(object? sender, EventArgs e)
+    {
+        if (_isFormattingWatchPrice || sender is not TextBox textBox) return;
+
+        var rawDigits = new string(textBox.Text.Where(char.IsDigit).ToArray());
+        if (string.IsNullOrEmpty(rawDigits)) return;
+
+        if (long.TryParse(rawDigits, out var value))
+        {
+            var formatted = value.ToString("N0");
+            if (textBox.Text != formatted)
+            {
+                _isFormattingWatchPrice = true;
+                var cursorPos = textBox.SelectionStart;
+                var oldLength = textBox.Text.Length;
+                textBox.Text = formatted;
+                var newCursorPos = Math.Max(0, cursorPos + (formatted.Length - oldLength));
+                textBox.SelectionStart = Math.Min(newCursorPos, formatted.Length);
+                _isFormattingWatchPrice = false;
+            }
+        }
+    }
 
     private void UpdateMonitorPanelHeight()
     {
-        // Always show both panel and grid (empty grid shows header + empty rows)
-        _monitorPanel.Visible = true;
+        if (_dgvWatch == null) return;
         _dgvWatch.Visible = true;
-
-        if (_mainPanel != null && _mainPanel.RowStyles.Count > 3)
-        {
-            var scale = _baseFontSize / 12f;
-            var titleHeight = (int)(30 * scale);
-            var headerHeight = Math.Max((int)(32 * scale), 28);
-            var rowHeight = Math.Max((int)(26 * scale), 22);
-            var visibleRows = Math.Max(_costumeMonitorConfig.Items.Count, WatchGridMinRows);
-            var gridHeight = headerHeight + (visibleRows * rowHeight) + 4; // +4 for border
-            _mainPanel.RowStyles[3].Height = titleHeight + gridHeight + 8;
-
-            // Sync DataGridView header height
-            _dgvWatch.ColumnHeadersHeight = headerHeight;
-        }
+        _dgvWatch.ScrollBars = ScrollBars.Vertical;
     }
 
     /// <summary>
@@ -1996,15 +2217,14 @@ public class CostumeTabController : BaseTabController
 
             var matches = _currentSession.Items.Where(item =>
             {
-                // Check stone name match
+                // Check stone name match (supports % wildcard)
                 bool stoneMatch = string.IsNullOrWhiteSpace(watch.StoneName) ||
                     (item.SlotInfo != null && item.SlotInfo.Any(s =>
-                        s.Contains(watch.StoneName, StringComparison.OrdinalIgnoreCase)));
+                        SearchHelper.WildcardContains(s, watch.StoneName)));
 
-                // Check item name match
+                // Check item name match (supports % wildcard)
                 bool itemMatch = string.IsNullOrWhiteSpace(watch.ItemName) ||
-                    (!string.IsNullOrEmpty(item.ItemName) &&
-                     item.ItemName.Contains(watch.ItemName, StringComparison.OrdinalIgnoreCase));
+                    SearchHelper.WildcardContains(item.ItemName, watch.ItemName);
 
                 return stoneMatch && itemMatch && item.Price <= watch.WatchPrice;
             }).ToList();
@@ -2014,6 +2234,9 @@ public class CostumeTabController : BaseTabController
                 _watchAlarmResults.Add((watch, matches));
             }
         }
+
+        UpdateMonitorTitleText();
+        UpdateWatchStatusColumn();
 
         if (_watchAlarmResults.Count > 0)
         {
@@ -2101,20 +2324,7 @@ public class CostumeTabController : BaseTabController
         _alarmIntervalSeconds = intervalSeconds;
 
         // Update mute button UI
-        if (_monitorPanel != null)
-        {
-            foreach (Control ctrl in _monitorPanel.Controls)
-            {
-                if (ctrl is FlowLayoutPanel flow)
-                {
-                    foreach (Control c in flow.Controls)
-                    {
-                        if (c is Button btn && btn.Tag is "MuteButton")
-                            UpdateMuteButton(btn);
-                    }
-                }
-            }
-        }
+        UpdateMuteButton();
     }
 
     private async Task LoadCostumeMonitorConfigAsync()
@@ -2130,6 +2340,7 @@ public class CostumeTabController : BaseTabController
                 _costumeMonitorConfig = config;
                 RefreshWatchGrid();
                 UpdateMonitorPanelHeight();
+                UpdateMonitorTitleText();
                 Debug.WriteLine($"[CostumeTab] Loaded {config.Items.Count} watch items");
             }
         }
@@ -2143,12 +2354,18 @@ public class CostumeTabController : BaseTabController
     {
         try
         {
-            var json = JsonSerializer.Serialize(_costumeMonitorConfig, new JsonSerializerOptions
+            // Save a filtered copy — don't modify the live list (avoids binding conflicts)
+            var itemsToSave = _costumeMonitorConfig.Items
+                .Where(item => !string.IsNullOrWhiteSpace(item.ItemName) || !string.IsNullOrWhiteSpace(item.StoneName))
+                .ToList();
+
+            var configToSave = new CostumeMonitorConfig { Items = itemsToSave };
+            var json = JsonSerializer.Serialize(configToSave, new JsonSerializerOptions
             {
                 WriteIndented = true
             });
             await File.WriteAllTextAsync(_costumeMonitorConfigPath, json);
-            Debug.WriteLine($"[CostumeTab] Saved {_costumeMonitorConfig.Items.Count} watch items");
+            Debug.WriteLine($"[CostumeTab] Saved {itemsToSave.Count} watch items");
         }
         catch (Exception ex)
         {
@@ -2166,6 +2383,11 @@ public class CostumeTabController : BaseTabController
     public override async void OnActivated()
     {
         base.OnActivated();
+
+        // Ensure dynamic row heights are applied (they may not have taken effect
+        // if set while the tab was not visible)
+        UpdateMonitorPanelHeight();
+        UpdateCostumeSearchHistoryPanel();
 
         // Always try to load and display data on tab activation
         await TryLoadLatestDataAsync(autoDisplay: true);
@@ -2271,23 +2493,29 @@ public class CostumeTabController : BaseTabController
         if (_monitorPanel != null)
         {
             _monitorPanel.BackColor = colors.Panel;
-            foreach (Control ctrl in _monitorPanel.Controls)
-            {
-                if (ctrl is FlowLayoutPanel flow)
-                {
-                    flow.BackColor = colors.Panel;
-                    foreach (Control c in flow.Controls)
-                    {
-                        if (c is Label lbl) lbl.ForeColor = colors.Text;
-                        if (c is Button btn && btn.Tag is "MuteButton") UpdateMuteButton(btn);
-                    }
-                }
-            }
+            if (_lblMonitorTitle != null)
+                _lblMonitorTitle.ForeColor = _watchAlarmResults.Count > 0 ? colors.SaleColor : colors.TextMuted;
+            UpdateMuteButton();
+        }
+
+        // Layout panels
+        if (_mainPanel != null) ApplyTableLayoutPanelStyle(_mainPanel);
+        if (_contentLayout != null) ApplyTableLayoutPanelStyle(_contentLayout);
+        if (_rightInnerLayout != null) ApplyTableLayoutPanelStyle(_rightInnerLayout);
+        if (_topBarLayout != null)
+        {
+            ApplyTableLayoutPanelStyle(_topBarLayout);
+            _topBarLayout.Invalidate();  // Repaint grid line with updated theme color
         }
 
         // Toolbars
         if (_crawlStrip != null) _crawlStrip.BackColor = colors.Panel;
         if (_searchStrip != null) _searchStrip.BackColor = colors.Panel;
+        if (_crawlStatusStrip != null) _crawlStatusStrip.BackColor = colors.Panel;
+        if (_topBarLayout != null) ApplyTableLayoutPanelStyle(_topBarLayout);
+        // Update search area panel background
+        if (_searchStrip?.Parent != null) _searchStrip.Parent.BackColor = colors.Background;
+        if (_crawlStrip?.Parent != null) _crawlStrip.Parent.BackColor = colors.Background;
         if (_cboServer != null)
         {
             _cboServer.BackColor = colors.Grid;
@@ -2302,6 +2530,9 @@ public class CostumeTabController : BaseTabController
         {
             _lblCrawlStatus.ForeColor = colors.Text;
         }
+
+        // Search bar
+        if (_searchStrip != null) _searchStrip.BackColor = colors.Panel;
         if (_txtFilterItemName != null)
         {
             _txtFilterItemName.BackColor = colors.Grid;
@@ -2374,6 +2605,8 @@ public class CostumeTabController : BaseTabController
 
         // ToolStrip item widths
         if (_cboServer != null) _cboServer.Width = (int)(100 * scale);
+
+        // ToolStrip item widths
         if (_txtFilterItemName != null) _txtFilterItemName.Width = (int)(120 * scale);
         if (_txtFilterStone != null) _txtFilterStone.Width = (int)(120 * scale);
         if (_txtFilterMinPrice != null) _txtFilterMinPrice.Width = (int)(140 * scale);
@@ -2399,15 +2632,13 @@ public class CostumeTabController : BaseTabController
             _pnlPagination.Padding = new Padding(_pnlPagination.Padding.Left, paddingTop, 0, 0);
         }
 
-        // Row heights
-        if (_mainPanel != null && _mainPanel.RowStyles.Count >= 7)
+        // Content layout row heights (3 rows: top bar / grid / pagination)
+        if (_contentLayout != null && _contentLayout.RowStyles.Count >= 3)
         {
             var stripHeight = Math.Max((int)(32 * scale), 28);
-            _mainPanel.RowStyles[0].Height = stripHeight;                       // Crawl bar
-            _mainPanel.RowStyles[1].Height = stripHeight;                       // Search bar
-            // Row 2 (search history) and Row 3 (monitor) are dynamically sized
-            _mainPanel.RowStyles[5].Height = (int)(55 * scale);                // Pagination
-            _mainPanel.RowStyles[6].Height = Math.Max((int)(26 * scale), 22);  // Status
+            var hasHistory = _pnlSearchHistory != null && _pnlSearchHistory.Visible;
+            _contentLayout.RowStyles[0].Height = stripHeight + (hasHistory ? 28 : 0);  // Top bar
+            _contentLayout.RowStyles[2].Height = (int)(55 * scale);                    // Pagination
         }
 
         // Refresh monitor panel height

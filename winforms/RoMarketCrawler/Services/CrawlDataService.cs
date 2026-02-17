@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using RoMarketCrawler.Helpers;
 using RoMarketCrawler.Models;
 
 namespace RoMarketCrawler.Services;
@@ -151,20 +152,20 @@ public class CrawlDataService
 
         IEnumerable<DealItem> results = session.Items;
 
-        // Filter by item name
+        // Filter by item name (supports % wildcard)
         if (!string.IsNullOrWhiteSpace(filter.ItemName))
         {
             results = results.Where(item =>
-                item.ItemName?.Contains(filter.ItemName, StringComparison.OrdinalIgnoreCase) == true ||
-                item.DisplayName?.Contains(filter.ItemName, StringComparison.OrdinalIgnoreCase) == true);
+                SearchHelper.WildcardContains(item.ItemName, filter.ItemName) ||
+                SearchHelper.WildcardContains(item.DisplayName, filter.ItemName));
         }
 
-        // Filter by card/enchant (search in SlotInfo and RandomOptions)
+        // Filter by card/enchant (search in SlotInfo and RandomOptions, supports % wildcard)
         if (!string.IsNullOrWhiteSpace(filter.CardEnchant))
         {
             results = results.Where(item =>
-                item.SlotInfo?.Any(s => s?.Contains(filter.CardEnchant, StringComparison.OrdinalIgnoreCase) == true) == true ||
-                item.RandomOptions?.Any(s => s?.Contains(filter.CardEnchant, StringComparison.OrdinalIgnoreCase) == true) == true);
+                item.SlotInfo?.Any(s => SearchHelper.WildcardContains(s, filter.CardEnchant)) == true ||
+                item.RandomOptions?.Any(s => SearchHelper.WildcardContains(s, filter.CardEnchant)) == true);
         }
 
         // Filter by price range

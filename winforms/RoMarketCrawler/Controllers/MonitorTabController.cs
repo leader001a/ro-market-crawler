@@ -45,8 +45,6 @@ public class MonitorTabController : BaseTabController
     private Label _lblRefreshSetting = null!;
     private ToolStripLabel _lblAutoRefreshStatus = null!;
     private ToolStripButton _btnSoundMute = null!;
-    private ComboBox _cboAlarmSound = null!;
-    private NumericUpDown _nudAlarmInterval = null!;
     private TableLayoutPanel _mainLayout = null!;
     private Label _lblWarning = null!;
     private Label _lblWarning2 = null!;
@@ -92,8 +90,6 @@ public class MonitorTabController : BaseTabController
 
     // Dropdown panel hosts for font size updates
     private ToolStripControlHost? _autoRefreshHost;
-    private ToolStripControlHost? _alarmSettingsHost;
-    private ToolStripDropDownButton? _btnAlarmSettings;
 
     #endregion
 
@@ -167,11 +163,7 @@ public class MonitorTabController : BaseTabController
     public AlarmSoundType SelectedAlarmSound
     {
         get => _selectedAlarmSound;
-        set
-        {
-            _selectedAlarmSound = value;
-            SelectAlarmSoundInCombo();
-        }
+        set => _selectedAlarmSound = value;
     }
 
     /// <summary>
@@ -183,8 +175,6 @@ public class MonitorTabController : BaseTabController
         set
         {
             _alarmIntervalSeconds = value;
-            if (_nudAlarmInterval != null)
-                _nudAlarmInterval.Value = value;
             if (_alarmTimer != null)
                 _alarmTimer.Interval = value * 1000;
         }
@@ -399,17 +389,6 @@ public class MonitorTabController : BaseTabController
         _btnAutoRefresh.DropDownItems.Add(_autoRefreshHost);
         _btnAutoRefresh.DropDown.BackColor = _colors.Panel;
 
-        // Alarm settings dropdown
-        _btnAlarmSettings = new ToolStripDropDownButton("알람설정")
-        {
-            Alignment = ToolStripItemAlignment.Right,
-            AutoToolTip = false
-        };
-        var alarmPanel = CreateAlarmSettingsPanel();
-        _alarmSettingsHost = new ToolStripControlHost(alarmPanel) { AutoSize = false, Size = alarmPanel.Size };
-        _btnAlarmSettings.DropDownItems.Add(_alarmSettingsHost);
-        _btnAlarmSettings.DropDown.BackColor = _colors.Panel;
-
         // Mute button
         _btnSoundMute = new ToolStripButton
         {
@@ -443,8 +422,6 @@ public class MonitorTabController : BaseTabController
 
         // Add items to toolbar (right side)
         toolStrip.Items.Add(_btnSoundMute);
-        toolStrip.Items.Add(new ToolStripSeparator { Alignment = ToolStripItemAlignment.Right });
-        toolStrip.Items.Add(_btnAlarmSettings);
         toolStrip.Items.Add(new ToolStripSeparator { Alignment = ToolStripItemAlignment.Right });
         toolStrip.Items.Add(_btnAutoRefresh);
         toolStrip.Items.Add(_lblAutoRefreshStatus);
@@ -823,129 +800,6 @@ public class MonitorTabController : BaseTabController
 
         panel.Size = new Size(panelWidth, yPos);
         panel.Controls.AddRange(new Control[] { lblTitle, lblInterval, _nudRefreshInterval, _btnApplyInterval });
-        return panel;
-    }
-
-    private Panel CreateAlarmSettingsPanel()
-    {
-        // Scale factor based on font size (base is 12pt)
-        var scale = _baseFontSize / 12f;
-        var font = new Font("Malgun Gothic", _baseFontSize);
-        var smallFont = new Font("Malgun Gothic", _baseFontSize - 1);
-
-        var panelWidth = (int)(340 * scale);
-        var rowHeight = (int)(32 * scale);
-        var padding = (int)(12 * scale);
-        var labelWidth = (int)(95 * scale);
-        // 2 lines of text need adequate height - base 50px scaled
-        var descriptionHeight = (int)(50 * scale);
-        // 1 line note needs adequate height - base 22px scaled
-        var noteHeight = (int)(22 * scale);
-
-        var panel = new Panel
-        {
-            BackColor = _colors.Panel
-        };
-
-        var yPos = padding;
-
-        // Description - 2 lines with adequate height
-        var lblTitle = new Label
-        {
-            Text = "감시가 이하 아이템(득템) 발견 시\n설정된 간격마다 알람을 재생합니다.",
-            Location = new Point(padding, yPos),
-            AutoSize = false,
-            Size = new Size(panelWidth - padding * 2, descriptionHeight),
-            ForeColor = _colors.TextMuted,
-            Font = smallFont
-        };
-        yPos += lblTitle.Height + (int)(10 * scale);
-
-        // Sound selection row
-        var lblSound = new Label
-        {
-            Text = "알람 소리",
-            Location = new Point(padding, yPos + 4),
-            AutoSize = true,
-            ForeColor = _colors.Text,
-            Font = font
-        };
-
-        _cboAlarmSound = new ComboBox
-        {
-            Location = new Point(padding + labelWidth, yPos),
-            Size = new Size((int)(100 * scale), rowHeight),
-            DropDownStyle = ComboBoxStyle.DropDownList,
-            Font = font
-        };
-        ApplyComboBoxStyle(_cboAlarmSound);
-        _cboAlarmSound.Items.AddRange(new object[]
-        {
-            new AlarmSoundItem(AlarmSoundType.SystemSound, "시스템"),
-            new AlarmSoundItem(AlarmSoundType.Chime, "차임벨"),
-            new AlarmSoundItem(AlarmSoundType.DingDong, "딩동"),
-            new AlarmSoundItem(AlarmSoundType.Rising, "상승음"),
-            new AlarmSoundItem(AlarmSoundType.Alert, "알림음")
-        });
-        _cboAlarmSound.DisplayMember = "Name";
-        SelectAlarmSoundInCombo();
-        _cboAlarmSound.SelectedIndexChanged += CboAlarmSound_SelectedIndexChanged;
-
-        var btnTest = new Button
-        {
-            Text = "테스트",
-            Location = new Point(panelWidth - padding - (int)(70 * scale), yPos),
-            Size = new Size((int)(70 * scale), rowHeight),
-            Font = font
-        };
-        ApplyButtonStyle(btnTest, false);
-        btnTest.Click += (s, e) => PlayAlarmSound();
-        yPos += rowHeight + (int)(10 * scale);
-
-        // Interval row
-        var lblInterval = new Label
-        {
-            Text = "알람 간격",
-            Location = new Point(padding, yPos + 4),
-            AutoSize = true,
-            ForeColor = _colors.Text,
-            Font = font
-        };
-
-        _nudAlarmInterval = new NumericUpDown
-        {
-            Minimum = 1, Maximum = 60, Value = _alarmIntervalSeconds,
-            Location = new Point(padding + labelWidth, yPos),
-            Size = new Size((int)(60 * scale), rowHeight),
-            Font = font
-        };
-        ApplyNumericUpDownStyle(_nudAlarmInterval);
-        _nudAlarmInterval.ValueChanged += NudAlarmInterval_ValueChanged;
-
-        var lblSec = new Label
-        {
-            Text = "초",
-            Location = new Point(padding + labelWidth + (int)(65 * scale), yPos + 4),
-            AutoSize = true,
-            ForeColor = _colors.Text,
-            Font = font
-        };
-        yPos += rowHeight + (int)(12 * scale);
-
-        // Note with adequate height
-        var lblNote = new Label
-        {
-            Text = "* 음소거 버튼으로 알람을 끌 수 있습니다.",
-            Location = new Point(padding, yPos),
-            AutoSize = false,
-            Size = new Size(panelWidth - padding * 2, noteHeight),
-            ForeColor = _colors.TextMuted,
-            Font = smallFont
-        };
-        yPos += lblNote.Height + padding;
-
-        panel.Size = new Size(panelWidth, yPos);
-        panel.Controls.AddRange(new Control[] { lblTitle, lblSound, _cboAlarmSound, btnTest, lblInterval, _nudAlarmInterval, lblSec, lblNote });
         return panel;
     }
 
@@ -1429,21 +1283,7 @@ public class MonitorTabController : BaseTabController
         SettingsChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    private void CboAlarmSound_SelectedIndexChanged(object? sender, EventArgs e)
-    {
-        if (_cboAlarmSound?.SelectedItem is AlarmSoundItem item)
-        {
-            _selectedAlarmSound = item.SoundType;
-            SettingsChanged?.Invoke(this, EventArgs.Empty);
-        }
-    }
 
-    private void NudAlarmInterval_ValueChanged(object? sender, EventArgs e)
-    {
-        _alarmIntervalSeconds = (int)_nudAlarmInterval.Value;
-        _alarmTimer.Interval = _alarmIntervalSeconds * 1000;
-        SettingsChanged?.Invoke(this, EventArgs.Empty);
-    }
 
     #endregion
 
@@ -1830,22 +1670,6 @@ public class MonitorTabController : BaseTabController
             _btnSoundMute.Text = "음소거";
             _btnSoundMute.ForeColor = _colors.Text;
         }
-    }
-
-    private void SelectAlarmSoundInCombo()
-    {
-        if (_cboAlarmSound == null) return;
-
-        for (int i = 0; i < _cboAlarmSound.Items.Count; i++)
-        {
-            if (_cboAlarmSound.Items[i] is AlarmSoundItem item && item.SoundType == _selectedAlarmSound)
-            {
-                _cboAlarmSound.SelectedIndex = i;
-                return;
-            }
-        }
-        if (_cboAlarmSound.Items.Count > 0)
-            _cboAlarmSound.SelectedIndex = 0;
     }
 
     private void PlayAlarmSound()
@@ -2399,16 +2223,6 @@ public class MonitorTabController : BaseTabController
             _btnAutoRefresh.DropDownItems.Add(_autoRefreshHost);
         }
 
-        // Update alarm settings dropdown panel
-        if (_btnAlarmSettings != null && _alarmSettingsHost != null)
-        {
-            _alarmSettingsHost.Control.Dispose();
-            var newPanel = CreateAlarmSettingsPanel();
-
-            _btnAlarmSettings.DropDownItems.Clear();
-            _alarmSettingsHost = new ToolStripControlHost(newPanel) { AutoSize = false, Size = newPanel.Size };
-            _btnAlarmSettings.DropDownItems.Add(_alarmSettingsHost);
-        }
     }
 
     /// <inheritdoc/>
