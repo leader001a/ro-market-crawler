@@ -713,14 +713,16 @@ public class DealTabController : BaseTabController
 
         // Cancel previous operations
         var oldCts = _cts;
-        _cts = new CancellationTokenSource();
+        var cts = new CancellationTokenSource();
+        _cts = cts;  // Publish for external cancellation (e.g., Dispose)
 
         if (oldCts != null)
         {
-            try { oldCts.Cancel(); }
-            catch { }
+            try { oldCts.Cancel(); } catch { }
+            oldCts.Dispose();
         }
 
+        var token = cts.Token;
         var searchId = ++_currentSearchId;
         _lastSearchTerm = searchText;
 
@@ -738,7 +740,7 @@ public class DealTabController : BaseTabController
         try
         {
             // Fetch single page from API with total count
-            var result = await _gnjoyClient.SearchItemDealsWithCountAsync(searchText, serverId, _dealCurrentPage, _cts.Token);
+            var result = await _gnjoyClient.SearchItemDealsWithCountAsync(searchText, serverId, _dealCurrentPage, token);
             var items = result.Items ?? new List<DealItem>();
 
             Debug.WriteLine($"[DealTabController] Page {_dealCurrentPage}: Got {items.Count} items, Total: {result.TotalCount}");
@@ -758,7 +760,7 @@ public class DealTabController : BaseTabController
             if (equipmentItems.Count > 0)
             {
                 _lblDealStatus.Text = $"상세정보 로딩 중... (0/{equipmentItems.Count})";
-                await LoadDetailsSequentiallyAsync(items, equipmentItems, searchId, _cts.Token);
+                await LoadDetailsSequentiallyAsync(items, equipmentItems, searchId, token);
             }
 
             // Show all results at once after loading is complete
@@ -806,8 +808,9 @@ public class DealTabController : BaseTabController
         {
             _progressDealSearch.Visible = false;
             SetDealSearchingState(false);
-            _cts?.Dispose();
-            _cts = null;
+            // Only dispose our own CTS; _cts may have been replaced by a newer call
+            cts.Dispose();
+            if (_cts == cts) _cts = null;
         }
     }
 

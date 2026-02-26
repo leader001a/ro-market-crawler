@@ -48,3 +48,5 @@ nul
 !winforms/RoMarketCrawler/Data/
 !winforms/RoMarketCrawler/Data/logo.png
 !winforms/RoMarketCrawler/Data/EnchantEffects.json
+publish_debug/ git rm -r --cached publish_debug/
+publish_debug/
