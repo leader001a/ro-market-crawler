@@ -146,6 +146,10 @@ public class CostumeTabController : BaseTabController
     private AlarmSoundType _selectedAlarmSound = AlarmSoundType.SystemSound;
     private int _alarmIntervalSeconds = 5;
 
+    // Cached fonts for search history label hover effect
+    private Font _cachedHistoryLabelFont = new Font("Malgun Gothic", 12f);
+    private Font _cachedHistoryLabelUnderlineFont = new Font("Malgun Gothic", 12f, FontStyle.Underline);
+
     #endregion
 
     /// <summary>
@@ -1752,6 +1756,7 @@ public class CostumeTabController : BaseTabController
             {
                 Text = entry.DisplayText,
                 AutoSize = true,
+                Font = _cachedHistoryLabelFont,
                 ForeColor = _colors.Accent,
                 Cursor = Cursors.Hand,
                 Margin = new Padding(0, 3, 10, 0),
@@ -1766,8 +1771,9 @@ public class CostumeTabController : BaseTabController
                     ExecuteLocalSearch();
                 }
             };
-            btn.MouseEnter += (s, e) => { if (s is Label lbl) lbl.Font = new Font(lbl.Font, FontStyle.Underline); };
-            btn.MouseLeave += (s, e) => { if (s is Label lbl) lbl.Font = new Font(lbl.Font, FontStyle.Regular); };
+            // Hover effect — use cached fonts to avoid per-hover allocation
+            btn.MouseEnter += (s, e) => { if (s is Label lbl) lbl.Font = _cachedHistoryLabelUnderlineFont; };
+            btn.MouseLeave += (s, e) => { if (s is Label lbl) lbl.Font = _cachedHistoryLabelFont; };
             _pnlSearchHistory.Controls.Add(btn);
         }
 
@@ -2716,6 +2722,14 @@ public class CostumeTabController : BaseTabController
 
         // Refresh monitor panel height
         UpdateMonitorPanelHeight();
+
+        // Update cached fonts for search history label hover effect
+        var oldHistoryFont = _cachedHistoryLabelFont;
+        _cachedHistoryLabelFont = new Font("Malgun Gothic", baseFontSize);
+        oldHistoryFont.Dispose();
+        var oldHistoryUnderlineFont = _cachedHistoryLabelUnderlineFont;
+        _cachedHistoryLabelUnderlineFont = new Font("Malgun Gothic", baseFontSize, FontStyle.Underline);
+        oldHistoryUnderlineFont.Dispose();
     }
 
     #endregion
@@ -2749,6 +2763,8 @@ public class CostumeTabController : BaseTabController
             _crawlCts?.Dispose();
             _alarmTimer?.Stop();
             _alarmTimer?.Dispose();
+            _cachedHistoryLabelFont.Dispose();
+            _cachedHistoryLabelUnderlineFont.Dispose();
         }
         base.Dispose(disposing);
     }

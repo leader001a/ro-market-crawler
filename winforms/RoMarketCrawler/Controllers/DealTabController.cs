@@ -76,6 +76,10 @@ public class DealTabController : BaseTabController
     private readonly Dictionary<(int row, int col), List<(Rectangle rect, string itemName)>> _linkHitAreas = new();
     private string? _hoveredLinkItem = null;
 
+    // Cached fonts for search history label hover effect
+    private Font _cachedHistoryLabelFont = new Font("Malgun Gothic", 12f);
+    private Font _cachedHistoryLabelUnderlineFont = new Font("Malgun Gothic", 12f, FontStyle.Underline);
+
     #endregion
 
     #region Events
@@ -1129,6 +1133,7 @@ public class DealTabController : BaseTabController
             {
                 Text = term,
                 AutoSize = true,
+                Font = _cachedHistoryLabelFont,
                 ForeColor = _colors.Accent,
                 Cursor = Cursors.Hand,
                 Margin = new Padding(0, 3, 10, 0),
@@ -1142,9 +1147,9 @@ public class DealTabController : BaseTabController
                     await SearchAsync();
                 }
             };
-            // Hover effect
-            btn.MouseEnter += (s, e) => { if (s is Label lbl) lbl.Font = new Font(lbl.Font, FontStyle.Underline); };
-            btn.MouseLeave += (s, e) => { if (s is Label lbl) lbl.Font = new Font(lbl.Font, FontStyle.Regular); };
+            // Hover effect — use cached fonts to avoid per-hover allocation
+            btn.MouseEnter += (s, e) => { if (s is Label lbl) lbl.Font = _cachedHistoryLabelUnderlineFont; };
+            btn.MouseLeave += (s, e) => { if (s is Label lbl) lbl.Font = _cachedHistoryLabelFont; };
             _pnlSearchHistory.Controls.Add(btn);
         }
 
@@ -1551,6 +1556,14 @@ public class DealTabController : BaseTabController
             _mainPanel.RowStyles[3].Height = (int)(55 * scale);  // Pagination
             _mainPanel.RowStyles[4].Height = (int)(28 * scale);  // Status
         }
+
+        // Update cached fonts for search history label hover effect
+        var oldHistoryFont = _cachedHistoryLabelFont;
+        _cachedHistoryLabelFont = new Font("Malgun Gothic", baseFontSize);
+        oldHistoryFont.Dispose();
+        var oldHistoryUnderlineFont = _cachedHistoryLabelUnderlineFont;
+        _cachedHistoryLabelUnderlineFont = new Font("Malgun Gothic", baseFontSize, FontStyle.Underline);
+        oldHistoryUnderlineFont.Dispose();
     }
 
     #endregion
@@ -1660,6 +1673,8 @@ public class DealTabController : BaseTabController
             _cts?.Dispose();
             _dealBindingSource?.Dispose();
             _dgvDeals?.Dispose();
+            _cachedHistoryLabelFont.Dispose();
+            _cachedHistoryLabelUnderlineFont.Dispose();
         }
 
         base.Dispose(disposing);

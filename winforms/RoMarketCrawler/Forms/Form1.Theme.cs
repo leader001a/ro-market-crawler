@@ -769,7 +769,7 @@ public partial class Form1
 
         // Step 3: Draw text
         using var textBrush = new SolidBrush(textColor);
-        var sf = new StringFormat
+        using var sf = new StringFormat
         {
             Alignment = StringAlignment.Center,
             LineAlignment = StringAlignment.Center
@@ -793,7 +793,7 @@ public partial class Form1
 
         // Step 3: Draw text
         using var textBrush = new SolidBrush(textColor);
-        var sf = new StringFormat
+        using var sf = new StringFormat
         {
             Alignment = StringAlignment.Center,
             LineAlignment = StringAlignment.Center
