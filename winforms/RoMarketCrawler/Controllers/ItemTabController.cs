@@ -62,6 +62,9 @@ public class ItemTabController : BaseTabController
     private int _itemCurrentPage = 0;
     private int _itemTotalCount = 0;
 
+    // Cached bold font for UpdateFontSize
+    private Font _cachedItemBoldFont = new Font("Malgun Gothic", 12f, FontStyle.Bold);
+
     #endregion
 
     #region Events
@@ -1338,17 +1341,23 @@ public class ItemTabController : BaseTabController
 
         var scale = baseFontSize / 12f;
 
+        // Update cached bold font
+        var oldItemBoldFont = _cachedItemBoldFont;
+        _cachedItemBoldFont = new Font("Malgun Gothic", baseFontSize, FontStyle.Bold);
+
         // Additional specific adjustments for grid headers
         if (_dgvItems != null)
         {
-            _dgvItems.ColumnHeadersDefaultCellStyle.Font = new Font("Malgun Gothic", baseFontSize, FontStyle.Bold);
+            _dgvItems.ColumnHeadersDefaultCellStyle.Font = _cachedItemBoldFont;
         }
 
         // Ensure item name label uses highlighted style
         if (_lblItemName != null)
         {
-            _lblItemName.Font = new Font("Malgun Gothic", baseFontSize, FontStyle.Bold);
+            _lblItemName.Font = _cachedItemBoldFont;
         }
+
+        oldItemBoldFont.Dispose();
 
         // Update combobox width
         if (_cboCategoryToolStrip != null)
@@ -1402,6 +1411,7 @@ public class ItemTabController : BaseTabController
             _itemBindingSource?.Dispose();
             _dgvItems?.Dispose();
             _picItemImage?.Image?.Dispose();
+            _cachedItemBoldFont.Dispose();
         }
 
         base.Dispose(disposing);

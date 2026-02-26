@@ -94,6 +94,9 @@ public class MonitorTabController : BaseTabController
     // Cached bold font for CellFormatting events (shared across both grids)
     private Font _cachedBoldCellFont = new Font("Malgun Gothic", 12f, FontStyle.Bold);
 
+    // Cached fonts for UpdateFontSize
+    private Font _cachedMonitorGridFont = new Font("Malgun Gothic", 12f);
+
     #endregion
 
     #region Events
@@ -2167,21 +2170,25 @@ public class MonitorTabController : BaseTabController
         var scale = baseFontSize / 12f;
         var warningHeight = (int)(28 * scale);
 
+        // Update cached fonts
+        var oldMonitorGridFont = _cachedMonitorGridFont;
+        _cachedMonitorGridFont = new Font("Malgun Gothic", baseFontSize);
+        var oldBoldCellFont = _cachedBoldCellFont;
+        _cachedBoldCellFont = new Font("Malgun Gothic", baseFontSize, FontStyle.Bold);
+
         if (_dgvMonitorItems != null)
         {
-            _dgvMonitorItems.DefaultCellStyle.Font = new Font("Malgun Gothic", baseFontSize);
-            _dgvMonitorItems.ColumnHeadersDefaultCellStyle.Font = new Font("Malgun Gothic", baseFontSize, FontStyle.Bold);
+            _dgvMonitorItems.DefaultCellStyle.Font = _cachedMonitorGridFont;
+            _dgvMonitorItems.ColumnHeadersDefaultCellStyle.Font = _cachedBoldCellFont;
         }
 
         if (_dgvMonitorResults != null)
         {
-            _dgvMonitorResults.DefaultCellStyle.Font = new Font("Malgun Gothic", baseFontSize);
-            _dgvMonitorResults.ColumnHeadersDefaultCellStyle.Font = new Font("Malgun Gothic", baseFontSize, FontStyle.Bold);
+            _dgvMonitorResults.DefaultCellStyle.Font = _cachedMonitorGridFont;
+            _dgvMonitorResults.ColumnHeadersDefaultCellStyle.Font = _cachedBoldCellFont;
         }
 
-        // Update cached bold cell font used by CellFormatting events
-        var oldBoldCellFont = _cachedBoldCellFont;
-        _cachedBoldCellFont = new Font("Malgun Gothic", baseFontSize, FontStyle.Bold);
+        oldMonitorGridFont.Dispose();
         oldBoldCellFont.Dispose();
 
         // Update server combobox width
@@ -2196,15 +2203,15 @@ public class MonitorTabController : BaseTabController
             _mainLayout.RowStyles[0].Height = (int)(32 * scale);  // Toolbar
         }
 
-        // Update warning labels - use same font size as configured
+        // Update warning labels - reuse cached grid font (same size)
         if (_lblWarning != null)
         {
-            _lblWarning.Font = new Font("Malgun Gothic", baseFontSize);
+            _lblWarning.Font = _cachedMonitorGridFont;
             _lblWarning.Height = warningHeight;
         }
         if (_lblWarning2 != null)
         {
-            _lblWarning2.Font = new Font("Malgun Gothic", baseFontSize);
+            _lblWarning2.Font = _cachedMonitorGridFont;
             _lblWarning2.Height = warningHeight;
         }
 
@@ -2313,6 +2320,7 @@ public class MonitorTabController : BaseTabController
             _dgvMonitorItems?.Dispose();
             _dgvMonitorResults?.Dispose();
             _cachedBoldCellFont.Dispose();
+            _cachedMonitorGridFont.Dispose();
         }
 
         base.Dispose(disposing);

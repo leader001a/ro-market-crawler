@@ -80,6 +80,10 @@ public class DealTabController : BaseTabController
     private Font _cachedHistoryLabelFont = new Font("Malgun Gothic", 12f);
     private Font _cachedHistoryLabelUnderlineFont = new Font("Malgun Gothic", 12f, FontStyle.Underline);
 
+    // Cached fonts for UpdateFontSize
+    private Font _cachedDealGridFont = new Font("Malgun Gothic", 12f);
+    private Font _cachedDealHeaderFont = new Font("Malgun Gothic", 12f, FontStyle.Bold);
+
     #endregion
 
     #region Events
@@ -1502,26 +1506,35 @@ public class DealTabController : BaseTabController
 
         var scale = baseFontSize / 12f;
 
+        // Update cached fonts
+        var oldDealGridFont = _cachedDealGridFont;
+        _cachedDealGridFont = new Font("Malgun Gothic", baseFontSize);
+        var oldDealHeaderFont = _cachedDealHeaderFont;
+        _cachedDealHeaderFont = new Font("Malgun Gothic", baseFontSize, FontStyle.Bold);
+
         // Update DataGridView fonts
         if (_dgvDeals != null)
         {
-            _dgvDeals.DefaultCellStyle.Font = new Font("Malgun Gothic", baseFontSize);
-            _dgvDeals.ColumnHeadersDefaultCellStyle.Font = new Font("Malgun Gothic", baseFontSize, FontStyle.Bold);
+            _dgvDeals.DefaultCellStyle.Font = _cachedDealGridFont;
+            _dgvDeals.ColumnHeadersDefaultCellStyle.Font = _cachedDealHeaderFont;
         }
 
         // Update status label height
         if (_lblDealStatus != null)
         {
-            _lblDealStatus.Font = new Font("Malgun Gothic", baseFontSize);
+            _lblDealStatus.Font = _cachedDealGridFont;
             _lblDealStatus.Height = (int)(22 * scale);
         }
 
         // Update page label
         if (_lblDealPage != null)
         {
-            _lblDealPage.Font = new Font("Malgun Gothic", baseFontSize);
+            _lblDealPage.Font = _cachedDealGridFont;
             _lblDealPage.Padding = new Padding((int)(10 * scale), (int)(5 * scale), (int)(10 * scale), 0);
         }
+
+        oldDealGridFont.Dispose();
+        oldDealHeaderFont.Dispose();
 
         // Update pagination buttons size - all buttons have same height (28 * scale)
         var btnHeight = (int)(28 * scale);
@@ -1675,6 +1688,8 @@ public class DealTabController : BaseTabController
             _dgvDeals?.Dispose();
             _cachedHistoryLabelFont.Dispose();
             _cachedHistoryLabelUnderlineFont.Dispose();
+            _cachedDealGridFont.Dispose();
+            _cachedDealHeaderFont.Dispose();
         }
 
         base.Dispose(disposing);

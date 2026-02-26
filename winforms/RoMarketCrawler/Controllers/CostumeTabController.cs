@@ -150,6 +150,10 @@ public class CostumeTabController : BaseTabController
     private Font _cachedHistoryLabelFont = new Font("Malgun Gothic", 12f);
     private Font _cachedHistoryLabelUnderlineFont = new Font("Malgun Gothic", 12f, FontStyle.Underline);
 
+    // Cached fonts for UpdateFontSize
+    private Font _cachedCostumeFont = new Font("Malgun Gothic", 12f);
+    private Font _cachedCostumeBoldFont = new Font("Malgun Gothic", 12f, FontStyle.Bold);
+
     #endregion
 
     /// <summary>
@@ -2662,21 +2666,25 @@ public class CostumeTabController : BaseTabController
         base.UpdateFontSize(baseFontSize);
 
         var scale = baseFontSize / 12f;
-        var font = new Font("Malgun Gothic", baseFontSize);
-        var boldFont = new Font("Malgun Gothic", baseFontSize, FontStyle.Bold);
+
+        // Update cached fonts
+        var oldCostumeFont = _cachedCostumeFont;
+        _cachedCostumeFont = new Font("Malgun Gothic", baseFontSize);
+        var oldCostumeBoldFont = _cachedCostumeBoldFont;
+        _cachedCostumeBoldFont = new Font("Malgun Gothic", baseFontSize, FontStyle.Bold);
 
         // DataGridView fonts
         if (_dgvResults != null)
         {
-            _dgvResults.DefaultCellStyle.Font = font;
-            _dgvResults.ColumnHeadersDefaultCellStyle.Font = boldFont;
+            _dgvResults.DefaultCellStyle.Font = _cachedCostumeFont;
+            _dgvResults.ColumnHeadersDefaultCellStyle.Font = _cachedCostumeBoldFont;
             _dgvResults.ColumnHeadersHeight = Math.Max((int)(32 * scale), 28);
         }
 
         // Status label
         if (_lblStatus != null)
         {
-            _lblStatus.Font = font;
+            _lblStatus.Font = _cachedCostumeFont;
             _lblStatus.Height = Math.Max((int)(24 * scale), 20);
         }
 
@@ -2699,7 +2707,7 @@ public class CostumeTabController : BaseTabController
         if (_btnLast != null) _btnLast.Size = new Size((int)(36 * scale), btnHeight);
         if (_lblPageInfo != null)
         {
-            _lblPageInfo.Font = font;
+            _lblPageInfo.Font = _cachedCostumeFont;
             _lblPageInfo.Padding = new Padding((int)(10 * scale), (int)(5 * scale), (int)(10 * scale), 0);
         }
         if (_pnlPagination != null)
@@ -2722,6 +2730,9 @@ public class CostumeTabController : BaseTabController
 
         // Refresh monitor panel height
         UpdateMonitorPanelHeight();
+
+        oldCostumeFont.Dispose();
+        oldCostumeBoldFont.Dispose();
 
         // Update cached fonts for search history label hover effect
         var oldHistoryFont = _cachedHistoryLabelFont;
@@ -2765,6 +2776,8 @@ public class CostumeTabController : BaseTabController
             _alarmTimer?.Dispose();
             _cachedHistoryLabelFont.Dispose();
             _cachedHistoryLabelUnderlineFont.Dispose();
+            _cachedCostumeFont.Dispose();
+            _cachedCostumeBoldFont.Dispose();
         }
         base.Dispose(disposing);
     }
