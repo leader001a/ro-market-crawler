@@ -488,6 +488,6 @@ public class ItemDealParser
     {
         // Remove commas, 'z' (zeny), and other non-numeric chars
         var clean = Regex.Replace(text, @"[^\d]", "");
-        return string.IsNullOrEmpty(clean) ? 0 : int.TryParse(clean, out var result) ? result : 0;
+        return string.IsNullOrEmpty(clean) ? 0 : int.Parse(clean);
     }
 }

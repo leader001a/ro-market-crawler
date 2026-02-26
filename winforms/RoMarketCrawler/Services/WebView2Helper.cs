@@ -12,8 +12,8 @@ public class WebView2Helper : IDisposable
 {
     private WebView2? _webView;
     private Form? _hiddenForm;
-    private volatile bool _isInitialized;
-    private volatile bool _disposed;
+    private bool _isInitialized;
+    private bool _disposed;
     private readonly SemaphoreSlim _initLock = new(1, 1);
     private readonly SemaphoreSlim _requestLock = new(1, 1);
 

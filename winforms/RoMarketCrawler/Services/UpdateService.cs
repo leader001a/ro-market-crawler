@@ -206,7 +206,7 @@ del ""%~f0""
                 WindowStyle = ProcessWindowStyle.Hidden
             };
 
-            using var process = Process.Start(startInfo);
+            Process.Start(startInfo);
 
             Debug.WriteLine("[UpdateService] Update batch script started");
             return true;

@@ -184,10 +184,6 @@ public class GnjoyClient : IGnjoyClient
                 ClearRateLimit();
                 return html;
             }
-            catch (OperationCanceledException)
-            {
-                throw;  // Propagate cancellation; do not fall back to HttpClient
-            }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[GnjoyClient] WebView2 fetch failed: {ex.Message}, falling back to HttpClient");

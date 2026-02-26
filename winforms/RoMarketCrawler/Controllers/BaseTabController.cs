@@ -76,7 +76,11 @@ public abstract class BaseTabController : ITabController
             // Apply uniform font based on control type
             if (control is DataGridView dgv)
             {
-                Helpers.DataGridViewHelper.UpdateFontSize(dgv, _baseFontSize);
+                // Set ambient font only; each controller's UpdateFontSize override
+                // sets DefaultCellStyle.Font via cached fields (which it owns and disposes).
+                // Calling DataGridViewHelper.UpdateFontSize here would create orphaned Font
+                // objects and risk disposing controller-owned cached fonts.
+                dgv.Font = uniformFont;
             }
             else if (control is ToolStrip toolStrip)
             {
