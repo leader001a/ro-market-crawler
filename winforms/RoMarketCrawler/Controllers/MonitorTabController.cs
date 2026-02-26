@@ -2097,7 +2097,7 @@ public class MonitorTabController : BaseTabController
         {
             if (_currentTheme == ThemeType.Dark)
             {
-                e.CellStyle!.ForeColor = grade.ToLower() switch
+                e.CellStyle!.ForeColor = grade.ToLowerInvariant() switch
                 {
                     "s" => Color.FromArgb(255, 200, 50),
                     "a" => Color.FromArgb(200, 130, 255),
@@ -2110,7 +2110,7 @@ public class MonitorTabController : BaseTabController
             }
             else
             {
-                e.CellStyle!.ForeColor = grade.ToLower() switch
+                e.CellStyle!.ForeColor = grade.ToLowerInvariant() switch
                 {
                     "s" => Color.FromArgb(180, 140, 0),
                     "a" => Color.FromArgb(130, 0, 130),

@@ -2778,6 +2778,7 @@ public class CostumeTabController : BaseTabController
             _cachedHistoryLabelUnderlineFont.Dispose();
             _cachedCostumeFont.Dispose();
             _cachedCostumeBoldFont.Dispose();
+            _resultBindingSource.Dispose();
         }
         base.Dispose(disposing);
     }

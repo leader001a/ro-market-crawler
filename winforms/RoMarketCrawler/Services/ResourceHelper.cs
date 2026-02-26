@@ -29,8 +29,8 @@ public static class ResourceHelper
         using var stream = GetResourceStream(resourceName);
         if (stream == null) return null;
 
-        // Create a copy to avoid stream disposal issues
-        using var ms = new MemoryStream();
+        // MemoryStream must NOT be disposed: GDI+ may need it alive for the image lifetime
+        var ms = new MemoryStream();
         stream.CopyTo(ms);
         ms.Position = 0;
         return Image.FromStream(ms);

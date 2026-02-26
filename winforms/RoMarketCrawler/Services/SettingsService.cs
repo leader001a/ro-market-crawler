@@ -189,7 +189,7 @@ public class SettingsService : ISettingsService
                 return;
             }
 
-            var json = await File.ReadAllTextAsync(_settingsFilePath);
+            var json = await File.ReadAllTextAsync(_settingsFilePath).ConfigureAwait(false);
             var settings = JsonSerializer.Deserialize<AppSettings>(json);
 
             if (settings != null)
@@ -237,7 +237,7 @@ public class SettingsService : ISettingsService
             }
 
             var json = JsonSerializer.Serialize(settingsCopy, new JsonSerializerOptions { WriteIndented = true });
-            await File.WriteAllTextAsync(_settingsFilePath, json);
+            await File.WriteAllTextAsync(_settingsFilePath, json).ConfigureAwait(false);
             Debug.WriteLine($"[SettingsService] Saved settings to {_settingsFilePath}");
         }
         catch (Exception ex)

@@ -581,7 +581,7 @@ public class KafraClient : IKafraClient
         var results = new List<MonsterInfo>();
         if (string.IsNullOrWhiteSpace(searchTerm)) return results;
 
-        var searchLower = searchTerm.ToLower();
+        var searchLower = searchTerm.ToLowerInvariant();
         var tasks = new List<Task<MonsterInfo?>>();
 
         // Search a range of monster IDs
@@ -596,9 +596,9 @@ public class KafraClient : IKafraClient
                     var monster = await GetMonsterByIdAsync(mobId);
                     if (monster != null)
                     {
-                        var nameKo = monster.NameKo?.ToLower() ?? "";
-                        var nameEn = monster.NameEn?.ToLower() ?? "";
-                        var name = monster.Name?.ToLower() ?? "";
+                        var nameKo = monster.NameKo?.ToLowerInvariant() ?? "";
+                        var nameEn = monster.NameEn?.ToLowerInvariant() ?? "";
+                        var name = monster.Name?.ToLowerInvariant() ?? "";
 
                         if (nameKo.Contains(searchLower) ||
                             nameEn.Contains(searchLower) ||
