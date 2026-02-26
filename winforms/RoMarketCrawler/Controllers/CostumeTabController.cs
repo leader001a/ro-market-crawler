@@ -2067,11 +2067,11 @@ public class CostumeTabController : BaseTabController
                     btnCell.FlatStyle = FlatStyle.Standard;
                 viewCell.Style.BackColor = Color.White;
                 viewCell.Style.ForeColor = Color.FromArgb(180, 40, 40);
-                viewCell.Style.Font = new Font("Malgun Gothic", _baseFontSize, FontStyle.Bold);
+                viewCell.Style.Font = _cachedCostumeBoldFont;
                 // Highlight entire row
                 row.DefaultCellStyle.BackColor = Color.FromArgb(180, 40, 40);
                 row.DefaultCellStyle.ForeColor = Color.White;
-                row.DefaultCellStyle.Font = new Font("Malgun Gothic", _baseFontSize, FontStyle.Bold);
+                row.DefaultCellStyle.Font = _cachedCostumeBoldFont;
             }
             else
             {
@@ -2082,7 +2082,7 @@ public class CostumeTabController : BaseTabController
                 viewCell.Style = new DataGridViewCellStyle();
                 row.DefaultCellStyle.BackColor = _colors.Grid;
                 row.DefaultCellStyle.ForeColor = _colors.Text;
-                row.DefaultCellStyle.Font = new Font("Malgun Gothic", _baseFontSize);
+                row.DefaultCellStyle.Font = _cachedCostumeFont;
             }
         }
     }

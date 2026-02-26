@@ -146,8 +146,13 @@ public static class DataGridViewHelper
     /// </summary>
     public static void UpdateFontSize(DataGridView dgv, float baseFontSize)
     {
+        var oldCellFont = dgv.DefaultCellStyle.Font;
         dgv.DefaultCellStyle.Font = new Font("Malgun Gothic", baseFontSize);
+        oldCellFont?.Dispose();
+
+        var oldHeaderFont = dgv.ColumnHeadersDefaultCellStyle.Font;
         dgv.ColumnHeadersDefaultCellStyle.Font = new Font("Malgun Gothic", baseFontSize, FontStyle.Bold);
+        oldHeaderFont?.Dispose();
     }
 
     /// <summary>

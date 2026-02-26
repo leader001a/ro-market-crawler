@@ -64,6 +64,7 @@ public partial class Form1 : Form
     #region Settings
 
     private float _baseFontSize = 12f;
+    private Font _cachedMenuFont = new Font("Malgun Gothic", 12f);
     private readonly string _settingsFilePath;
     private List<string> _dealSearchHistory = new();
     private List<CostumeSearchEntry> _costumeSearchHistory = new();
@@ -1661,6 +1662,7 @@ gnjoy 사이트에서 요청을 거부하면, 프로그램은 24시간 동안 �
         _watermarkImage?.Dispose();
         _watermarkFaded?.Dispose();
         _webView2Helper?.Dispose();
+        _cachedMenuFont.Dispose();
 
         base.OnFormClosed(e);
     }

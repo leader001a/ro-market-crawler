@@ -29,6 +29,7 @@ public class ItemDetailForm : Form
     private readonly string _imageCacheDir;
     private readonly ThemeType _theme;
     private readonly float _baseFontSize;
+    private Font? _cachedRelatedFont;
 
     // Theme colors (set dynamically based on theme)
     private Color ThemeBackground;
@@ -405,7 +406,8 @@ public class ItemDetailForm : Form
         rtb.SelectionStart = rtb.TextLength;
         rtb.SelectionLength = 0;
         rtb.SelectionColor = color;
-        rtb.SelectionFont = new Font(rtb.Font, bold ? FontStyle.Bold : FontStyle.Regular);
+        using var selFont = new Font(rtb.Font, bold ? FontStyle.Bold : FontStyle.Regular);
+        rtb.SelectionFont = selFont;
         rtb.AppendText(newLine ? text + Environment.NewLine : text);
         rtb.SelectionColor = rtb.ForeColor;
     }
@@ -754,13 +756,15 @@ public class ItemDetailForm : Form
         _relatedItemsCard.Visible = true;
         _mainPanel.RowStyles[3] = new RowStyle(SizeType.Absolute, (int)(80 * scale));
 
+        _cachedRelatedFont ??= new Font("Malgun Gothic", _baseFontSize - 1);
+
         foreach (var kafraItem in relatedItems)
         {
             var displayName = kafraItem.ScreenName ?? kafraItem.Name ?? $"Item {kafraItem.ItemConst}";
             var link = new LinkLabel
             {
                 Text = displayName,
-                Font = new Font("Malgun Gothic", _baseFontSize - 1),
+                Font = _cachedRelatedFont,
                 AutoSize = true,
                 LinkColor = ThemeTextHighlight,
                 ActiveLinkColor = ThemeAccent,
@@ -869,6 +873,7 @@ public class ItemDetailForm : Form
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
         _imageClient.Dispose();
+        _cachedRelatedFont?.Dispose();
         base.OnFormClosed(e);
     }
 }

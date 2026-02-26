@@ -65,6 +65,9 @@ public class ItemTabController : BaseTabController
     // Cached bold font for UpdateFontSize
     private Font _cachedItemBoldFont = new Font("Malgun Gothic", 12f, FontStyle.Bold);
 
+    // Cached small font for filter category panel (fixed size)
+    private readonly Font _cachedFilterFont = new Font("Malgun Gothic", 8.5f);
+
     #endregion
 
     #region Events
@@ -762,7 +765,7 @@ public class ItemTabController : BaseTabController
             AutoSize = true,
             ForeColor = _colors.TextMuted,
             Margin = new Padding(5, 4, 3, 0),
-            Font = new Font("Malgun Gothic", 8.5f)
+            Font = _cachedFilterFont
         };
         panel.Controls.Add(lblCategory);
 
@@ -772,7 +775,7 @@ public class ItemTabController : BaseTabController
             AutoSize = true,
             ForeColor = _colors.Border,
             Margin = new Padding(0, 4, 5, 0),
-            Font = new Font("Malgun Gothic", 8.5f)
+            Font = _cachedFilterFont
         };
         panel.Controls.Add(separator);
 
@@ -789,7 +792,7 @@ public class ItemTabController : BaseTabController
                 Checked = false,
                 ForeColor = _colors.Text,
                 Margin = new Padding(0, 2, 5, 0),
-                Font = new Font("Malgun Gothic", 8.5f)
+                Font = _cachedFilterFont
             };
             panel.Controls.Add(chk);
             checkBoxDict[key] = chk;
@@ -1013,7 +1016,8 @@ public class ItemTabController : BaseTabController
         {
             _rtbItemDetail.AppendText(Environment.NewLine + Environment.NewLine);
             _rtbItemDetail.SelectionColor = _colors.LinkColor;
-            _rtbItemDetail.SelectionFont = new Font(_rtbItemDetail.Font, FontStyle.Bold);
+            using var boldFont = new Font(_rtbItemDetail.Font, FontStyle.Bold);
+            _rtbItemDetail.SelectionFont = boldFont;
             _rtbItemDetail.AppendText("[장착 가능 직업]" + Environment.NewLine);
             _rtbItemDetail.SelectionColor = _colors.Text;
             _rtbItemDetail.SelectionFont = _rtbItemDetail.Font;
@@ -1412,6 +1416,7 @@ public class ItemTabController : BaseTabController
             _dgvItems?.Dispose();
             _picItemImage?.Image?.Dispose();
             _cachedItemBoldFont.Dispose();
+            _cachedFilterFont.Dispose();
         }
 
         base.Dispose(disposing);

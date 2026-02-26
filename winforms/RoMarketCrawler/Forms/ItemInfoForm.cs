@@ -26,6 +26,7 @@ public class ItemInfoForm : Form
     private readonly string _imageCacheDir;
     private readonly ThemeType _theme;
     private readonly float _baseFontSize;
+    private Font? _cachedRelatedFont;
 
     /// <summary>
     /// Item ID for this popup (used to detect duplicate popups)
@@ -358,7 +359,8 @@ public class ItemInfoForm : Form
         {
             _rtbItemDesc.AppendText(Environment.NewLine + Environment.NewLine);
             _rtbItemDesc.SelectionColor = ThemeTextHighlight;
-            _rtbItemDesc.SelectionFont = new Font(_rtbItemDesc.Font, FontStyle.Bold);
+            using var boldFont = new Font(_rtbItemDesc.Font, FontStyle.Bold);
+            _rtbItemDesc.SelectionFont = boldFont;
             _rtbItemDesc.AppendText("[장착 가능 직업]" + Environment.NewLine);
             _rtbItemDesc.SelectionColor = ThemeText;
             _rtbItemDesc.SelectionFont = _rtbItemDesc.Font;
@@ -398,13 +400,15 @@ public class ItemInfoForm : Form
         _relatedItemsCard.Visible = true;
         _mainPanel.RowStyles[2] = new RowStyle(SizeType.Absolute, (int)(80 * scale));
 
+        _cachedRelatedFont ??= new Font("Malgun Gothic", _baseFontSize - 1);
+
         foreach (var kafraItem in relatedItems)
         {
             var displayName = kafraItem.ScreenName ?? kafraItem.Name ?? $"Item {kafraItem.ItemConst}";
             var link = new LinkLabel
             {
                 Text = displayName,
-                Font = new Font("Malgun Gothic", _baseFontSize - 1),
+                Font = _cachedRelatedFont,
                 AutoSize = true,
                 LinkColor = ThemeTextHighlight,
                 ActiveLinkColor = ThemeAccent,
@@ -602,6 +606,7 @@ public class ItemInfoForm : Form
         if (disposing)
         {
             _imageClient?.Dispose();
+            _cachedRelatedFont?.Dispose();
         }
         base.Dispose(disposing);
     }

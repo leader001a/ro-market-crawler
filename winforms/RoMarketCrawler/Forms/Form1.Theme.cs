@@ -612,30 +612,33 @@ public partial class Form1
     /// </summary>
     private void ApplyFontSizeToAllControls(Control parent)
     {
-        var uniformFont = new Font("Malgun Gothic", _baseFontSize);
+        var oldMenuFont = _cachedMenuFont;
+        _cachedMenuFont = new Font("Malgun Gothic", _baseFontSize);
 
         foreach (Control control in parent.Controls)
         {
             if (control is MenuStrip menuStrip)
             {
-                menuStrip.Font = uniformFont;
-                ApplyFontToMenuItems(menuStrip.Items, uniformFont);
+                menuStrip.Font = _cachedMenuFont;
+                ApplyFontToMenuItems(menuStrip.Items, _cachedMenuFont);
             }
             else if (control is StatusStrip statusStrip)
             {
-                statusStrip.Font = uniformFont;
+                statusStrip.Font = _cachedMenuFont;
                 foreach (ToolStripItem item in statusStrip.Items)
                 {
-                    item.Font = uniformFont;
+                    item.Font = _cachedMenuFont;
                 }
             }
             else if (control is TabControl tabControl)
             {
-                tabControl.Font = uniformFont;
+                tabControl.Font = _cachedMenuFont;
                 // Adjust tab item size for font
                 tabControl.ItemSize = new Size(180, (int)(_baseFontSize * 2.5));
             }
         }
+
+        oldMenuFont.Dispose();
     }
 
     /// <summary>
