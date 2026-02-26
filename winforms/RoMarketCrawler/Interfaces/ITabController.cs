@@ -1,6 +1,6 @@
 using RoMarketCrawler.Models;
 
-namespace RoMarketCrawler.Controllers;
+namespace RoMarketCrawler.Interfaces;
 
 /// <summary>
 /// Interface for tab controllers that manage UI tabs

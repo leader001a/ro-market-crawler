@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using RoMarketCrawler.Controllers;
-using RoMarketCrawler.Http;
 using RoMarketCrawler.Interfaces;
 using RoMarketCrawler.Services;
 

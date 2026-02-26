@@ -1,7 +1,7 @@
 using System.Net;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace RoMarketCrawler.Http;
+namespace RoMarketCrawler.Startup;
 
 /// <summary>
 /// Named HttpClient constants and configuration for IHttpClientFactory.
