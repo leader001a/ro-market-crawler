@@ -62,6 +62,12 @@ public class ItemTabController : BaseTabController
     private int _itemCurrentPage = 0;
     private int _itemTotalCount = 0;
 
+    // Cached bold font for UpdateFontSize
+    private Font _cachedItemBoldFont = new Font("Malgun Gothic", 12f, FontStyle.Bold);
+
+    // Cached small font for filter category panel (fixed size)
+    private readonly Font _cachedFilterFont = new Font("Malgun Gothic", 8.5f);
+
     #endregion
 
     #region Events
@@ -759,7 +765,7 @@ public class ItemTabController : BaseTabController
             AutoSize = true,
             ForeColor = _colors.TextMuted,
             Margin = new Padding(5, 4, 3, 0),
-            Font = new Font("Malgun Gothic", 8.5f)
+            Font = _cachedFilterFont
         };
         panel.Controls.Add(lblCategory);
 
@@ -769,7 +775,7 @@ public class ItemTabController : BaseTabController
             AutoSize = true,
             ForeColor = _colors.Border,
             Margin = new Padding(0, 4, 5, 0),
-            Font = new Font("Malgun Gothic", 8.5f)
+            Font = _cachedFilterFont
         };
         panel.Controls.Add(separator);
 
@@ -786,7 +792,7 @@ public class ItemTabController : BaseTabController
                 Checked = false,
                 ForeColor = _colors.Text,
                 Margin = new Padding(0, 2, 5, 0),
-                Font = new Font("Malgun Gothic", 8.5f)
+                Font = _cachedFilterFont
             };
             panel.Controls.Add(chk);
             checkBoxDict[key] = chk;
@@ -1010,7 +1016,8 @@ public class ItemTabController : BaseTabController
         {
             _rtbItemDetail.AppendText(Environment.NewLine + Environment.NewLine);
             _rtbItemDetail.SelectionColor = _colors.LinkColor;
-            _rtbItemDetail.SelectionFont = new Font(_rtbItemDetail.Font, FontStyle.Bold);
+            using var boldFont = new Font(_rtbItemDetail.Font, FontStyle.Bold);
+            _rtbItemDetail.SelectionFont = boldFont;
             _rtbItemDetail.AppendText("[장착 가능 직업]" + Environment.NewLine);
             _rtbItemDetail.SelectionColor = _colors.Text;
             _rtbItemDetail.SelectionFont = _rtbItemDetail.Font;
@@ -1338,17 +1345,23 @@ public class ItemTabController : BaseTabController
 
         var scale = baseFontSize / 12f;
 
+        // Update cached bold font
+        var oldItemBoldFont = _cachedItemBoldFont;
+        _cachedItemBoldFont = new Font("Malgun Gothic", baseFontSize, FontStyle.Bold);
+
         // Additional specific adjustments for grid headers
         if (_dgvItems != null)
         {
-            _dgvItems.ColumnHeadersDefaultCellStyle.Font = new Font("Malgun Gothic", baseFontSize, FontStyle.Bold);
+            _dgvItems.ColumnHeadersDefaultCellStyle.Font = _cachedItemBoldFont;
         }
 
         // Ensure item name label uses highlighted style
         if (_lblItemName != null)
         {
-            _lblItemName.Font = new Font("Malgun Gothic", baseFontSize, FontStyle.Bold);
+            _lblItemName.Font = _cachedItemBoldFont;
         }
+
+        oldItemBoldFont.Dispose();
 
         // Update combobox width
         if (_cboCategoryToolStrip != null)
@@ -1402,6 +1415,8 @@ public class ItemTabController : BaseTabController
             _itemBindingSource?.Dispose();
             _dgvItems?.Dispose();
             _picItemImage?.Image?.Dispose();
+            _cachedItemBoldFont.Dispose();
+            _cachedFilterFont.Dispose();
         }
 
         base.Dispose(disposing);

@@ -91,6 +91,12 @@ public class MonitorTabController : BaseTabController
     // Dropdown panel hosts for font size updates
     private ToolStripControlHost? _autoRefreshHost;
 
+    // Cached bold font for CellFormatting events (shared across both grids)
+    private Font _cachedBoldCellFont = new Font("Malgun Gothic", 12f, FontStyle.Bold);
+
+    // Cached fonts for UpdateFontSize
+    private Font _cachedMonitorGridFont = new Font("Malgun Gothic", 12f);
+
     #endregion
 
     #region Events
@@ -1975,13 +1981,13 @@ public class MonitorTabController : BaseTabController
         {
             e.CellStyle!.BackColor = Color.FromArgb(40, 80, 140);
             e.CellStyle.ForeColor = Color.White;
-            e.CellStyle.Font = new Font(e.CellStyle.Font ?? SystemFonts.DefaultFont, FontStyle.Bold);
+            e.CellStyle.Font = _cachedBoldCellFont;
         }
         else if (cellValue == "조회 중...")
         {
             e.CellStyle!.BackColor = Color.FromArgb(120, 100, 40);
             e.CellStyle.ForeColor = Color.White;
-            e.CellStyle.Font = new Font(e.CellStyle.Font ?? SystemFonts.DefaultFont, FontStyle.Bold);
+            e.CellStyle.Font = _cachedBoldCellFont;
         }
         else if (cellValue == "-")
         {
@@ -2082,7 +2088,7 @@ public class MonitorTabController : BaseTabController
             }
             if (refine >= 7)
             {
-                e.CellStyle.Font = new Font(e.CellStyle.Font ?? SystemFonts.DefaultFont, FontStyle.Bold);
+                e.CellStyle.Font = _cachedBoldCellFont;
             }
         }
 
@@ -2091,7 +2097,7 @@ public class MonitorTabController : BaseTabController
         {
             if (_currentTheme == ThemeType.Dark)
             {
-                e.CellStyle!.ForeColor = grade.ToLower() switch
+                e.CellStyle!.ForeColor = grade.ToLowerInvariant() switch
                 {
                     "s" => Color.FromArgb(255, 200, 50),
                     "a" => Color.FromArgb(200, 130, 255),
@@ -2104,7 +2110,7 @@ public class MonitorTabController : BaseTabController
             }
             else
             {
-                e.CellStyle!.ForeColor = grade.ToLower() switch
+                e.CellStyle!.ForeColor = grade.ToLowerInvariant() switch
                 {
                     "s" => Color.FromArgb(180, 140, 0),
                     "a" => Color.FromArgb(130, 0, 130),
@@ -2115,7 +2121,7 @@ public class MonitorTabController : BaseTabController
                     _ => Color.FromArgb(80, 80, 80)
                 };
             }
-            e.CellStyle.Font = new Font(e.CellStyle.Font ?? SystemFonts.DefaultFont, FontStyle.Bold);
+            e.CellStyle.Font = _cachedBoldCellFont;
         }
 
         // Highlight price columns
@@ -2125,7 +2131,7 @@ public class MonitorTabController : BaseTabController
             {
                 e.CellStyle!.BackColor = Color.FromArgb(180, 40, 40);
                 e.CellStyle.ForeColor = Color.White;
-                e.CellStyle.Font = new Font(e.CellStyle.Font ?? SystemFonts.DefaultFont, FontStyle.Bold);
+                e.CellStyle.Font = _cachedBoldCellFont;
             }
             else if (belowYesterday && belowWeek)
             {
@@ -2164,17 +2170,26 @@ public class MonitorTabController : BaseTabController
         var scale = baseFontSize / 12f;
         var warningHeight = (int)(28 * scale);
 
+        // Update cached fonts
+        var oldMonitorGridFont = _cachedMonitorGridFont;
+        _cachedMonitorGridFont = new Font("Malgun Gothic", baseFontSize);
+        var oldBoldCellFont = _cachedBoldCellFont;
+        _cachedBoldCellFont = new Font("Malgun Gothic", baseFontSize, FontStyle.Bold);
+
         if (_dgvMonitorItems != null)
         {
-            _dgvMonitorItems.DefaultCellStyle.Font = new Font("Malgun Gothic", baseFontSize);
-            _dgvMonitorItems.ColumnHeadersDefaultCellStyle.Font = new Font("Malgun Gothic", baseFontSize, FontStyle.Bold);
+            _dgvMonitorItems.DefaultCellStyle.Font = _cachedMonitorGridFont;
+            _dgvMonitorItems.ColumnHeadersDefaultCellStyle.Font = _cachedBoldCellFont;
         }
 
         if (_dgvMonitorResults != null)
         {
-            _dgvMonitorResults.DefaultCellStyle.Font = new Font("Malgun Gothic", baseFontSize);
-            _dgvMonitorResults.ColumnHeadersDefaultCellStyle.Font = new Font("Malgun Gothic", baseFontSize, FontStyle.Bold);
+            _dgvMonitorResults.DefaultCellStyle.Font = _cachedMonitorGridFont;
+            _dgvMonitorResults.ColumnHeadersDefaultCellStyle.Font = _cachedBoldCellFont;
         }
+
+        oldMonitorGridFont.Dispose();
+        oldBoldCellFont.Dispose();
 
         // Update server combobox width
         if (_cboServerToolStrip != null)
@@ -2188,15 +2203,15 @@ public class MonitorTabController : BaseTabController
             _mainLayout.RowStyles[0].Height = (int)(32 * scale);  // Toolbar
         }
 
-        // Update warning labels - use same font size as configured
+        // Update warning labels - reuse cached grid font (same size)
         if (_lblWarning != null)
         {
-            _lblWarning.Font = new Font("Malgun Gothic", baseFontSize);
+            _lblWarning.Font = _cachedMonitorGridFont;
             _lblWarning.Height = warningHeight;
         }
         if (_lblWarning2 != null)
         {
-            _lblWarning2.Font = new Font("Malgun Gothic", baseFontSize);
+            _lblWarning2.Font = _cachedMonitorGridFont;
             _lblWarning2.Height = warningHeight;
         }
 
@@ -2304,6 +2319,8 @@ public class MonitorTabController : BaseTabController
             _monitorResultsBindingSource?.Dispose();
             _dgvMonitorItems?.Dispose();
             _dgvMonitorResults?.Dispose();
+            _cachedBoldCellFont.Dispose();
+            _cachedMonitorGridFont.Dispose();
         }
 
         base.Dispose(disposing);

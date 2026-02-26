@@ -24,6 +24,10 @@ public abstract class BaseTabController : ITabController
     /// <inheritdoc/>
     public abstract string TabName { get; }
 
+    // Cached uniform fonts used by ApplyFontSizeToAllControls
+    private Font _cachedUniformFont = new Font("Malgun Gothic", 12f);
+    private Font _cachedUniformBoldFont = new Font("Malgun Gothic", 12f, FontStyle.Bold);
+
     protected BaseTabController(IServiceProvider serviceProvider)
     {
         ServiceProvider = serviceProvider;
@@ -51,24 +55,32 @@ public abstract class BaseTabController : ITabController
     public virtual void UpdateFontSize(float baseFontSize)
     {
         _baseFontSize = baseFontSize;
-        // Apply font to all controls recursively
-        ApplyFontSizeToAllControls(_tabPage, baseFontSize);
+        // Create new fonts, apply to all controls, then dispose old ones
+        var oldUniform = _cachedUniformFont;
+        var oldBold = _cachedUniformBoldFont;
+        _cachedUniformFont = new Font("Malgun Gothic", baseFontSize);
+        _cachedUniformBoldFont = new Font("Malgun Gothic", baseFontSize, FontStyle.Bold);
+        ApplyFontSizeToAllControls(_tabPage, _cachedUniformFont, _cachedUniformBoldFont);
+        oldUniform.Dispose();
+        oldBold.Dispose();
     }
 
     /// <summary>
-    /// Recursively apply uniform font size to all controls
+    /// Recursively apply uniform font size to all controls.
+    /// Accepts pre-created font instances to avoid redundant allocations in recursive calls.
     /// </summary>
-    protected void ApplyFontSizeToAllControls(Control parent, float baseFontSize)
+    protected void ApplyFontSizeToAllControls(Control parent, Font uniformFont, Font uniformBoldFont)
     {
-        var uniformFont = new Font("Malgun Gothic", baseFontSize);
-        var uniformBoldFont = new Font("Malgun Gothic", baseFontSize, FontStyle.Bold);
-
         foreach (Control control in parent.Controls)
         {
             // Apply uniform font based on control type
             if (control is DataGridView dgv)
             {
-                Helpers.DataGridViewHelper.UpdateFontSize(dgv, baseFontSize);
+                // Set ambient font only; each controller's UpdateFontSize override
+                // sets DefaultCellStyle.Font via cached fields (which it owns and disposes).
+                // Calling DataGridViewHelper.UpdateFontSize here would create orphaned Font
+                // objects and risk disposing controller-owned cached fonts.
+                dgv.Font = uniformFont;
             }
             else if (control is ToolStrip toolStrip)
             {
@@ -124,7 +136,7 @@ public abstract class BaseTabController : ITabController
             // Recurse into child controls
             if (control.HasChildren)
             {
-                ApplyFontSizeToAllControls(control, baseFontSize);
+                ApplyFontSizeToAllControls(control, uniformFont, uniformBoldFont);
             }
         }
     }
@@ -351,6 +363,8 @@ public abstract class BaseTabController : ITabController
         if (disposing)
         {
             _tabPage.Dispose();
+            _cachedUniformFont.Dispose();
+            _cachedUniformBoldFont.Dispose();
         }
 
         _disposed = true;

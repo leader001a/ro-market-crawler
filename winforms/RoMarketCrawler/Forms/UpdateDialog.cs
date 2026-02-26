@@ -221,7 +221,13 @@ public class UpdateDialog : Form
             using var stream = assembly.GetManifestResourceStream("RoMarketCrawler.Data.logo.png");
             if (stream != null)
             {
-                _picLogo.Image = Image.FromStream(stream);
+                // Image.FromStream requires the stream to stay alive for the lifetime of the Image.
+                // Copy to a MemoryStream so the resource stream can be closed, and keep ms alive.
+                var ms = new MemoryStream();
+                stream.CopyTo(ms);
+                ms.Position = 0;
+                _picLogo.Image = Image.FromStream(ms);
+                // ms is intentionally not disposed here — Image holds a reference to it
             }
         }
         catch (Exception ex)

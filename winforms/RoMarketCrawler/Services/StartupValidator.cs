@@ -562,13 +562,26 @@ public class StartupValidator : IDisposable
             };
         }
 
+        // Shared fonts — disposed via consentForm.Disposed handler
+        var fontTitle  = new Font("Malgun Gothic", 14, FontStyle.Bold);
+        var fontNormal = new Font("Malgun Gothic", 9);
+        var fontBold   = new Font("Malgun Gothic", 9, FontStyle.Bold);
+        var fontSmall  = new Font("Malgun Gothic", 8.5f);
+        consentForm.Disposed += (_, _) =>
+        {
+            fontTitle.Dispose();
+            fontNormal.Dispose();
+            fontBold.Dispose();
+            fontSmall.Dispose();
+        };
+
         // Title with dynamic version
         var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
         var versionStr = version != null ? $"v{version.Major}.{version.Minor}.{version.Build}" : "v1.0.0";
         var lblTitle = new Label
         {
             Text = $"RO Market Crawler {versionStr}",
-            Font = new Font("Malgun Gothic", 14, FontStyle.Bold),
+            Font = fontTitle,
             ForeColor = clrLink,
             AutoSize = true,
             Location = new Point(leftMargin, 18 + logoOffset)
@@ -578,7 +591,7 @@ public class StartupValidator : IDisposable
         var lblDesc = new Label
         {
             Text = "라그나로크 온라인 거래 정보 검색 및 모니터링 프로그램",
-            Font = new Font("Malgun Gothic", 9),
+            Font = fontNormal,
             ForeColor = clrTextMuted,
             AutoSize = true,
             Location = new Point(leftMargin, 45 + logoOffset)
@@ -590,7 +603,7 @@ public class StartupValidator : IDisposable
             Text = "[데이터 출처]\n" +
                    "  - 아이템 정보: kafra.kr\n" +
                    "  - 노점 거래: ro.gnjoy.com",
-            Font = new Font("Malgun Gothic", 9),
+            Font = fontNormal,
             ForeColor = clrText,
             AutoSize = true,
             Location = new Point(leftMargin, 72 + logoOffset)
@@ -600,7 +613,7 @@ public class StartupValidator : IDisposable
         var lblCreator = new Label
         {
             Text = "Created by: 티포니",
-            Font = new Font("Malgun Gothic", 9),
+            Font = fontNormal,
             ForeColor = clrText,
             AutoSize = true,
             Location = new Point(leftMargin, 130 + logoOffset)
@@ -610,7 +623,7 @@ public class StartupValidator : IDisposable
         var lblContact = new Label
         {
             Text = "문의: 메뉴 > 도움말 > 정보의 카카오톡 오픈프로필 참조",
-            Font = new Font("Malgun Gothic", 9),
+            Font = fontNormal,
             ForeColor = clrText,
             AutoSize = true,
             Location = new Point(leftMargin, 150 + logoOffset)
@@ -620,7 +633,7 @@ public class StartupValidator : IDisposable
         var lblPrivacy = new Label
         {
             Text = "** 본 프로그램은 개인정보 및 게임정보를 일체 수집하지 않습니다 **",
-            Font = new Font("Malgun Gothic", 9, FontStyle.Bold),
+            Font = fontBold,
             ForeColor = Color.FromArgb(0, 120, 60),  // Green for trust
             AutoSize = true,
             Location = new Point(leftMargin, 175 + logoOffset)
@@ -630,7 +643,7 @@ public class StartupValidator : IDisposable
         var txtLegalNotice = new TextBox
         {
             Text = legalNoticeText,
-            Font = new Font("Malgun Gothic", 8.5f),
+            Font = fontSmall,
             ForeColor = clrLegalText,
             BackColor = clrLegalBg,
             BorderStyle = BorderStyle.FixedSingle,
@@ -646,7 +659,7 @@ public class StartupValidator : IDisposable
         var lblConfirm = new Label
         {
             Text = "위 내용을 모두 읽었으며, 이에 동의합니다.",
-            Font = new Font("Malgun Gothic", 9),
+            Font = fontNormal,
             ForeColor = clrText,
             AutoSize = true,
             Location = new Point(leftMargin, 430 + logoOffset)
@@ -776,10 +789,15 @@ public class StartupValidator : IDisposable
             ControlBox = false
         };
 
+        // Shared fonts for this dialog — disposed via progressForm.Disposed handler
+        var fontMedium = new Font("Malgun Gothic", 10);
+        var fontSmall  = new Font("Malgun Gothic", 9);
+        progressForm.Disposed += (_, _) => { fontMedium.Dispose(); fontSmall.Dispose(); };
+
         var lblStatus = new Label
         {
             Text = "아이템 인덱스를 생성하고 있습니다...\n처음 실행 시 약 1-2분 정도 소요됩니다.",
-            Font = new Font("Malgun Gothic", 10),
+            Font = fontMedium,
             ForeColor = Color.FromArgb(220, 220, 220),
             AutoSize = false,
             TextAlign = ContentAlignment.MiddleCenter,
@@ -799,7 +817,7 @@ public class StartupValidator : IDisposable
         var lblProgress = new Label
         {
             Text = "준비 중...",
-            Font = new Font("Malgun Gothic", 9),
+            Font = fontSmall,
             ForeColor = Color.FromArgb(180, 180, 180),
             AutoSize = false,
             TextAlign = ContentAlignment.MiddleCenter,

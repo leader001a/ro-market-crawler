@@ -146,6 +146,14 @@ public class CostumeTabController : BaseTabController
     private AlarmSoundType _selectedAlarmSound = AlarmSoundType.SystemSound;
     private int _alarmIntervalSeconds = 5;
 
+    // Cached fonts for search history label hover effect
+    private Font _cachedHistoryLabelFont = new Font("Malgun Gothic", 12f);
+    private Font _cachedHistoryLabelUnderlineFont = new Font("Malgun Gothic", 12f, FontStyle.Underline);
+
+    // Cached fonts for UpdateFontSize
+    private Font _cachedCostumeFont = new Font("Malgun Gothic", 12f);
+    private Font _cachedCostumeBoldFont = new Font("Malgun Gothic", 12f, FontStyle.Bold);
+
     #endregion
 
     /// <summary>
@@ -1752,6 +1760,7 @@ public class CostumeTabController : BaseTabController
             {
                 Text = entry.DisplayText,
                 AutoSize = true,
+                Font = _cachedHistoryLabelFont,
                 ForeColor = _colors.Accent,
                 Cursor = Cursors.Hand,
                 Margin = new Padding(0, 3, 10, 0),
@@ -1766,8 +1775,9 @@ public class CostumeTabController : BaseTabController
                     ExecuteLocalSearch();
                 }
             };
-            btn.MouseEnter += (s, e) => { if (s is Label lbl) lbl.Font = new Font(lbl.Font, FontStyle.Underline); };
-            btn.MouseLeave += (s, e) => { if (s is Label lbl) lbl.Font = new Font(lbl.Font, FontStyle.Regular); };
+            // Hover effect — use cached fonts to avoid per-hover allocation
+            btn.MouseEnter += (s, e) => { if (s is Label lbl) lbl.Font = _cachedHistoryLabelUnderlineFont; };
+            btn.MouseLeave += (s, e) => { if (s is Label lbl) lbl.Font = _cachedHistoryLabelFont; };
             _pnlSearchHistory.Controls.Add(btn);
         }
 
@@ -2057,11 +2067,11 @@ public class CostumeTabController : BaseTabController
                     btnCell.FlatStyle = FlatStyle.Standard;
                 viewCell.Style.BackColor = Color.White;
                 viewCell.Style.ForeColor = Color.FromArgb(180, 40, 40);
-                viewCell.Style.Font = new Font("Malgun Gothic", _baseFontSize, FontStyle.Bold);
+                viewCell.Style.Font = _cachedCostumeBoldFont;
                 // Highlight entire row
                 row.DefaultCellStyle.BackColor = Color.FromArgb(180, 40, 40);
                 row.DefaultCellStyle.ForeColor = Color.White;
-                row.DefaultCellStyle.Font = new Font("Malgun Gothic", _baseFontSize, FontStyle.Bold);
+                row.DefaultCellStyle.Font = _cachedCostumeBoldFont;
             }
             else
             {
@@ -2072,7 +2082,7 @@ public class CostumeTabController : BaseTabController
                 viewCell.Style = new DataGridViewCellStyle();
                 row.DefaultCellStyle.BackColor = _colors.Grid;
                 row.DefaultCellStyle.ForeColor = _colors.Text;
-                row.DefaultCellStyle.Font = new Font("Malgun Gothic", _baseFontSize);
+                row.DefaultCellStyle.Font = _cachedCostumeFont;
             }
         }
     }
@@ -2656,21 +2666,25 @@ public class CostumeTabController : BaseTabController
         base.UpdateFontSize(baseFontSize);
 
         var scale = baseFontSize / 12f;
-        var font = new Font("Malgun Gothic", baseFontSize);
-        var boldFont = new Font("Malgun Gothic", baseFontSize, FontStyle.Bold);
+
+        // Update cached fonts
+        var oldCostumeFont = _cachedCostumeFont;
+        _cachedCostumeFont = new Font("Malgun Gothic", baseFontSize);
+        var oldCostumeBoldFont = _cachedCostumeBoldFont;
+        _cachedCostumeBoldFont = new Font("Malgun Gothic", baseFontSize, FontStyle.Bold);
 
         // DataGridView fonts
         if (_dgvResults != null)
         {
-            _dgvResults.DefaultCellStyle.Font = font;
-            _dgvResults.ColumnHeadersDefaultCellStyle.Font = boldFont;
+            _dgvResults.DefaultCellStyle.Font = _cachedCostumeFont;
+            _dgvResults.ColumnHeadersDefaultCellStyle.Font = _cachedCostumeBoldFont;
             _dgvResults.ColumnHeadersHeight = Math.Max((int)(32 * scale), 28);
         }
 
         // Status label
         if (_lblStatus != null)
         {
-            _lblStatus.Font = font;
+            _lblStatus.Font = _cachedCostumeFont;
             _lblStatus.Height = Math.Max((int)(24 * scale), 20);
         }
 
@@ -2693,7 +2707,7 @@ public class CostumeTabController : BaseTabController
         if (_btnLast != null) _btnLast.Size = new Size((int)(36 * scale), btnHeight);
         if (_lblPageInfo != null)
         {
-            _lblPageInfo.Font = font;
+            _lblPageInfo.Font = _cachedCostumeFont;
             _lblPageInfo.Padding = new Padding((int)(10 * scale), (int)(5 * scale), (int)(10 * scale), 0);
         }
         if (_pnlPagination != null)
@@ -2716,6 +2730,17 @@ public class CostumeTabController : BaseTabController
 
         // Refresh monitor panel height
         UpdateMonitorPanelHeight();
+
+        oldCostumeFont.Dispose();
+        oldCostumeBoldFont.Dispose();
+
+        // Update cached fonts for search history label hover effect
+        var oldHistoryFont = _cachedHistoryLabelFont;
+        _cachedHistoryLabelFont = new Font("Malgun Gothic", baseFontSize);
+        oldHistoryFont.Dispose();
+        var oldHistoryUnderlineFont = _cachedHistoryLabelUnderlineFont;
+        _cachedHistoryLabelUnderlineFont = new Font("Malgun Gothic", baseFontSize, FontStyle.Underline);
+        oldHistoryUnderlineFont.Dispose();
     }
 
     #endregion
@@ -2749,6 +2774,11 @@ public class CostumeTabController : BaseTabController
             _crawlCts?.Dispose();
             _alarmTimer?.Stop();
             _alarmTimer?.Dispose();
+            _cachedHistoryLabelFont.Dispose();
+            _cachedHistoryLabelUnderlineFont.Dispose();
+            _cachedCostumeFont.Dispose();
+            _cachedCostumeBoldFont.Dispose();
+            _resultBindingSource.Dispose();
         }
         base.Dispose(disposing);
     }

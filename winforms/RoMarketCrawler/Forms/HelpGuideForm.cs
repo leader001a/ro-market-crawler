@@ -770,7 +770,7 @@ ESC               현재 창 닫기
 
         // Step 3: Draw text
         using var textBrush = new SolidBrush(textColor);
-        var sf = new StringFormat
+        using var sf = new StringFormat
         {
             Alignment = StringAlignment.Center,
             LineAlignment = StringAlignment.Center
@@ -795,7 +795,7 @@ ESC               현재 창 닫기
 
         // Step 3: Draw text
         using var textBrush = new SolidBrush(textColor);
-        var sf = new StringFormat
+        using var sf = new StringFormat
         {
             Alignment = StringAlignment.Center,
             LineAlignment = StringAlignment.Center

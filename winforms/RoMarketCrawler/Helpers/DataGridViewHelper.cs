@@ -142,15 +142,6 @@ public static class DataGridViewHelper
     }
 
     /// <summary>
-    /// Update font size for DataGridView (uniform font size)
-    /// </summary>
-    public static void UpdateFontSize(DataGridView dgv, float baseFontSize)
-    {
-        dgv.DefaultCellStyle.Font = new Font("Malgun Gothic", baseFontSize);
-        dgv.ColumnHeadersDefaultCellStyle.Font = new Font("Malgun Gothic", baseFontSize, FontStyle.Bold);
-    }
-
-    /// <summary>
     /// Add a text column with specified configuration
     /// </summary>
     public static DataGridViewTextBoxColumn AddTextColumn(
