@@ -24,9 +24,9 @@ public class ItemIndexService : IItemIndexService
     private ItemIndexMetadata _metadata = new();
     private readonly object _indexLock = new();
 
-    // State
+    // State (use int + Interlocked for thread-safe TOCTOU-free loading flag)
     private bool _isLoaded = false;
-    private bool _isLoading = false;
+    private int _isLoadingInt = 0; // 0 = not loading, 1 = loading
 
     public ItemIndexService(string? cacheDirectory = null)
     {
@@ -43,7 +43,7 @@ public class ItemIndexService : IItemIndexService
     #region Properties
 
     public bool IsLoaded => _isLoaded;
-    public bool IsLoading => _isLoading;
+    public bool IsLoading => _isLoadingInt == 1;
     public int TotalCount => _metadata.TotalCount;
     public DateTime? LastUpdated => _isLoaded ? _metadata.UpdatedAt : null;
     public string CacheFilePath => _cacheFilePath;
@@ -114,13 +114,13 @@ public class ItemIndexService : IItemIndexService
     /// </summary>
     public async Task<bool> RebuildIndexAsync(IProgress<IndexProgress>? progress = null, CancellationToken cancellationToken = default)
     {
-        if (_isLoading)
+        // Atomically set _isLoadingInt from 0 → 1; returns false if already loading
+        if (Interlocked.CompareExchange(ref _isLoadingInt, 1, 0) != 0)
         {
             Debug.WriteLine("[ItemIndexService] Already loading");
             return false;
         }
 
-        _isLoading = true;
         var stopwatch = Stopwatch.StartNew();
 
         try
@@ -229,7 +229,7 @@ public class ItemIndexService : IItemIndexService
         }
         finally
         {
-            _isLoading = false;
+            Interlocked.Exchange(ref _isLoadingInt, 0);
         }
     }
 
@@ -527,21 +527,21 @@ public class ItemIndexService : IItemIndexService
             // Convert to DTO (handle nullable fields from API)
             return items.Select(item =>
             {
-                var itemType = item.Type ?? 0;
+                var type = item.Type ?? 0;  // local name avoids shadowing the 'itemType' parameter
                 var itemText = NormalizeLineBreaks(item.ItemText);
                 return new KafraItemDto
                 {
                     Id = item.ItemConst,
                     Name = item.Name,
                     ScreenName = item.ScreenName,
-                    Type = itemType,
+                    Type = type,
                     Slots = item.Slots ?? 0,
                     Weight = item.Weight ?? 0,
                     PriceBuy = item.PriceBuy,
                     PriceSell = item.PriceSell,
                     ItemText = itemText,
                     EquipJobsText = item.EquipJobsText,
-                    Details = ItemTextParser.Parse(itemText, itemType)
+                    Details = ItemTextParser.Parse(itemText, type)
                 };
             }).ToList();
         }
@@ -561,10 +561,16 @@ public class ItemIndexService : IItemIndexService
     {
         try
         {
+            // Snapshot _itemsById under lock to avoid concurrent modification during iteration
+            Dictionary<int, KafraItemDto> snapshot;
+            lock (_indexLock)
+            {
+                snapshot = new Dictionary<int, KafraItemDto>(_itemsById);
+            }
+
             // Convert int keys to string keys for JSON serialization
-            // Note: This runs on background thread when called from RebuildIndexAsync's Task.Run
-            var stringKeyItems = new Dictionary<string, KafraItemDto>();
-            foreach (var kvp in _itemsById)
+            var stringKeyItems = new Dictionary<string, KafraItemDto>(snapshot.Count);
+            foreach (var kvp in snapshot)
             {
                 stringKeyItems[kvp.Key.ToString()] = kvp.Value;
             }
@@ -625,7 +631,7 @@ public class ItemIndexService : IItemIndexService
         var newItemsCount = 0;
         var scannedCount = 0;
         var totalIds = endId - startId + 1;
-        var semaphore = new SemaphoreSlim(10); // Max 10 concurrent requests
+        using var semaphore = new SemaphoreSlim(10); // Max 10 concurrent requests
 
         progress?.Report(new IndexProgress
         {
