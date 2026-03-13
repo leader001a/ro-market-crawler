@@ -63,7 +63,6 @@ public class MonitorTabController : BaseTabController
     #region State
 
     private readonly BindingSource _monitorItemsBindingSource;
-    private readonly BindingSource _monitorResultsBindingSource;
     private CancellationTokenSource? _monitorCts;
 
     // Refresh state
@@ -118,7 +117,6 @@ public class MonitorTabController : BaseTabController
         _alarmSoundService = GetService<IAlarmSoundService>();
 
         _monitorItemsBindingSource = new BindingSource();
-        _monitorResultsBindingSource = new BindingSource();
     }
 
     /// <summary>
@@ -585,7 +583,6 @@ public class MonitorTabController : BaseTabController
         };
         ApplyDataGridViewStyle(_dgvMonitorResults);
         SetupMonitorResultsColumns();
-        _dgvMonitorResults.DataSource = _monitorResultsBindingSource;
         _dgvMonitorResults.CellFormatting += DgvMonitorResults_CellFormatting;
         _dgvMonitorResults.ColumnHeaderMouseClick += DgvMonitorResults_ColumnHeaderMouseClick;
         _dgvMonitorResults.CellPainting += DgvMonitorResults_CellPainting;
@@ -866,8 +863,7 @@ public class MonitorTabController : BaseTabController
             return;
         }
 
-        var items = _monitoringService.Config.Items.ToList();
-        _monitorItemsBindingSource.DataSource = items;
+        _monitorItemsBindingSource.DataSource = _monitoringService.Config.Items;
         _monitorItemsBindingSource.ResetBindings(false);
         _dgvMonitorItems.ClearSelection();
     }
@@ -886,7 +882,7 @@ public class MonitorTabController : BaseTabController
         var results = _monitoringService.Results.Values.ToList();
         int savedScrollPosition = _dgvMonitorResults.FirstDisplayedScrollingRowIndex;
 
-        _dgvMonitorResults.SuspendLayout();
+        _dgvMonitorResults.Visible = false;
 
         try
         {
@@ -916,13 +912,7 @@ public class MonitorTabController : BaseTabController
                 return baseName;
             }
 
-            // Debug: Log all deals to identify grouping issues
             var allDeals = results.SelectMany(r => r.Deals.Select(d => new { Deal = d, Result = r })).ToList();
-            Debug.WriteLine($"[MonitorTab] Total deals before grouping: {allDeals.Count}");
-            foreach (var x in allDeals)
-            {
-                Debug.WriteLine($"[MonitorTab] Deal: ItemName='{x.Deal.ItemName}', Refine={x.Deal.Refine}, Grade='{x.Deal.Grade}', CardSlots='{x.Deal.CardSlots}', Server='{x.Deal.ServerName}', Price={x.Deal.Price}");
-            }
 
             // Normalize function to ensure consistent grouping
             static string NormalizeString(string? s) => (s ?? "").Trim();
@@ -942,8 +932,6 @@ public class MonitorTabController : BaseTabController
                     var firstDeal = g.First().Deal;
                     var monitorItem = g.First().Result.Item;
                     var displayName = GetDisplayName(firstDeal);
-
-                    Debug.WriteLine($"[MonitorTab] Group: DisplayName='{displayName}', ItemName='{g.Key.ItemName}', Refine={g.Key.Refine}, Grade='{g.Key.Grade}', CardSlots='{g.Key.CardSlots}', Count={g.Count()}");
 
                     return new
                     {
@@ -965,44 +953,21 @@ public class MonitorTabController : BaseTabController
             // Apply sorting
             var sortedDeals = ApplySorting(groupedDealsQuery, gradeOrder);
 
-            // Secondary deduplication by DisplayName + Refine + Grade + ServerName
-            // This catches any duplicates that slipped through due to ItemName parsing inconsistencies
-            var sortedList = sortedDeals.ToList();
-            var seenKeys = new HashSet<string>();
-            var groupedDeals = new List<dynamic>();
-
-            foreach (var item in sortedList)
-            {
-                var key = $"{item.DisplayName}|{item.Refine}|{item.Grade}|{item.ServerName}";
-                if (!seenKeys.Contains(key))
-                {
-                    seenKeys.Add(key);
-                    groupedDeals.Add(item);
-                }
-                else
-                {
-                    Debug.WriteLine($"[MonitorTab] Skipping duplicate: DisplayName='{item.DisplayName}', Refine={item.Refine}, Grade='{item.Grade}'");
-                }
-            }
-
-            Debug.WriteLine($"[MonitorTab] Final grouped deals count: {groupedDeals.Count} (from {sortedList.Count})");
-
-            foreach (var group in groupedDeals)
+            foreach (var group in sortedDeals)
             {
                 var row = _dgvMonitorResults.Rows.Add();
                 PopulateResultRow(row, group, gradeOrder);
             }
 
             _dgvMonitorResults.ClearSelection();
-
+        }
+        finally
+        {
+            _dgvMonitorResults.Visible = true;
             if (savedScrollPosition >= 0 && savedScrollPosition < _dgvMonitorResults.RowCount)
             {
                 _dgvMonitorResults.FirstDisplayedScrollingRowIndex = savedScrollPosition;
             }
-        }
-        finally
-        {
-            _dgvMonitorResults.ResumeLayout();
         }
     }
 
@@ -1084,7 +1049,7 @@ public class MonitorTabController : BaseTabController
             row.Cells["PriceDiff"].Value = "-";
             row.Cells["Status"].Value = belowWatchPrice ? "득템!" : "-";
 
-            row.Tag = new { Grade = group.Grade, Refine = group.Refine, BelowYesterday = false, BelowWeek = false, IsBargain = belowWatchPrice };
+            row.Tag = new MonitorRowTag { Grade = group.Grade, Refine = group.Refine, BelowYesterday = false, BelowWeek = false, IsBargain = belowWatchPrice };
         }
         else
         {
@@ -1116,7 +1081,7 @@ public class MonitorTabController : BaseTabController
 
             var isBargain = priceDiff.HasValue && priceDiff <= -20;
             var isGood = priceDiff.HasValue && priceDiff < 0;
-            row.Tag = new { Grade = group.Grade, Refine = group.Refine, BelowYesterday = isGood, BelowWeek = isBargain, IsBargain = belowWatchPrice };
+            row.Tag = new MonitorRowTag { Grade = group.Grade, Refine = group.Refine, BelowYesterday = isGood, BelowWeek = isBargain, IsBargain = belowWatchPrice };
         }
     }
 
@@ -1315,6 +1280,7 @@ public class MonitorTabController : BaseTabController
 
     private void UiUpdateTimer_Tick(object? sender, EventArgs e)
     {
+        if (_tabPage.Parent is TabControl tc && tc.SelectedTab != _tabPage) return;
         UpdateItemStatusColumn();
     }
 
@@ -1322,16 +1288,18 @@ public class MonitorTabController : BaseTabController
     {
         if (_isSoundMuted) return;
 
-        var results = _monitoringService.Results.Values.ToList();
-        if (results.Count == 0) return;
+        var items = _monitoringService.Config.Items;
+        if (items.Count == 0) return;
 
         bool hasBargain = false;
-        foreach (var result in results)
+        foreach (var item in items)
         {
-            var watchPrice = result.Item.WatchPrice;
-            if (!watchPrice.HasValue) continue;
+            if (!item.WatchPrice.HasValue) continue;
 
-            if (result.Deals.Any(d => d.Price <= watchPrice.Value))
+            var result = _monitoringService.GetResult(item.ItemName, item.ServerId);
+            if (result == null) continue;
+
+            if (result.Deals.Any(d => d.Price <= item.WatchPrice.Value))
             {
                 hasBargain = true;
                 break;
@@ -1359,6 +1327,7 @@ public class MonitorTabController : BaseTabController
         }
 
         _monitorCts?.Cancel();
+        _monitorCts?.Dispose();
         _monitorCts = new CancellationTokenSource();
 
         _btnMonitorRefresh.Enabled = false;
@@ -1391,9 +1360,6 @@ public class MonitorTabController : BaseTabController
                 item.IsProcessing = true;
             }
             UpdateItemStatusColumn();
-
-            await Task.Delay(500);
-
             UpdateMonitorResults();
 
             foreach (var item in allItems)
@@ -1567,25 +1533,15 @@ public class MonitorTabController : BaseTabController
                 UpdateItemStatusColumn();
                 UpdateMonitorResults();
             }
-
-            await Task.Delay(500, cancellationToken);
-
-            item.IsProcessing = false;
-            _monitoringService.ScheduleNextRefresh(new[] { item });
-
-            if (!_tabPage.IsDisposed)
-            {
-                _tabPage.Invoke(() => UpdateItemStatusColumn());
-            }
         }
         catch
         {
             item.IsRefreshing = false;
-            item.IsProcessing = false;
-            _monitoringService.ScheduleNextRefresh(new[] { item });
         }
         finally
         {
+            item.IsProcessing = false;
+            _monitoringService.ScheduleNextRefresh(new[] { item });
             if (!_tabPage.IsDisposed)
             {
                 _tabPage.Invoke(() => UpdateItemStatusColumn());
@@ -2049,15 +2005,13 @@ public class MonitorTabController : BaseTabController
         if (e.RowIndex < 0 || e.RowIndex >= _dgvMonitorResults.Rows.Count) return;
 
         var row = _dgvMonitorResults.Rows[e.RowIndex];
-        var tag = row.Tag;
-        if (tag == null) return;
+        if (row.Tag is not MonitorRowTag t) return;
 
-        var tagType = tag.GetType();
-        var grade = tagType.GetProperty("Grade")?.GetValue(tag) as string ?? "";
-        var refine = (int)(tagType.GetProperty("Refine")?.GetValue(tag) ?? 0);
-        var belowYesterday = (bool)(tagType.GetProperty("BelowYesterday")?.GetValue(tag) ?? false);
-        var belowWeek = (bool)(tagType.GetProperty("BelowWeek")?.GetValue(tag) ?? false);
-        var isBargain = (bool)(tagType.GetProperty("IsBargain")?.GetValue(tag) ?? false);
+        var grade = t.Grade;
+        var refine = t.Refine;
+        var belowYesterday = t.BelowYesterday;
+        var belowWeek = t.BelowWeek;
+        var isBargain = t.IsBargain;
 
         var columnName = _dgvMonitorResults.Columns[e.ColumnIndex].Name;
 
@@ -2275,6 +2229,15 @@ public class MonitorTabController : BaseTabController
 
     #region Helper Methods
 
+    private sealed class MonitorRowTag
+    {
+        public string Grade = "";
+        public int Refine;
+        public bool BelowYesterday;
+        public bool BelowWeek;
+        public bool IsBargain;
+    }
+
     /// <summary>
     /// Convert full-width digits (１２３４５６７８９０) to half-width (1234567890)
     /// This handles cases where Korean/Japanese IME inputs full-width numbers
@@ -2316,7 +2279,6 @@ public class MonitorTabController : BaseTabController
             _alarmTimer?.Stop();
             _alarmTimer?.Dispose();
             _monitorItemsBindingSource?.Dispose();
-            _monitorResultsBindingSource?.Dispose();
             _dgvMonitorItems?.Dispose();
             _dgvMonitorResults?.Dispose();
             _cachedBoldCellFont.Dispose();

@@ -52,6 +52,12 @@ namespace RoMarketCrawler.Services
         // Cache entries expire after PriceStatsCacheExpirationHours
         private readonly ConcurrentDictionary<string, (PriceStatistics? Stats, DateTime CachedAt)> _priceStatsCache = new(StringComparer.OrdinalIgnoreCase);
 
+        // Session-level cache for price list match results with TTL
+        // Key: "{searchName}|{priceServerId}", Value: (matched item name or null, CachedAt timestamp)
+        // Avoids repeated SearchPriceListAsync calls when stats are already cached
+        // Cache entries expire together with _priceStatsCache (same TTL)
+        private readonly ConcurrentDictionary<string, (string? Match, DateTime CachedAt)> _priceListMatchCache = new(StringComparer.OrdinalIgnoreCase);
+
         /// <summary>
         /// Creates MonitoringService with its own dedicated GnjoyClient.
         /// This ensures complete isolation from other components using GnjoyClient.
@@ -453,7 +459,18 @@ namespace RoMarketCrawler.Services
             lock (_lock)
             {
                 var key = GetResultKey(searchName, searchServerId);
-                _results[key] = result;
+                if (result.ErrorMessage != null && _results.TryGetValue(key, out var existing))
+                {
+                    // On error, preserve existing Deals so data doesn't disappear from UI
+                    existing.ErrorMessage = result.ErrorMessage;
+                    existing.IsRateLimited = result.IsRateLimited;
+                    existing.RateLimitedUntil = result.RateLimitedUntil;
+                    existing.LastRefreshed = result.LastRefreshed;
+                }
+                else
+                {
+                    _results[key] = result;
+                }
             }
 
             // Note: NextRefreshTime is now set by the caller after UI rendering completes
@@ -560,13 +577,24 @@ namespace RoMarketCrawler.Services
                 foreach (var kvp in tempResults)
                 {
                     // Only copy if this key still corresponds to a currently monitored item
-                    if (currentItemKeys.Contains(kvp.Key))
+                    if (!currentItemKeys.Contains(kvp.Key))
                     {
-                        _results[kvp.Key] = kvp.Value;
+                        Debug.WriteLine($"[MonitoringService] RefreshAllAsync: Filtering stale key '{kvp.Key}' during atomic copy");
+                        continue;
+                    }
+
+                    var newResult = kvp.Value;
+                    if (newResult.ErrorMessage != null && _results.TryGetValue(kvp.Key, out var existing))
+                    {
+                        // On error, preserve existing Deals so data doesn't disappear from UI
+                        existing.ErrorMessage = newResult.ErrorMessage;
+                        existing.IsRateLimited = newResult.IsRateLimited;
+                        existing.RateLimitedUntil = newResult.RateLimitedUntil;
+                        existing.LastRefreshed = newResult.LastRefreshed;
                     }
                     else
                     {
-                        Debug.WriteLine($"[MonitoringService] RefreshAllAsync: Filtering stale key '{kvp.Key}' during atomic copy");
+                        _results[kvp.Key] = newResult;
                     }
                 }
             }
@@ -643,15 +671,10 @@ namespace RoMarketCrawler.Services
                     return $"{refinePrefix}{baseName}{slotSuffix}";
                 }).ToList();
 
-                // Cache for statistics to avoid duplicate lookups
-                var statsCache = new Dictionary<string, PriceStatistics?>(StringComparer.OrdinalIgnoreCase);
-
                 foreach (var dealGroup in dealsByItemName)
                 {
                     var dealItemName = dealGroup.Key;
                     var sampleDeal = dealGroup.First();
-                    var itemId = sampleDeal.GetEffectiveItemId();
-                    var baseItemName = GetBaseSearchName(dealItemName);
 
                     // Check if this item has grade or refine
                     var hasGrade = !string.IsNullOrEmpty(sampleDeal.Grade);
@@ -660,134 +683,105 @@ namespace RoMarketCrawler.Services
                     Debug.WriteLine($"[MonitoringService] Processing deal item: '{dealItemName}' (Grade: '{sampleDeal.Grade ?? "none"}', Refine: {sampleDeal.Refine ?? 0})");
 
                     // Skip stats for items with grade OR refine (GNJOY API doesn't provide grade/refine-specific prices)
-                    // These items have unreliable price history due to grade/refine-specific pricing
                     if (hasGrade || hasRefine)
                     {
                         Debug.WriteLine($"[MonitoringService] Skipping stats - item has grade '{sampleDeal.Grade}' or refine +{sampleDeal.Refine}");
                         continue;
                     }
 
-                    // Try to get cached statistics first
-                    if (statsCache.TryGetValue(dealItemName, out var cachedStats))
-                    {
-                        foreach (var deal in dealGroup)
-                        {
-                            deal.ApplyStatistics(cachedStats);
-                        }
-                        continue;
-                    }
-
-                    // Build search name including refine level if available
-                    // GNJOY quoteSearch.asp supports refine-prefixed searches like "10매드니스"
-                    string searchName;
+                    // Build search name
                     var dealRefine = sampleDeal.Refine;
-
-                    // Strip slot suffix for search (e.g., "아이템[1]" -> "아이템")
-                    // Keep original dealItemName for caching key
                     var searchBaseName = System.Text.RegularExpressions.Regex.Replace(dealItemName, @"\[\d+\]$", "");
-
-                    // Check if searchBaseName already has a refine prefix (e.g., "10매드니스 브레스 슈즈")
-                    // This happens when items are grouped with refine prefix
                     var refinePatternMatch = System.Text.RegularExpressions.Regex.Match(searchBaseName, @"^(\d+)([가-힣].*)$");
-                    bool alreadyHasRefinePrefix = refinePatternMatch.Success;
 
-                    if (alreadyHasRefinePrefix)
-                    {
-                        // searchBaseName already contains refine prefix (e.g., "10매드니스 브레스 슈즈 쉐도우")
-                        // Use it as-is for the search
+                    string searchName;
+                    if (refinePatternMatch.Success)
                         searchName = searchBaseName;
-                    }
                     else if (dealRefine.HasValue && dealRefine.Value > 0)
-                    {
-                        // Item doesn't have refine prefix but has refine value
-                        // Add refine level to search name for more accurate price statistics
                         searchName = $"{dealRefine.Value}{searchBaseName}";
-                    }
                     else
-                    {
-                        // No refine or zero, use base item name
                         searchName = GetBaseSearchName(searchBaseName);
-                    }
 
                     Debug.WriteLine($"[MonitoringService] Search name: '{searchName}' for '{dealItemName}'");
 
-                    // Fetch price list using search name
-                    var priceListItems = await _gnjoyClient.SearchPriceListAsync(
-                        searchName,
-                        priceServerId,
-                        cancellationToken);
+                    // Resolve priceListMatch — use cache to avoid SearchPriceListAsync on every refresh
+                    var matchCacheKey = $"{searchName}|{priceServerId}";
+                    string? priceListMatch;
 
-                    Debug.WriteLine($"[MonitoringService] Price list returned {priceListItems.Count} items for '{searchName}'");
+                    if (_priceListMatchCache.TryGetValue(matchCacheKey, out var cachedMatch)
+                        && (DateTime.Now - cachedMatch.CachedAt).TotalHours < PriceStatsCacheExpirationHours)
+                    {
+                        priceListMatch = cachedMatch.Match;
+                        Debug.WriteLine($"[MonitoringService] Using cached match for '{searchName}': '{priceListMatch}'");
+                    }
+                    else
+                    {
+                        var priceListItems = await _gnjoyClient.SearchPriceListAsync(searchName, priceServerId, cancellationToken);
+                        Debug.WriteLine($"[MonitoringService] Price list returned {priceListItems.Count} items for '{searchName}'");
+                        priceListMatch = priceListItems.Count > 0 ? FindBestPriceListMatch(dealItemName, priceListItems) : null;
+                        _priceListMatchCache[matchCacheKey] = (priceListMatch, DateTime.Now);
+                        Debug.WriteLine($"[MonitoringService] Cached match for '{searchName}': '{priceListMatch}'");
+                    }
 
                     PriceStatistics? stats = null;
 
-                    if (priceListItems.Count > 0)
+                    if (priceListMatch != null)
                     {
-                        // Find the best matching price list item
-                        var priceListMatch = FindBestPriceListMatch(dealItemName, priceListItems);
+                        Debug.WriteLine($"[MonitoringService] Match found: '{priceListMatch}'");
 
-                        if (priceListMatch != null)
+                        var statsCacheKey = $"{priceListMatch}|{priceServerId}";
+                        var cacheHit = false;
+
+                        if (_priceStatsCache.TryGetValue(statsCacheKey, out var cached))
                         {
-                            Debug.WriteLine($"[MonitoringService] Match found: '{priceListMatch}'");
+                            var cacheAge = DateTime.Now - cached.CachedAt;
+                            var isExpired = cached.Stats == null
+                                ? cacheAge.TotalMinutes >= PriceStatsNullCacheExpirationMinutes
+                                : cacheAge.TotalHours >= PriceStatsCacheExpirationHours;
 
-                            // Check session-level cache first (same item averages are shared across servers)
-                            var statsCacheKey = $"{priceListMatch}|{priceServerId}";
-                            var cacheHit = false;
-
-                            if (_priceStatsCache.TryGetValue(statsCacheKey, out var cached))
+                            if (!isExpired)
                             {
-                                var cacheAge = DateTime.Now - cached.CachedAt;
-                                // Null results (errors/no data) expire faster to recover from transient failures
-                                var isExpired = cached.Stats == null
-                                    ? cacheAge.TotalMinutes >= PriceStatsNullCacheExpirationMinutes
-                                    : cacheAge.TotalHours >= PriceStatsCacheExpirationHours;
-
-                                if (!isExpired)
-                                {
-                                    // Cache is still valid
-                                    stats = cached.Stats;
-                                    cacheHit = true;
-                                    Debug.WriteLine($"[MonitoringService] Using cached stats for '{priceListMatch}' (age: {cacheAge.TotalMinutes:F0}min, null={cached.Stats == null}): Yesterday={stats?.YesterdayAvgPrice:N0}, Week={stats?.Week7AvgPrice:N0}");
-                                }
-                                else
-                                {
-                                    // Cache expired, remove stale entry
-                                    _priceStatsCache.TryRemove(statsCacheKey, out _);
-                                    Debug.WriteLine($"[MonitoringService] Cache expired for '{priceListMatch}' (age: {cacheAge.TotalMinutes:F0}min, null={cached.Stats == null}), refreshing...");
-                                }
+                                stats = cached.Stats;
+                                cacheHit = true;
+                                Debug.WriteLine($"[MonitoringService] Using cached stats for '{priceListMatch}' (age: {cacheAge.TotalMinutes:F0}min): Yesterday={stats?.YesterdayAvgPrice:N0}, Week={stats?.Week7AvgPrice:N0}");
                             }
-
-                            if (!cacheHit)
+                            else
                             {
-                                // Fetch price statistics from API
-                                stats = await _gnjoyClient.FetchPriceHistoryAsync(
-                                    priceListMatch,
-                                    priceServerId,
-                                    cancellationToken);
-                                // Cache the result with timestamp for TTL management
-                                // Null results will expire after 5 minutes (not 3 hours) to recover from transient errors
-                                _priceStatsCache[statsCacheKey] = (stats, DateTime.Now);
-                                Debug.WriteLine($"[MonitoringService] Fetched and cached stats for '{priceListMatch}' (null={stats == null}): Yesterday={stats?.YesterdayAvgPrice:N0}, Week={stats?.Week7AvgPrice:N0}");
+                                _priceStatsCache.TryRemove(statsCacheKey, out _);
+                                Debug.WriteLine($"[MonitoringService] Cache expired for '{priceListMatch}', refreshing...");
                             }
                         }
-                        else
+
+                        if (!cacheHit)
                         {
-                            Debug.WriteLine($"[MonitoringService] No match found in price list for '{dealItemName}'");
+                            stats = await _gnjoyClient.FetchPriceHistoryAsync(priceListMatch, priceServerId, cancellationToken);
+                            _priceStatsCache[statsCacheKey] = (stats, DateTime.Now);
+                            Debug.WriteLine($"[MonitoringService] Fetched and cached stats for '{priceListMatch}': Yesterday={stats?.YesterdayAvgPrice:N0}, Week={stats?.Week7AvgPrice:N0}");
                         }
                     }
+                    else
+                    {
+                        Debug.WriteLine($"[MonitoringService] No match found in price list for '{dealItemName}'");
+                    }
 
-                    // Cache and apply statistics
-                    statsCache[dealItemName] = stats;
                     foreach (var deal in dealGroup)
                     {
                         deal.ApplyStatistics(stats);
                     }
                 }
 
-                // Store the first group's statistics as the overall result statistics
-                result.Statistics = statsCache.Values.FirstOrDefault(s => s != null);
+                // Store the first non-null statistics as the overall result statistics
+                result.Statistics = result.Deals
+                    .Select(d => d.YesterdayAvgPrice.HasValue || d.Week7AvgPrice.HasValue
+                        ? new PriceStatistics { YesterdayAvgPrice = d.YesterdayAvgPrice, Week7AvgPrice = d.Week7AvgPrice }
+                        : null)
+                    .FirstOrDefault(s => s != null);
 
                 Debug.WriteLine($"[MonitoringService] Refreshed '{capturedItemName}': {deals.Count} deals across {dealsByItemName.Count} item names");
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (RateLimitException rateLimitEx)
             {
