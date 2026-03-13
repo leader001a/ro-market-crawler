@@ -578,7 +578,8 @@ public class MonitorTabController : BaseTabController
             AutoGenerateColumns = false,
             SelectionMode = DataGridViewSelectionMode.CellSelect,
             MultiSelect = true,
-            ReadOnly = true,
+            ReadOnly = false,
+            AllowUserToAddRows = false,
             RowHeadersVisible = false
         };
         ApplyDataGridViewStyle(_dgvMonitorResults);
@@ -586,6 +587,9 @@ public class MonitorTabController : BaseTabController
         _dgvMonitorResults.CellFormatting += DgvMonitorResults_CellFormatting;
         _dgvMonitorResults.ColumnHeaderMouseClick += DgvMonitorResults_ColumnHeaderMouseClick;
         _dgvMonitorResults.CellPainting += DgvMonitorResults_CellPainting;
+        _dgvMonitorResults.CurrentCellDirtyStateChanged += DgvMonitorResults_CurrentCellDirtyStateChanged;
+        _dgvMonitorResults.CellValueChanged += DgvMonitorResults_CellValueChanged;
+        _dgvMonitorResults.DataError += (s, e) => e.ThrowException = false;
 
         // Context menu for results grid
         var resultsContextMenu = new ContextMenuStrip();
@@ -677,65 +681,77 @@ public class MonitorTabController : BaseTabController
     {
         _dgvMonitorResults.Columns.Clear();
 
-        // Column widths: 서버10%, 등급8%, 제련5%, 아이템25%, 수량5%, 최저가10%, 어제평균10%, 주간평균10%, %8%, 판정8%
+        // Column widths: 서버10%, 등급8%, 제련5%, 아이템25%, 수량5%, 최저가10%, 어제평균10%, 주간평균10%, %8%, 판정8%, 알람6%
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "ServerName", HeaderText = "서버", MinimumWidth = 50,
+            Name = "ServerName", HeaderText = "서버", MinimumWidth = 50, ReadOnly = true,
             AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 10,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "Grade", HeaderText = "등급", MinimumWidth = 40,
+            Name = "Grade", HeaderText = "등급", MinimumWidth = 40, ReadOnly = true,
             AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 8,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "Refine", HeaderText = "제련", MinimumWidth = 35,
+            Name = "Refine", HeaderText = "제련", MinimumWidth = 35, ReadOnly = true,
             AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 5,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "ItemName", HeaderText = "아이템", MinimumWidth = 100,
+            Name = "ItemName", HeaderText = "아이템", MinimumWidth = 100, ReadOnly = true,
             AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 25
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "DealCount", HeaderText = "수량", MinimumWidth = 35,
+            Name = "DealCount", HeaderText = "수량", MinimumWidth = 35, ReadOnly = true,
             AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 5,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "LowestPrice", HeaderText = "최저가", MinimumWidth = 60,
+            Name = "LowestPrice", HeaderText = "최저가", MinimumWidth = 60, ReadOnly = true,
             AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 10,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleRight }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "YesterdayAvg", HeaderText = "어제평균", MinimumWidth = 60,
+            Name = "YesterdayAvg", HeaderText = "어제평균", MinimumWidth = 60, ReadOnly = true,
             AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 10,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleRight }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "WeekAvg", HeaderText = "주간평균", MinimumWidth = 60,
+            Name = "WeekAvg", HeaderText = "주간평균", MinimumWidth = 60, ReadOnly = true,
             AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 10,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleRight }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "PriceDiff", HeaderText = "%", MinimumWidth = 35,
+            Name = "PriceDiff", HeaderText = "%", MinimumWidth = 35, ReadOnly = true,
             AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 8,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
         });
         _dgvMonitorResults.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "Status", HeaderText = "판정", MinimumWidth = 35,
+            Name = "Status", HeaderText = "판정", MinimumWidth = 35, ReadOnly = true,
             AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 8,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter }
+        });
+        _dgvMonitorResults.Columns.Add(new DataGridViewCheckBoxColumn
+        {
+            Name = "AlarmEnabled", HeaderText = "알람", MinimumWidth = 40,
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 6,
+            ReadOnly = false,
+            ThreeState = false,
+            DefaultCellStyle = new DataGridViewCellStyle
+            {
+                Alignment = DataGridViewContentAlignment.MiddleCenter,
+                NullValue = false
+            }
         });
     }
 
@@ -940,7 +956,9 @@ public class MonitorTabController : BaseTabController
                         ItemId = firstDeal.GetEffectiveItemId(),
                         Refine = g.Key.Refine,
                         Grade = g.Key.Grade,
+                        CardSlots = g.Key.CardSlots,
                         ServerName = g.Key.ServerName,
+                        ServerId = monitorItem.ServerId,
                         DealCount = g.Count(),
                         LowestPrice = g.Min(x => x.Deal.Price),
                         YesterdayAvg = firstDeal.YesterdayAvgPrice,
@@ -1039,6 +1057,10 @@ public class MonitorTabController : BaseTabController
         row.Cells["DealCount"].Value = group.DealCount;
         row.Cells["LowestPrice"].Value = group.LowestPrice.ToString("N0");
 
+        var alarmKey = GetAlarmKey((string)group.OriginalName, (int)group.Refine, (string)group.Grade, (string)group.CardSlots, (int)group.ServerId);
+        var alarmEnabled = !_monitoringService.Config.AlarmMutedKeys.Contains(alarmKey);
+        row.Cells["AlarmEnabled"].Value = alarmEnabled;
+
         var hasGrade = !string.IsNullOrEmpty(group.Grade);
         var belowWatchPrice = group.WatchPrice != null && group.LowestPrice <= group.WatchPrice;
 
@@ -1049,7 +1071,7 @@ public class MonitorTabController : BaseTabController
             row.Cells["PriceDiff"].Value = "-";
             row.Cells["Status"].Value = belowWatchPrice ? "득템!" : "-";
 
-            row.Tag = new MonitorRowTag { Grade = group.Grade, Refine = group.Refine, BelowYesterday = false, BelowWeek = false, IsBargain = belowWatchPrice };
+            row.Tag = new MonitorRowTag { Grade = group.Grade, Refine = group.Refine, BelowYesterday = false, BelowWeek = false, IsBargain = belowWatchPrice, AlarmKey = alarmKey };
         }
         else
         {
@@ -1081,7 +1103,7 @@ public class MonitorTabController : BaseTabController
 
             var isBargain = priceDiff.HasValue && priceDiff <= -20;
             var isGood = priceDiff.HasValue && priceDiff < 0;
-            row.Tag = new MonitorRowTag { Grade = group.Grade, Refine = group.Refine, BelowYesterday = isGood, BelowWeek = isBargain, IsBargain = belowWatchPrice };
+            row.Tag = new MonitorRowTag { Grade = group.Grade, Refine = group.Refine, BelowYesterday = isGood, BelowWeek = isBargain, IsBargain = belowWatchPrice, AlarmKey = alarmKey };
         }
     }
 
@@ -1299,7 +1321,9 @@ public class MonitorTabController : BaseTabController
             var result = _monitoringService.GetResult(item.ItemName, item.ServerId);
             if (result == null) continue;
 
-            if (result.Deals.Any(d => d.Price <= item.WatchPrice.Value))
+            if (result.Deals.Any(d => d.Price <= item.WatchPrice.Value
+                && !_monitoringService.Config.AlarmMutedKeys.Contains(
+                    GetAlarmKey(d.ItemName, d.Refine ?? 0, d.Grade ?? "", d.CardSlots ?? "", item.ServerId))))
             {
                 hasBargain = true;
                 break;
@@ -2000,6 +2024,32 @@ public class MonitorTabController : BaseTabController
         UpdateMonitorResults();
     }
 
+    private void DgvMonitorResults_CurrentCellDirtyStateChanged(object? sender, EventArgs e)
+    {
+        if (_dgvMonitorResults.CurrentCell?.OwningColumn.Name == "AlarmEnabled")
+            _dgvMonitorResults.CommitEdit(DataGridViewDataErrorContexts.Commit);
+    }
+
+    private async void DgvMonitorResults_CellValueChanged(object? sender, DataGridViewCellEventArgs e)
+    {
+        if (e.RowIndex < 0) return;
+        if (_dgvMonitorResults.Columns[e.ColumnIndex].Name != "AlarmEnabled") return;
+
+        var row = _dgvMonitorResults.Rows[e.RowIndex];
+        if (row.Tag is not MonitorRowTag t) return;
+
+        var alarmEnabled = (bool)(row.Cells["AlarmEnabled"].Value ?? true);
+        if (alarmEnabled)
+            _monitoringService.Config.AlarmMutedKeys.Remove(t.AlarmKey);
+        else
+            _monitoringService.Config.AlarmMutedKeys.Add(t.AlarmKey);
+
+        await _monitoringService.SaveConfigAsync();
+    }
+
+    private static string GetAlarmKey(string itemName, int refine, string grade, string cardSlots, int serverId)
+        => $"{itemName.Trim()}|{refine}|{grade.Trim()}|{cardSlots.Trim()}|{serverId}";
+
     private void DgvMonitorResults_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
     {
         if (e.RowIndex < 0 || e.RowIndex >= _dgvMonitorResults.Rows.Count) return;
@@ -2236,6 +2286,7 @@ public class MonitorTabController : BaseTabController
         public bool BelowYesterday;
         public bool BelowWeek;
         public bool IsBargain;
+        public string AlarmKey = "";
     }
 
     /// <summary>

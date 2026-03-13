@@ -22,6 +22,11 @@ namespace RoMarketCrawler.Models
         /// Default server ID for new items (-1 = all servers)
         /// </summary>
         public int DefaultServerId { get; set; } = -1;
+
+        /// <summary>
+        /// Set of alarm-muted deal keys (format: "itemName|refine|grade|cardSlots|serverId")
+        /// </summary>
+        public HashSet<string> AlarmMutedKeys { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>
