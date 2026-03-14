@@ -374,4 +374,10 @@ public class ItemDetailInfo
     public List<string> RandomOptions { get; set; } = new();
     public string? Element { get; set; }
     public string? Maker { get; set; }
+
+    /// <summary>
+    /// Last time this cache entry was observed in a crawl or detail fetch.
+    /// Default (DateTime.MinValue) = legacy entry not yet updated; kept indefinitely until first seen.
+    /// </summary>
+    public DateTime LastSeenAt { get; set; } = default;
 }

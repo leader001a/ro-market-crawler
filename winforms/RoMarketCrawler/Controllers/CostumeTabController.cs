@@ -22,7 +22,9 @@ public class CostumeTabController : BaseTabController
     private const int CrawlMaxPages = 1000;             // Safety limit
     private const int PageDelaySlowMs = 2000;            // 2s — 신규 비율 높을 때 (429 방지)
     private const int PageDelayFastMs = 1500;            // 1.5s — 신규 비율 낮을 때
-    private const int NewItemDetailDelayMs = 1000;       // 1s — 신규 아이템 상세요청 후 딜레이
+    private const int PageDelayNoApiMs = 800;            // 0.8s — API 상세요청 없는 페이지 (캐시히트/기존 아이템만)
+    private const int NewItemDetailDelayMs = 1000;       // 1s — 신규 아이템 상세요청 배치 후 딜레이
+    private const int DetailFetchConcurrency = 2;        // 동시 detail 요청 수 (429 방지)
     private const int AutoCrawlIntervalMs = 10_000;      // 10초 자동 반복 주기 (수집 완료 후 즉시 재시작)
 
     #endregion
@@ -91,6 +93,11 @@ public class CostumeTabController : BaseTabController
     /// </summary>
     public event EventHandler<List<CostumeSearchEntry>>? CostumeSearchHistoryChanged;
 
+    /// <summary>
+    /// Raised when the alarm mute state is toggled by the user
+    /// </summary>
+    public event EventHandler<bool>? AlarmMuteChanged;
+
     #endregion
 
     #region Link Hit Areas
@@ -118,6 +125,7 @@ public class CostumeTabController : BaseTabController
     private RoundedButton _btnNext10 = null!;
     private RoundedButton _btnLast = null!;
     private Label _lblPageInfo = null!;
+    private readonly List<RoundedButton> _pageButtonPool = new();
 
     #endregion
 
@@ -153,6 +161,10 @@ public class CostumeTabController : BaseTabController
     // Cached fonts for UpdateFontSize
     private Font _cachedCostumeFont = new Font("Malgun Gothic", 12f);
     private Font _cachedCostumeBoldFont = new Font("Malgun Gothic", 12f, FontStyle.Bold);
+    private Font _cachedLinkFont = new Font("Malgun Gothic", 12f, FontStyle.Underline);
+
+    // Cached line height for CellPainting (invalidated on font size change)
+    private int _cachedLineHeight = 0;
 
     #endregion
 
@@ -207,7 +219,8 @@ public class CostumeTabController : BaseTabController
             GripStyle = ToolStripGripStyle.Hidden,
             BackColor = _colors.Panel,
             CanOverflow = false,
-            LayoutStyle = ToolStripLayoutStyle.Flow
+            LayoutStyle = ToolStripLayoutStyle.Flow,
+            Visible = false
         };
         _crawlStatusStrip.Items.Add(_crawlProgressBar);
         _crawlStatusStrip.Items.Add(_lblCrawlStatus);
@@ -365,6 +378,8 @@ public class CostumeTabController : BaseTabController
             _currentSession = null;
             _allFilteredResults.Clear();
             _btnSearch.Enabled = false;
+            _lblCrawlStatus.Text = "";
+            _crawlStatusStrip.Visible = false;
             await TryLoadLatestDataAsync(autoDisplay: true);
         };
 
@@ -515,7 +530,7 @@ public class CostumeTabController : BaseTabController
             MultiSelect = true,
             RowHeadersVisible = false,
             AutoGenerateColumns = false,
-            AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCells,
+            AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.DisplayedCells,
             DataSource = _resultBindingSource
         };
         ApplyDataGridViewStyle(dgv);
@@ -698,7 +713,7 @@ public class CostumeTabController : BaseTabController
                 e.PaintBackground(e.ClipBounds, true);
 
                 var font = e.CellStyle?.Font ?? _dgvResults.DefaultCellStyle.Font ?? _dgvResults.Font;
-                var linkFont = new Font(font, FontStyle.Underline);
+                var linkFont = _cachedLinkFont;
                 var padding = e.CellStyle?.Padding ?? new Padding(2);
                 var x = e.CellBounds.X + padding.Left + 3;
                 var y = e.CellBounds.Y + padding.Top + 2;
@@ -706,7 +721,9 @@ public class CostumeTabController : BaseTabController
                 var hitAreas = new List<(Rectangle rect, string itemName)>();
                 var key = (e.RowIndex, e.ColumnIndex);
 
-                var lineHeight = TextRenderer.MeasureText(e.Graphics, "Test", font).Height;
+                if (_cachedLineHeight == 0)
+                    _cachedLineHeight = TextRenderer.MeasureText(e.Graphics, "Test", font).Height;
+                var lineHeight = _cachedLineHeight;
 
                 // Draw SlotInfo items as links
                 foreach (var item in slotItems)
@@ -735,7 +752,6 @@ public class CostumeTabController : BaseTabController
 
                 _linkHitAreas[key] = hitAreas;
 
-                linkFont.Dispose();
                 e.Handled = true;
             }
         }
@@ -933,7 +949,23 @@ public class CostumeTabController : BaseTabController
         _pnlPagination.Controls.Add(_btnFirst);
         _pnlPagination.Controls.Add(_btnPrev10);
         _pnlPagination.Controls.Add(_btnPrev);
-        // Page number buttons will be added dynamically
+
+        // Pre-create page number button pool (reused on each page nav, no Dispose/new)
+        for (int i = 0; i < MaxVisiblePages; i++)
+        {
+            var poolBtn = new RoundedButton
+            {
+                Size = new Size(36, 28),
+                CornerRadius = 6,
+                Margin = new Padding(2, 0, 2, 0),
+                Visible = false
+            };
+            ApplyRoundedButtonStyle(poolBtn, false);
+            poolBtn.Click += PageButton_Click;
+            _pageButtonPool.Add(poolBtn);
+            _pnlPagination.Controls.Add(poolBtn);
+        }
+
         _pnlPagination.Controls.Add(_btnNext);
         _pnlPagination.Controls.Add(_btnNext10);
         _pnlPagination.Controls.Add(_btnLast);
@@ -1009,12 +1041,11 @@ public class CostumeTabController : BaseTabController
         var skip = (_currentPage - 1) * PageSize;
         var pageItems = _allFilteredResults.Skip(skip).Take(PageSize).ToList();
 
+        _linkHitAreas.Clear();
         _searchResults.Clear();
         _searchResults.AddRange(pageItems);
         _resultBindingSource.DataSource = null;
         _resultBindingSource.DataSource = _searchResults;
-        _dgvResults.Refresh();
-        _linkHitAreas.Clear();
 
         UpdatePaginationUI();
 
@@ -1047,16 +1078,12 @@ public class CostumeTabController : BaseTabController
 
     private void RebuildPageNumberButtons()
     {
-        var toRemove = _pnlPagination.Controls.Cast<Control>()
-            .Where(c => c.Tag is string s && s == "PageButton")
-            .ToList();
-        foreach (var ctrl in toRemove)
+        if (_totalPages <= 0)
         {
-            _pnlPagination.Controls.Remove(ctrl);
-            ctrl.Dispose();
+            foreach (var btn in _pageButtonPool)
+                btn.Visible = false;
+            return;
         }
-
-        if (_totalPages <= 0) return;
 
         int startPage, endPage;
         if (_totalPages <= MaxVisiblePages)
@@ -1077,42 +1104,41 @@ public class CostumeTabController : BaseTabController
             }
         }
 
-        int insertIndex = _pnlPagination.Controls.IndexOf(_btnPrev) + 1;
-
         var scale = _baseFontSize / 12f;
         var btnHeight = (int)(28 * scale);
+        int poolIdx = 0;
 
-        for (int page = startPage; page <= endPage; page++)
+        _pnlPagination.SuspendLayout();
+        try
         {
-            var pageNum = page;
-            var isCurrentPage = page == _currentPage;
-
-            var digitCount = page.ToString().Length;
-            var btnWidth = (int)((24 + (digitCount * 8)) * scale);
-
-            var btn = new RoundedButton
+            for (int page = startPage; page <= endPage; page++, poolIdx++)
             {
-                Text = page.ToString(),
-                Size = new Size(btnWidth, btnHeight),
-                CornerRadius = 6,
-                Tag = "PageButton",
-                Margin = new Padding(2, 0, 2, 0)
-            };
+                var btn = _pageButtonPool[poolIdx];
+                var isCurrentPage = page == _currentPage;
+                var digitCount = page.ToString().Length;
+                var btnWidth = (int)((24 + (digitCount * 8)) * scale);
 
-            if (isCurrentPage)
-            {
-                ApplyRoundedButtonStyle(btn, true);
-                btn.Enabled = false;
-            }
-            else
-            {
-                ApplyRoundedButtonStyle(btn, false);
-                btn.Click += (s, e) => GoToPage(pageNum);
+                btn.Tag = page;
+                btn.Text = page.ToString();
+                btn.Size = new Size(btnWidth, btnHeight);
+                btn.Enabled = !isCurrentPage;
+                ApplyRoundedButtonStyle(btn, isCurrentPage);
+                btn.Visible = true;
             }
 
-            _pnlPagination.Controls.Add(btn);
-            _pnlPagination.Controls.SetChildIndex(btn, insertIndex++);
+            for (; poolIdx < _pageButtonPool.Count; poolIdx++)
+                _pageButtonPool[poolIdx].Visible = false;
         }
+        finally
+        {
+            _pnlPagination.ResumeLayout();
+        }
+    }
+
+    private void PageButton_Click(object? sender, EventArgs e)
+    {
+        if (sender is RoundedButton btn && btn.Tag is int page)
+            GoToPage(page);
     }
 
     private void CenterPaginationPanel()
@@ -1141,9 +1167,12 @@ public class CostumeTabController : BaseTabController
         _btnCrawlStop.Enabled = crawling || _isAutoCrawling;
         _btnSearch.Enabled = !crawling && _currentSession != null;
 
-        // Reset status label color only when starting crawl (preserves red color after rate limit error)
+        // Show status strip when crawl starts; keep visible after completion to display result text
         if (crawling)
+        {
+            _crawlStatusStrip.Visible = true;
             _lblCrawlStatus.ForeColor = _colors.Text;
+        }
 
         // Update auto-crawl button appearance
         if (_isAutoCrawling)
@@ -1321,6 +1350,8 @@ public class CostumeTabController : BaseTabController
                     pageItemCount = result.Items.Count;
                     pageNewCount = 0;
 
+                    // Pass 1: process known/cache-hit items immediately; collect cache-miss items
+                    var apiPendingItems = new List<DealItem>();
                     foreach (var item in result.Items)
                     {
                         ct.ThrowIfCancellationRequested();
@@ -1342,50 +1373,74 @@ public class CostumeTabController : BaseTabController
                             allItems.Add(existing);
                             existingBySsi.Remove(item.Ssi); // remove so live session won't duplicate
                             updatedCount++;
-                            // No delay — no detail request needed
                         }
-                        else
+                        else if (item.MapId.HasValue && !string.IsNullOrEmpty(item.Ssi)
+                                 && detailCache.TryGetValue(item.Ssi, out var cachedDetail))
                         {
-                            // New item: check persistent detail cache first, then fetch from API
-                            bool fetchedFromApi = false;
-                            if (item.MapId.HasValue && !string.IsNullOrEmpty(item.Ssi))
-                            {
-                                if (detailCache.TryGetValue(item.Ssi, out var cachedDetail))
-                                {
-                                    // Cache hit: apply without API request
-                                    item.ApplyDetailInfo(cachedDetail);
-                                    cacheHitCount++;
-                                }
-                                else
-                                {
-                                    // Cache miss: fetch from API
-                                    try
-                                    {
-                                        var detail = await _gnjoyClient.FetchItemDetailAsync(
-                                            item.ServerId, item.MapId.Value, item.Ssi, ct);
-                                        if (detail != null)
-                                        {
-                                            item.ApplyDetailInfo(detail);
-                                            detailCache[item.Ssi] = detail;
-                                        }
-                                    }
-                                    catch (OperationCanceledException) { throw; }
-                                    catch (Exception ex)
-                                    {
-                                        Debug.WriteLine($"[CostumeTab] Incremental detail fetch failed: {ex.Message}");
-                                    }
-
-                                    fetchedFromApi = true;
-                                    await Task.Delay(NewItemDetailDelayMs, ct);
-                                }
-                            }
-
+                            // Cache hit: apply without API request, refresh TTL
+                            cachedDetail.LastSeenAt = DateTime.Now;
+                            item.ApplyDetailInfo(cachedDetail);
                             item.CrawledPage = currentPage;
                             item.ComputeFields();
                             allItems.Add(item);
+                            cacheHitCount++;
                             newCount++;
-                            if (fetchedFromApi) pageNewCount++; // Only count API requests for adaptive delay
                         }
+                        else
+                        {
+                            // Cache miss: queue for parallel batch fetch
+                            item.CrawledPage = currentPage;
+                            apiPendingItems.Add(item);
+                        }
+                    }
+
+                    // Pass 2: parallel detail fetch for cache-miss items (bounded by DetailFetchConcurrency)
+                    // Each fetch result is processed immediately on completion for progressive UI updates
+                    if (apiPendingItems.Count > 0)
+                    {
+                        var semaphore = new SemaphoreSlim(DetailFetchConcurrency, DetailFetchConcurrency);
+                        var fetchTasks = apiPendingItems.Select(async pendingItem =>
+                        {
+                            await semaphore.WaitAsync(ct);
+                            try
+                            {
+                                if (pendingItem.MapId.HasValue && !string.IsNullOrEmpty(pendingItem.Ssi))
+                                {
+                                    var detail = await _gnjoyClient.FetchItemDetailAsync(
+                                        pendingItem.ServerId, pendingItem.MapId.Value, pendingItem.Ssi, ct);
+                                    if (detail != null)
+                                    {
+                                        detail.LastSeenAt = DateTime.Now;
+                                        pendingItem.ApplyDetailInfo(detail);
+                                        detailCache[pendingItem.Ssi!] = detail;
+                                    }
+                                }
+                                pendingItem.ComputeFields();
+                                allItems.Add(pendingItem);
+                                newCount++;
+                            }
+                            catch (OperationCanceledException) { throw; }
+                            catch (Exception ex)
+                            {
+                                Debug.WriteLine($"[CostumeTab] Parallel detail fetch failed: {ex.Message}");
+                                pendingItem.ComputeFields();
+                                allItems.Add(pendingItem);
+                                newCount++;
+                            }
+                            finally
+                            {
+                                semaphore.Release();
+                            }
+                        }).ToArray();
+
+                        await Task.WhenAll(fetchTasks);
+
+                        pageNewCount = apiPendingItems.Count;
+
+                        // Batch delay: per-wave * NewItemDetailDelayMs (wave = ceil(count / concurrency))
+                        // Keeps sustained request rate close to original sequential rate
+                        var waves = (int)Math.Ceiling((double)apiPendingItems.Count / DetailFetchConcurrency);
+                        await Task.Delay(waves * NewItemDetailDelayMs, ct);
                     }
                 }
                 else if (currentPage == 1)
@@ -1401,34 +1456,42 @@ public class CostumeTabController : BaseTabController
                     _crawlProgressBar.Value = Math.Min(progress, 100);
                 }
 
-                // Update live session so search works during crawl
-                // Include not-yet-crawled items from previous session
-                var liveItems = allItems.ToList();
-                if (isIncremental && existingBySsi.Count > 0)
+                // Update live session so search works during crawl (every 10 pages to reduce O(n) list copies)
+                if (currentPage == 1 || currentPage % 10 == 0)
                 {
-                    liveItems.AddRange(existingBySsi.Values);
+                    var liveItems = allItems.ToList();
+                    if (isIncremental && existingBySsi.Count > 0)
+                        liveItems.AddRange(existingBySsi.Values);
+                    _currentSession = new CrawlSession
+                    {
+                        SearchTerm = CrawlSearchTerm,
+                        ServerName = selectedServer.Name,
+                        ServerId = selectedServer.Id,
+                        CrawledAt = DateTime.Now,
+                        TotalPages = currentPage,
+                        TotalItems = liveItems.Count,
+                        Items = liveItems,
+                        LastCrawledPage = currentPage,
+                        TotalServerPages = maxEndPage
+                    };
                 }
-                _currentSession = new CrawlSession
-                {
-                    SearchTerm = CrawlSearchTerm,
-                    ServerName = selectedServer.Name,
-                    ServerId = selectedServer.Id,
-                    CrawledAt = DateTime.Now,
-                    TotalPages = currentPage,
-                    TotalItems = liveItems.Count,
-                    Items = liveItems,
-                    LastCrawledPage = currentPage,
-                    TotalServerPages = maxEndPage
-                };
                 _btnSearch.Enabled = true;
 
                 currentPage++;
 
-                // Adaptive page delay: high new-item ratio → slower (avoid 429)
+                // Adaptive page delay (3-tier):
+                //   no API detail requests → PageDelayNoApiMs (0.8s)
+                //   low new-item ratio    → PageDelayFastMs  (1.5s)
+                //   high new-item ratio   → PageDelaySlowMs  (2.0s, 429 방지)
                 if (currentPage <= maxEndPage)
                 {
-                    bool highNewRatio = pageItemCount > 0 && pageNewCount * 2 >= pageItemCount;
-                    var pageDelay = highNewRatio ? PageDelaySlowMs : PageDelayFastMs;
+                    int pageDelay;
+                    if (pageNewCount == 0)
+                        pageDelay = PageDelayNoApiMs;
+                    else if (pageItemCount > 0 && pageNewCount * 2 >= pageItemCount)
+                        pageDelay = PageDelaySlowMs;
+                    else
+                        pageDelay = PageDelayFastMs;
                     await Task.Delay(pageDelay, ct);
                 }
             }
@@ -1798,6 +1861,8 @@ public class CostumeTabController : BaseTabController
 
     #endregion
 
+    private static readonly JsonSerializerOptions _monitorSaveOptions = new() { WriteIndented = true };
+
     #region Costume Monitor
 
     private int _monitorTitleBarHeight;
@@ -1860,6 +1925,7 @@ public class CostumeTabController : BaseTabController
             UpdateMuteButton();
             if (_isSoundMuted && _alarmTimer != null)
                 _alarmTimer.Stop();
+            AlarmMuteChanged?.Invoke(this, _isSoundMuted);
         };
         titleBar.Items.Add(_btnMute);
 
@@ -1899,6 +1965,19 @@ public class CostumeTabController : BaseTabController
                 Width = 80,
                 AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
                 FlatStyle = FlatStyle.Flat,
+                DefaultCellStyle = new DataGridViewCellStyle
+                {
+                    Alignment = DataGridViewContentAlignment.MiddleCenter
+                }
+            },
+            new DataGridViewCheckBoxColumn
+            {
+                Name = "Enabled",
+                HeaderText = "활성",
+                DataPropertyName = "Enabled",
+                MinimumWidth = 44,
+                Width = 44,
+                AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
                 DefaultCellStyle = new DataGridViewCellStyle
                 {
                     Alignment = DataGridViewContentAlignment.MiddleCenter
@@ -1961,6 +2040,7 @@ public class CostumeTabController : BaseTabController
         _dgvWatch.CellEndEdit += DgvWatch_CellEndEdit;
         _dgvWatch.CellFormatting += DgvWatch_CellFormatting;
         _dgvWatch.CellClick += DgvWatch_CellClick;
+        _dgvWatch.CellContentClick += DgvWatch_CellContentClick;
         _dgvWatch.CellPainting += DgvWatch_CellPainting;
         _dgvWatch.EditingControlShowing += DgvWatch_EditingControlShowing;
         _dgvWatch.RowLeave += DgvWatch_RowLeave;
@@ -2059,6 +2139,20 @@ public class CostumeTabController : BaseTabController
             var statusCell = row.Cells["Status"];
             var viewCell = row.Cells["ViewMatch"];
 
+            // Disabled rows: dim style, no match highlight
+            if (!watch.Enabled)
+            {
+                statusCell.Value = "비활성";
+                viewCell.Value = "";
+                if (viewCell is DataGridViewButtonCell btnCellOff)
+                    btnCellOff.FlatStyle = FlatStyle.Flat;
+                viewCell.Style = new DataGridViewCellStyle();
+                row.DefaultCellStyle.BackColor = _colors.Grid;
+                row.DefaultCellStyle.ForeColor = _colors.TextMuted;
+                row.DefaultCellStyle.Font = _cachedCostumeFont;
+                continue;
+            }
+
             if (result.Matches != null && result.Matches.Count > 0)
             {
                 statusCell.Value = $"{result.Matches.Count}건 매칭";
@@ -2085,6 +2179,23 @@ public class CostumeTabController : BaseTabController
                 row.DefaultCellStyle.Font = _cachedCostumeFont;
             }
         }
+    }
+
+    private void DgvWatch_CellContentClick(object? sender, DataGridViewCellEventArgs e)
+    {
+        if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
+        if (_dgvWatch.Columns[e.ColumnIndex].Name != "Enabled") return;
+        if (e.RowIndex >= _costumeMonitorConfig.Items.Count) return;
+
+        // Commit the checkbox value immediately so DataBinding reflects the change
+        _dgvWatch.CommitEdit(DataGridViewDataErrorContexts.Commit);
+
+        _ = SaveCostumeMonitorConfigAsync();
+
+        if (_currentSession?.Items != null)
+            CheckWatchConditions();
+        else
+            UpdateWatchStatusColumn();
     }
 
     private void DgvWatch_CellPainting(object? sender, DataGridViewCellPaintingEventArgs e)
@@ -2433,10 +2544,7 @@ public class CostumeTabController : BaseTabController
                 .ToList();
 
             var configToSave = new CostumeMonitorConfig { Items = itemsToSave };
-            var json = JsonSerializer.Serialize(configToSave, new JsonSerializerOptions
-            {
-                WriteIndented = true
-            });
+            var json = JsonSerializer.Serialize(configToSave, _monitorSaveOptions);
             await File.WriteAllTextAsync(_costumeMonitorConfigPath, json);
             Debug.WriteLine($"[CostumeTab] Saved {itemsToSave.Count} watch items");
         }
@@ -2516,7 +2624,12 @@ public class CostumeTabController : BaseTabController
             _currentSession = session;
             _btnSearch.Enabled = true;
 
-            _lblLastCrawlInfo.Text = $"마지막 수집: {session.CrawledAt:yyyy-MM-dd HH:mm} | {session.TotalItems}건";
+            var age = DateTime.Now - session.CrawledAt;
+            var ageText = age.TotalDays >= 1
+                ? $"  ⚠ {(int)age.TotalDays}일 경과"
+                : "";
+            _lblLastCrawlInfo.Text = $"마지막 수집: {session.CrawledAt:yyyy-MM-dd HH:mm} | {session.TotalItems}건{ageText}";
+            _lblLastCrawlInfo.ForeColor = age.TotalDays >= 1 ? _colors.SaleColor : _colors.TextMuted;
             _lblCrawlStatus.Text = "";
             UpdateStatusBar();
 
@@ -2672,6 +2785,11 @@ public class CostumeTabController : BaseTabController
         _cachedCostumeFont = new Font("Malgun Gothic", baseFontSize);
         var oldCostumeBoldFont = _cachedCostumeBoldFont;
         _cachedCostumeBoldFont = new Font("Malgun Gothic", baseFontSize, FontStyle.Bold);
+        var oldLinkFont = _cachedLinkFont;
+        _cachedLinkFont = new Font("Malgun Gothic", baseFontSize, FontStyle.Underline);
+
+        // Invalidate line height cache (font size changed)
+        _cachedLineHeight = 0;
 
         // DataGridView fonts
         if (_dgvResults != null)
@@ -2733,6 +2851,7 @@ public class CostumeTabController : BaseTabController
 
         oldCostumeFont.Dispose();
         oldCostumeBoldFont.Dispose();
+        oldLinkFont.Dispose();
 
         // Update cached fonts for search history label hover effect
         var oldHistoryFont = _cachedHistoryLabelFont;
@@ -2778,6 +2897,7 @@ public class CostumeTabController : BaseTabController
             _cachedHistoryLabelUnderlineFont.Dispose();
             _cachedCostumeFont.Dispose();
             _cachedCostumeBoldFont.Dispose();
+            _cachedLinkFont.Dispose();
             _resultBindingSource.Dispose();
         }
         base.Dispose(disposing);

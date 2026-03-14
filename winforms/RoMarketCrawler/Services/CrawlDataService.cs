@@ -226,9 +226,10 @@ public class CrawlDataService
 
     /// <summary>
     /// Save SSI-based detail cache for a server.
-    /// Only SSIs present in activeSsis are kept (prune sold/removed items).
+    /// Prunes entries not seen for more than <paramref name="maxAgeDays"/> days.
+    /// Legacy entries (LastSeenAt == default) are kept until first updated.
     /// </summary>
-    public void SaveDetailCache(int serverId, Dictionary<string, ItemDetailInfo> cache, HashSet<string>? activeSsis = null)
+    public void SaveDetailCache(int serverId, Dictionary<string, ItemDetailInfo> cache, HashSet<string>? activeSsis = null, int maxAgeDays = 7)
     {
         try
         {
@@ -247,6 +248,13 @@ public class CrawlDataService
             {
                 toSave = cache;
             }
+
+            // TTL pruning: remove entries seen more than maxAgeDays ago.
+            // Entries with LastSeenAt == default are legacy (pre-TTL) and kept until first updated.
+            var cutoff = DateTime.Now.AddDays(-maxAgeDays);
+            toSave = toSave
+                .Where(kvp => kvp.Value.LastSeenAt == default || kvp.Value.LastSeenAt >= cutoff)
+                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
 
             var filePath = GetDetailCachePath(serverId);
             var json = JsonSerializer.Serialize(toSave, _jsonOptions);

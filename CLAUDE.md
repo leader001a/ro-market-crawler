@@ -102,6 +102,12 @@ Get-FileHash RoMarketCrawler.exe -Algorithm SHA256
 - 조회·검색 결과를 해석하고 다음 행동을 결정할 때
 - 수정 완료 후 결과가 올바른지 검토할 때
 
+**실행 절차 (반드시 준수)**:
+1. 분석 요청을 받으면 텍스트 응답을 작성하기 전에 먼저 `ToolSearch`로 sequential-thinking 도구를 fetch한다 (deferred tool이므로 매 세션 fetch 필요)
+2. fetch 완료 후 즉시 `mcp__sequential-thinking__sequentialthinking` 도구를 실행한다
+3. sequential-thinking 완료 후 그 결과를 바탕으로 최종 응답을 작성한다
+4. 분석을 직접 텍스트로만 출력하는 것은 규칙 위반이다
+
 ### puppeteer
 다음 상황에서 **반드시** 사용:
 - 크롤링 타겟 사이트 구조 확인

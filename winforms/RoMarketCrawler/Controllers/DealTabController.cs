@@ -839,6 +839,7 @@ public class DealTabController : BaseTabController
                 // Check cache first
                 if (!string.IsNullOrEmpty(item.Ssi) && detailCache.TryGetValue(item.Ssi, out var cachedDetail))
                 {
+                    cachedDetail.LastSeenAt = DateTime.Now;
                     item.ApplyDetailInfo(cachedDetail);
                     loaded++;
                     cacheHits++;
@@ -854,6 +855,7 @@ public class DealTabController : BaseTabController
 
                     if (detail != null && IsCurrentSearch())
                     {
+                        detail.LastSeenAt = DateTime.Now;
                         item.ApplyDetailInfo(detail);
                         // Save to cache
                         if (!string.IsNullOrEmpty(item.Ssi))

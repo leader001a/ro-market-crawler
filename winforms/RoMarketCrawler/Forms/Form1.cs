@@ -166,6 +166,13 @@ public partial class Form1 : Form
             SaveSettings();
         };
 
+        _costumeTabController.AlarmMuteChanged += (s, isMuted) =>
+        {
+            _isSoundMuted = isMuted;
+            SaveSettings();
+            _monitorTabController.LoadAlarmSettings(_isSoundMuted, _selectedAlarmSound, _alarmIntervalSeconds);
+        };
+
         // MonitorTabController events
         _monitorTabController.SettingsChanged += (s, e) =>
         {
