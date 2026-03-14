@@ -928,6 +928,20 @@ public class MonitorTabController : BaseTabController
                 return baseName;
             }
 
+            // Returns the normalized base item name for grouping.
+            // Uses ItemIndex ScreenName (via ItemId) to strip card-added prefixes/suffixes.
+            // Falls back to GetBaseItemName() which handles "오브 X" suffix pattern.
+            string GetGroupingItemName(DealItem deal)
+            {
+                var itemId = deal.GetEffectiveItemId();
+                if (itemId.HasValue && _itemIndexService.IsLoaded)
+                {
+                    var cachedItem = _itemIndexService.GetItemById(itemId.Value);
+                    if (cachedItem?.ScreenName != null) return cachedItem.ScreenName;
+                }
+                return deal.GetBaseItemName();
+            }
+
             var allDeals = results.SelectMany(r => r.Deals.Select(d => new { Deal = d, Result = r })).ToList();
 
             // Normalize function to ensure consistent grouping
@@ -936,8 +950,11 @@ public class MonitorTabController : BaseTabController
             var groupedDealsQuery = allDeals
                 .GroupBy(x => new
                 {
-                    // Normalize all string values to ensure consistent grouping
-                    ItemName = NormalizeString(x.Deal.ItemName),
+                    // Use ItemIndex ScreenName (or GetBaseItemName fallback) to normalize card-enhanced
+                    // item names. Cards can add prefixes (e.g. "포링 선글래스") or suffixes
+                    // (e.g. "천공의 룬 크라운(하이퍼 노비스)오브 캐스터") to the base item name.
+                    // Same ItemId → same ScreenName regardless of which card is inserted.
+                    ItemName = NormalizeString(GetGroupingItemName(x.Deal)),
                     Refine = x.Deal.Refine ?? 0,
                     Grade = NormalizeString(x.Deal.Grade),
                     CardSlots = NormalizeString(x.Deal.CardSlots),
@@ -952,7 +969,7 @@ public class MonitorTabController : BaseTabController
                     return new
                     {
                         DisplayName = displayName,
-                        OriginalName = firstDeal.ItemName,
+                        OriginalName = GetGroupingItemName(firstDeal),
                         ItemId = firstDeal.GetEffectiveItemId(),
                         Refine = g.Key.Refine,
                         Grade = g.Key.Grade,
